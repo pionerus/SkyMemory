@@ -16,6 +16,7 @@ var templatesFS embed.FS
 var funcMap = template.FuncMap{
 	"humanKindLabel": state.HumanKindLabel,
 	"durationHuman":  durationHuman,
+	"trimTime":       trimTime,
 	"bytesHuman":     bytesHuman,
 }
 
@@ -24,10 +25,22 @@ var Templates = template.Must(
 	template.New("").Funcs(funcMap).ParseFS(templatesFS, "*.html"),
 )
 
-// durationHuman: 154.2 -> "2:34". 0 returns empty so the template can omit pills.
+// durationHuman: 154.2 -> "2:34". 0 returns empty so the template can omit
+// "duration" pills entirely (e.g. when ffprobe was missing during upload).
 func durationHuman(seconds float64) string {
 	if seconds <= 0 {
 		return ""
+	}
+	s := int(seconds + 0.5)
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// trimTime is durationHuman's chatty cousin — ALWAYS returns "M:SS", even for
+// 0 (-> "0:00"). Use this for trim sliders where 0 is a real value the operator
+// is allowed to pick.
+func trimTime(seconds float64) string {
+	if seconds < 0 {
+		seconds = 0
 	}
 	s := int(seconds + 0.5)
 	return fmt.Sprintf("%d:%02d", s/60, s%60)

@@ -25,6 +25,7 @@ import (
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
 	"github.com/pionerus/freefall/internal/studio/state"
+	"github.com/pionerus/freefall/internal/studio/trim"
 	"github.com/pionerus/freefall/internal/studio/ui"
 )
 
@@ -446,6 +447,50 @@ func main() {
 			"trim_in":        body.TrimIn,
 			"trim_out":       body.TrimOut,
 			"auto_suggested": body.AutoSuggested,
+		})
+	})
+
+	// POST .../trim/auto — runs the per-kind heuristic (silencedetect for audio
+	// kinds, positional rules for motion kinds) and returns a suggested
+	// (trim_in, trim_out) without persisting. UI populates the sliders and shows
+	// the reason; operator clicks Save to commit (which goes to PUT .../trim).
+	r.Post("/projects/{id}/clips/{kind}/trim/auto", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if !ffprobe.IsAvailable() {
+			writeStudioJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"code":    "FFMPEG_MISSING",
+				"message": "Auto-trim needs ffmpeg on PATH. Install ffmpeg and restart studio.",
+			})
+			return
+		}
+
+		suggestion, err := trim.Suggest(req.Context(), clip)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{
+				"code": "AUTO_TRIM_FAILED", "message": err.Error(),
+			})
+			return
+		}
+
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"trim_in":  suggestion.TrimIn,
+			"trim_out": suggestion.TrimOut,
+			"reason":   suggestion.Reason,
 		})
 	})
 
