@@ -19,6 +19,7 @@ import (
 	"github.com/pionerus/freefall/internal/auth"
 	"github.com/pionerus/freefall/internal/config"
 	"github.com/pionerus/freefall/internal/db"
+	"github.com/pionerus/freefall/internal/jump"
 	"github.com/pionerus/freefall/web/server/templates"
 )
 
@@ -47,6 +48,8 @@ func main() {
 
 	sessions := auth.NewManager(cfg.SecretKey, cfg.Env == "production")
 	authH := &auth.Handlers{DB: pool, Sessions: sessions}
+	jumpH := &jump.Handlers{DB: pool}
+	requireToken := auth.RequireLicenseToken(pool)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -79,13 +82,26 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Freefall</title></head>
-<body style="font-family:system-ui;max-width:720px;margin:4rem auto;padding:0 1rem">
+		_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Freefall</title>
+<style>body{font-family:system-ui;max-width:720px;margin:4rem auto;padding:0 1rem;color:#0a0a14}
+a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;padding:20px;margin:16px 0}
+.btn{display:inline-block;padding:8px 14px;border-radius:8px;background:#4f46e5;color:white;text-decoration:none;font-weight:600;font-size:14px}
+.btn.secondary{background:white;color:#0a0a14;border:1px solid #ddd}</style></head>
+<body>
 <h1>🪂 Welcome, %s</h1>
 <p>Tenant ID: <code>%d</code> · role: <code>%s</code></p>
-<p><a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a></p>
-<form method="POST" action="/auth/logout"><button type="submit">Sign out</button></form>
-<p style="margin-top:2rem;color:#888">Admin SPA + jump list + music library coming soon.</p>
+
+<div class="card">
+  <h3 style="margin-top:0">Studio installs</h3>
+  <p>Issue and revoke license tokens that operators paste into their studio.exe.</p>
+  <p><a href="/admin/tokens" class="btn">Manage license tokens →</a></p>
+</div>
+
+<p style="margin-top:2rem;color:#888;font-size:13px">
+  Diagnostics: <a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a>
+</p>
+
+<form method="POST" action="/auth/logout"><button type="submit" class="btn secondary">Sign out</button></form>
 </body></html>`, s.OperatorEmail, s.TenantID, s.OperatorRole)
 	})
 
@@ -104,8 +120,32 @@ func main() {
 	r.With(sessions.RequireOwner).Get("/admin/license-tokens", authH.ListTokens)
 	r.With(sessions.RequireOwner).Delete("/admin/license-tokens/{id}", authH.RevokeToken)
 
+	// Admin HTML — owner-rendered page that drives the JSON CRUD above.
+	r.With(sessions.RequireOwner).Get("/admin/tokens", func(w http.ResponseWriter, r *http.Request) {
+		s := auth.MustFromContext(r.Context())
+
+		// Pull tenant slug for the page header. Failure is non-fatal — UI just shows id.
+		var tenantSlug string
+		_ = pool.QueryRow(r.Context(),
+			`SELECT slug FROM tenants WHERE id = $1`, s.TenantID,
+		).Scan(&tenantSlug)
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err := templates.Templates.ExecuteTemplate(w, "admin_tokens.html", map[string]any{
+			"OperatorEmail": s.OperatorEmail,
+			"TenantSlug":    tenantSlug,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
 	// API v1: license validation (auth = the token in the request body itself, no session)
 	r.Post("/api/v1/license/validate", authH.ValidateLicense)
+
+	// API v1 — studio-facing endpoints. Each is gated by RequireLicenseToken.
+	r.With(requireToken).Post("/api/v1/jumps/register", jumpH.Register)
+	r.With(requireToken).Get("/api/v1/jumps/{id}", jumpH.GetByIDForStudio)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

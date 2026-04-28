@@ -12,6 +12,7 @@
     --mint:  #b5e4ca;
     --sky:   #c5deff;
     --lavender: #e0d4ff;
+    --rose: #ffd1d6;
     --brand: #4f46e5;
   }
   * { box-sizing: border-box; }
@@ -27,6 +28,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
+    flex-wrap: wrap;
   }
   header .mark {
     width: 40px; height: 40px; border-radius: 12px;
@@ -43,13 +45,14 @@
     padding: 24px;
     margin-bottom: 16px;
   }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
   .pill {
     padding: 4px 10px; border-radius: 999px;
     font-size: 12px; font-weight: 600;
     background: var(--mint);
   }
-  .pill.warn { background: var(--peach); }
+  .pill.warn  { background: var(--peach); }
+  .pill.error { background: var(--rose); }
   .pill.muted { background: #eee; color: #555; }
   code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
   .btn {
@@ -64,11 +67,20 @@
     border: none;
     cursor: pointer;
   }
-  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-  ul.checklist { list-style: none; padding: 0; }
+  .btn[disabled], .btn.disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+  .btn.secondary {
+    background: white;
+    color: var(--ink);
+    border: 1px solid #ddd;
+  }
+  ul.checklist { list-style: none; padding: 0; margin: 0; }
   ul.checklist li { padding: 6px 0; }
   ul.checklist li::before { content: "○ "; color: #aaa; }
   ul.checklist li.done::before { content: "✓ "; color: #16a34a; }
+  ul.checklist li.fail::before { content: "✕ "; color: #dc2626; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table td { padding: 6px 0; vertical-align: top; }
+  table td:first-child { width: 200px; color: #777; }
 </style>
 </head>
 <body>
@@ -79,32 +91,71 @@
     <div class="meta">v{{.Version}} · {{.Platform}} · listening on {{.Addr}}</div>
   </div>
   <div style="margin-left:auto" class="row">
-    {{if .LicenseValid}}
+    {{if .License.Valid}}
       <span class="pill">License OK</span>
+    {{else if .License.Err}}
+      <span class="pill warn">License unverified (offline?)</span>
+    {{else if not .TokenConfigured}}
+      <span class="pill error">No license token</span>
     {{else}}
-      <span class="pill warn">License missing</span>
+      <span class="pill error">License invalid</span>
     {{end}}
     {{if .CloudReachable}}
       <span class="pill">Cloud connected</span>
     {{else}}
-      <span class="pill warn">Cloud unreachable</span>
+      <span class="pill error">Cloud unreachable</span>
     {{end}}
   </div>
 </header>
 
 <main>
+  {{if .License.Valid}}
   <div class="card">
     <h2 style="margin-top:0">My projects</h2>
-    <p style="color:#666">No projects yet. The full 5-step wizard (uploads, auto-trim, music, timeline, generate) is being implemented incrementally.</p>
+    <p style="color:#666">No projects yet. The 5-step wizard (uploads, auto-trim, music, timeline, generate) is being implemented incrementally.</p>
     <button class="btn" disabled>+ New project</button>
   </div>
+  {{else}}
+  <div class="card" style="background:#fff7ed; border-color:#fed7aa">
+    <h2 style="margin-top:0">License required</h2>
+    {{if not .TokenConfigured}}
+      <p>Set <code>STUDIO_LICENSE_TOKEN</code> in <code>.env</code>, then restart this app.</p>
+      <p style="color:#666;font-size:13px">Get a token from your club owner — they issue it in the cloud admin at
+      <code>POST /admin/license-tokens</code>.</p>
+    {{else if .License.Err}}
+      <p>Token couldn't be verified — cloud server is unreachable.</p>
+      <p style="color:#666;font-size:13px">Error: <code>{{.License.Err}}</code></p>
+    {{else}}
+      <p>Token rejected by cloud. Reason: <code>{{.License.Reason}}</code></p>
+      <p style="color:#666;font-size:13px">Possible causes: token revoked in admin, tenant deleted, or the token in your <code>.env</code> doesn't match anything on the server.</p>
+    {{end}}
+    <form method="POST" action="/license/refresh" style="margin-top:16px">
+      <button class="btn secondary" type="submit">Re-check now</button>
+    </form>
+  </div>
+  {{end}}
+
+  {{if .License.Valid}}
+  <div class="card">
+    <h2 style="margin-top:0">Session</h2>
+    <table>
+      <tr><td>Tenant</td><td>{{.License.TenantName}} <code>(id={{.License.TenantID}})</code></td></tr>
+      <tr><td>Operator</td><td>{{.License.OperatorEmail}} <code>(id={{.License.OperatorID}})</code></td></tr>
+      <tr><td>Trusted until</td><td>{{.License.ValidUntil.Format "2006-01-02 15:04 MST"}}</td></tr>
+      {{if not .LicenseCheckedAt.IsZero}}
+      <tr><td>Last check</td><td>{{.LicenseCheckedAt.Format "15:04:05"}}</td></tr>
+      {{end}}
+    </table>
+  </div>
+  {{end}}
 
   <div class="card">
     <h2 style="margin-top:0">Setup checklist</h2>
     <ul class="checklist">
-      <li class="done">Studio binary running on {{.Addr}}</li>
-      <li class="{{if .CloudReachable}}done{{end}}">Cloud server reachable at <code>{{.CloudBaseURL}}</code></li>
-      <li class="{{if .LicenseValid}}done{{end}}">License token configured (<code>STUDIO_LICENSE_TOKEN</code>)</li>
+      <li class="done">Studio binary running on <code>{{.Addr}}</code></li>
+      <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <code>{{.CloudBaseURL}}</code></li>
+      <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">License token configured (<code>STUDIO_LICENSE_TOKEN</code>)</li>
+      <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted the license token</li>
       <li>FFmpeg pipeline (in development)</li>
       <li>Storage adapter (in development)</li>
     </ul>
@@ -112,8 +163,7 @@
 
   <div class="card" style="background:#fff7ed; border-color:#fed7aa">
     <h2 style="margin-top:0">Diagnostics</h2>
-    <p>Health: <a href="/healthz">/healthz</a></p>
-    <p>State DB: <code>{{.StatePath}}</code></p>
+    <p>Health: <a href="/healthz">/healthz</a> · State DB: <code>{{.StatePath}}</code></p>
   </div>
 </main>
 </body>

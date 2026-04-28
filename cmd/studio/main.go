@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/pionerus/freefall/internal/config"
+	"github.com/pionerus/freefall/internal/studio/license"
 	"github.com/pionerus/freefall/internal/studio/ui"
 )
 
@@ -31,41 +32,51 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	licenseClient := license.NewClient(cfg.CloudBaseURL)
+	licenseMgr := license.NewManager(licenseClient, cfg.LicenseToken, version, 0 /* default 6h */)
+	licenseMgr.Start(ctx)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		res, _ := licenseMgr.Snapshot()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status":   "ok",
-			"version":  version,
-			"platform": runtime.GOOS + "/" + runtime.GOARCH,
+			"status":         "ok",
+			"version":        version,
+			"platform":       runtime.GOOS + "/" + runtime.GOARCH,
+			"license_valid":  res.Valid,
+			"license_reason": res.Reason,
 		})
 	})
 
 	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
-		data := struct {
-			Version        string
-			Platform       string
-			Addr           string
-			CloudBaseURL   string
-			StatePath      string
-			LicenseValid   bool
-			CloudReachable bool
-		}{
-			Version:        version,
-			Platform:       runtime.GOOS + "/" + runtime.GOARCH,
-			Addr:           cfg.HTTPAddr,
-			CloudBaseURL:   cfg.CloudBaseURL,
-			StatePath:      cfg.StatePath,
-			LicenseValid:   cfg.LicenseToken != "",
-			CloudReachable: pingCloud(cfg.CloudBaseURL),
+		res, lastAt := licenseMgr.Snapshot()
+		data := homeData{
+			Version:           version,
+			Platform:          runtime.GOOS + "/" + runtime.GOARCH,
+			Addr:              cfg.HTTPAddr,
+			CloudBaseURL:      cfg.CloudBaseURL,
+			StatePath:         cfg.StatePath,
+			TokenConfigured:   cfg.LicenseToken != "",
+			License:           res,
+			LicenseCheckedAt:  lastAt,
+			CloudReachable:    pingCloud(cfg.CloudBaseURL),
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := ui.Templates.ExecuteTemplate(w, "index.html", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+	})
+
+	// Force a license re-check on demand. Useful after operator updates STUDIO_LICENSE_TOKEN
+	// without restarting (note: env var is read once at boot — restart is still required to
+	// pick up a NEW token; this endpoint just re-validates the existing one).
+	r.Post("/license/refresh", func(w http.ResponseWriter, r *http.Request) {
+		licenseMgr.Start(r.Context()) // re-trigger immediate validation; idempotent
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
 	srv := &http.Server{
@@ -77,6 +88,9 @@ func main() {
 	go func() {
 		log.Printf("freefall-studio v%s listening on http://%s", version, cfg.HTTPAddr)
 		log.Printf("cloud: %s | state: %s", cfg.CloudBaseURL, cfg.StatePath)
+		if cfg.LicenseToken == "" {
+			log.Printf("license: STUDIO_LICENSE_TOKEN not set — pipeline will be disabled")
+		}
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %v", err)
 		}
@@ -90,8 +104,20 @@ func main() {
 	}
 }
 
-// pingCloud does a fast HEAD to /healthz; non-blocking on the request path because we
-// already returned from page render. Only used for the homepage status pill.
+// homeData is the template context for the studio home page.
+type homeData struct {
+	Version          string
+	Platform         string
+	Addr             string
+	CloudBaseURL     string
+	StatePath        string
+	TokenConfigured  bool
+	License          license.Result
+	LicenseCheckedAt time.Time
+	CloudReachable   bool
+}
+
+// pingCloud does a fast HEAD to /healthz to populate the "Cloud connected" pill.
 func pingCloud(base string) bool {
 	if base == "" {
 		return false
