@@ -69,7 +69,32 @@ type Clip struct {
 	FPS             float64
 	HasAudio        bool
 	AudioCodec      string
-	CreatedAt       time.Time
+	// Trim window — operator-set or auto-suggested. Both NULL on rows older than schema v3
+	// (we map NULL -> 0 here; callers compare TrimOutSeconds==0 to detect "use full clip").
+	TrimInSeconds     float64
+	TrimOutSeconds    float64
+	TrimAutoSuggested bool
+	CreatedAt         time.Time
+}
+
+// HasTrim returns true if a non-default trim window has been set on this clip.
+func (c *Clip) HasTrim() bool {
+	if c.TrimOutSeconds <= 0 {
+		return false
+	}
+	if c.TrimInSeconds == 0 && c.DurationSeconds > 0 && c.TrimOutSeconds >= c.DurationSeconds-0.01 {
+		return false // (0, full duration) == no real trim
+	}
+	return true
+}
+
+// EffectiveTrimOut returns trim_out_seconds if set, else duration.
+// Used for rendering "trimmed: X→Y" pills and for the timeline UI.
+func (c *Clip) EffectiveTrimOut() float64 {
+	if c.TrimOutSeconds > 0 {
+		return c.TrimOutSeconds
+	}
+	return c.DurationSeconds
 }
 
 // UpsertClip inserts a new clip or replaces an existing one for the same (project_id, kind).
@@ -117,14 +142,43 @@ func (db *DB) UpsertClip(ctx context.Context, c Clip) (int64, error) {
 	return id, nil
 }
 
+// clipColumns is the canonical SELECT list for clips. Keeping it in one place
+// avoids drift between ListClips and GetClip.
+const clipColumns = `id, project_id, kind, source_path, source_filename, source_size_bytes,
+	COALESCE(source_sha256,''), COALESCE(duration_seconds,0), COALESCE(codec,''),
+	COALESCE(width,0), COALESCE(height,0), COALESCE(fps,0),
+	has_audio, COALESCE(audio_codec,''),
+	COALESCE(trim_in_seconds,0), COALESCE(trim_out_seconds,0), trim_auto_suggested,
+	created_at`
+
+func scanClip(row interface {
+	Scan(dst ...any) error
+}) (Clip, error) {
+	var c Clip
+	var hasAudio, trimAuto int
+	var created string
+	err := row.Scan(&c.ID, &c.ProjectID, &c.Kind,
+		&c.SourcePath, &c.SourceFilename, &c.SourceSizeBytes,
+		&c.SourceSHA256, &c.DurationSeconds, &c.Codec,
+		&c.Width, &c.Height, &c.FPS,
+		&hasAudio, &c.AudioCodec,
+		&c.TrimInSeconds, &c.TrimOutSeconds, &trimAuto,
+		&created,
+	)
+	if err != nil {
+		return c, err
+	}
+	c.HasAudio = hasAudio == 1
+	c.TrimAutoSuggested = trimAuto == 1
+	c.CreatedAt = parseTime(created)
+	return c, nil
+}
+
 // ListClips returns all clips attached to a project, ordered by canonical kind first
 // (intro → closing) then by created_at for custom ones. Useful for the project detail page.
 func (db *DB) ListClips(ctx context.Context, projectID int64) ([]Clip, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, project_id, kind, source_path, source_filename, source_size_bytes,
-		       COALESCE(source_sha256,''), COALESCE(duration_seconds,0), COALESCE(codec,''),
-		       COALESCE(width,0), COALESCE(height,0), COALESCE(fps,0),
-		       has_audio, COALESCE(audio_codec,''), created_at
+		SELECT `+clipColumns+`
 		FROM clips
 		WHERE project_id = ?
 		ORDER BY
@@ -147,19 +201,10 @@ func (db *DB) ListClips(ctx context.Context, projectID int64) ([]Clip, error) {
 
 	var out []Clip
 	for rows.Next() {
-		var c Clip
-		var hasAudio int
-		var created string
-		if err := rows.Scan(&c.ID, &c.ProjectID, &c.Kind,
-			&c.SourcePath, &c.SourceFilename, &c.SourceSizeBytes,
-			&c.SourceSHA256, &c.DurationSeconds, &c.Codec,
-			&c.Width, &c.Height, &c.FPS,
-			&hasAudio, &c.AudioCodec, &created,
-		); err != nil {
+		c, err := scanClip(rows)
+		if err != nil {
 			return nil, err
 		}
-		c.HasAudio = hasAudio == 1
-		c.CreatedAt = parseTime(created)
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -167,32 +212,41 @@ func (db *DB) ListClips(ctx context.Context, projectID int64) ([]Clip, error) {
 
 // GetClip returns one clip by (project_id, kind), or ErrNotFound.
 func (db *DB) GetClip(ctx context.Context, projectID int64, kind string) (*Clip, error) {
-	var c Clip
-	var hasAudio int
-	var created string
-	err := db.QueryRowContext(ctx, `
-		SELECT id, project_id, kind, source_path, source_filename, source_size_bytes,
-		       COALESCE(source_sha256,''), COALESCE(duration_seconds,0), COALESCE(codec,''),
-		       COALESCE(width,0), COALESCE(height,0), COALESCE(fps,0),
-		       has_audio, COALESCE(audio_codec,''), created_at
-		FROM clips
-		WHERE project_id = ? AND kind = ?`,
+	row := db.QueryRowContext(ctx,
+		`SELECT `+clipColumns+` FROM clips WHERE project_id = ? AND kind = ?`,
 		projectID, kind,
-	).Scan(&c.ID, &c.ProjectID, &c.Kind,
-		&c.SourcePath, &c.SourceFilename, &c.SourceSizeBytes,
-		&c.SourceSHA256, &c.DurationSeconds, &c.Codec,
-		&c.Width, &c.Height, &c.FPS,
-		&hasAudio, &c.AudioCodec, &created,
 	)
+	c, err := scanClip(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	c.HasAudio = hasAudio == 1
-	c.CreatedAt = parseTime(created)
 	return &c, nil
+}
+
+// UpdateClipTrim sets trim_in/out + auto-suggested flag for one clip.
+// in must be ≥0 and < out; out must be ≤ duration (caller validates).
+// trimOut == 0 is a sentinel meaning "use full duration", so we allow it.
+func (db *DB) UpdateClipTrim(ctx context.Context, projectID int64, kind string, trimIn, trimOut float64, autoSuggested bool) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE clips
+		SET trim_in_seconds  = ?,
+		    trim_out_seconds = ?,
+		    trim_auto_suggested = ?
+		WHERE project_id = ? AND kind = ?`,
+		trimIn, trimOut, boolInt(autoSuggested),
+		projectID, kind,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteClip removes a clip row. Caller is responsible for unlinking the underlying

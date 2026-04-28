@@ -41,10 +41,11 @@
 
   .step-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 14px;
     margin-top: 16px;
   }
+  .slot.is-open { grid-column: 1 / -1; }   /* trim panel takes full row */
   .slot {
     border: 2px dashed #ddd;
     border-radius: 12px;
@@ -116,6 +117,36 @@
   }
   .slot .err.show { display: block; }
 
+  /* Trim panel — appears below the slot details when "is-open" */
+  .trim-panel { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px dashed #e5e5e5; }
+  .slot.is-open .trim-panel { display: block; }
+  .trim-panel video {
+    width: 100%; max-height: 340px;
+    border-radius: 10px; background: black;
+    display: block;
+  }
+  .trim-controls { margin-top: 12px; }
+  .trim-row {
+    display: flex; align-items: center; gap: 12px;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+  .trim-row label { min-width: 60px; font-weight: 600; color: #555; }
+  .trim-row input[type=range] { flex: 1; }
+  .trim-row .val {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; min-width: 60px; text-align: right;
+    color: #4f46e5;
+  }
+  .trim-summary {
+    background: #f5f5ff; border: 1px solid #e0d4ff;
+    border-radius: 8px; padding: 8px 12px;
+    margin-top: 8px; font-size: 12px; color: #555;
+  }
+  .trim-summary .keep { color: #4f46e5; font-weight: 600; }
+  .trim-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .pill.trimmed { background: #e0d4ff; color: #4338ca; }
+
   .btn {
     display: inline-block; padding: 10px 18px;
     border-radius: 10px; background: #4f46e5; color: white;
@@ -173,7 +204,10 @@
     <div class="step-grid" id="grid">
       {{range $kind := .CanonicalKinds}}
       {{$clip := index $.ClipByKind $kind}}
-      <div class="slot {{if $clip}}has-file{{end}}" data-kind="{{$kind}}">
+      <div class="slot {{if $clip}}has-file{{end}}" data-kind="{{$kind}}"
+           {{if $clip}}data-duration="{{printf "%.3f" $clip.DurationSeconds}}"
+                       data-trim-in="{{printf "%.3f" $clip.TrimInSeconds}}"
+                       data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"{{end}}>
         <div class="name">{{humanKindLabel $kind}}</div>
         {{if $clip}}
           <div class="filename" title="{{$clip.SourcePath}}">{{$clip.SourceFilename}}</div>
@@ -184,11 +218,50 @@
             {{if $clip.Codec}}<span class="pill muted">{{$clip.Codec}}</span>{{end}}
             {{if $clip.HasAudio}}<span class="pill muted">audio: {{$clip.AudioCodec}}</span>{{else}}<span class="pill warn">no audio</span>{{end}}
             <span class="pill muted">{{bytesHuman $clip.SourceSizeBytes}}</span>
+            {{if $clip.HasTrim}}<span class="pill trimmed">trimmed: {{durationHuman $clip.TrimInSeconds}}–{{durationHuman $clip.EffectiveTrimOut}}</span>{{end}}
           </div>
           <div class="actions">
+            {{if $clip.DurationSeconds}}<button class="trim-btn" data-kind="{{$kind}}">Trim</button>{{end}}
             <button class="replace-btn" data-kind="{{$kind}}">Replace</button>
             <button class="danger remove-btn" data-kind="{{$kind}}">Remove</button>
           </div>
+
+          <!-- Inline trim panel; toggled visible by .is-open on .slot -->
+          {{if $clip.DurationSeconds}}
+          <div class="trim-panel">
+            <video preload="metadata" controls
+                   src="/projects/{{$.P.ID}}/clips/{{$kind}}/file"></video>
+
+            <div class="trim-controls">
+              <div class="trim-row">
+                <label>Start</label>
+                <input type="range" class="trim-in"
+                       min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
+                       value="{{printf "%.3f" $clip.TrimInSeconds}}">
+                <span class="val trim-in-val">{{durationHuman $clip.TrimInSeconds}}</span>
+              </div>
+              <div class="trim-row">
+                <label>End</label>
+                <input type="range" class="trim-out"
+                       min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
+                       value="{{printf "%.3f" $clip.EffectiveTrimOut}}">
+                <span class="val trim-out-val">{{durationHuman $clip.EffectiveTrimOut}}</span>
+              </div>
+
+              <div class="trim-summary">
+                Will keep <span class="keep trim-window-disp">{{durationHuman $clip.TrimInSeconds}}–{{durationHuman $clip.EffectiveTrimOut}}</span>
+                of the {{durationHuman $clip.DurationSeconds}} clip.
+              </div>
+
+              <div class="trim-actions">
+                <button class="preview-btn">▶ Preview window</button>
+                <button class="save-trim-btn">Save trim</button>
+                <button class="reset-trim-btn">Use full clip</button>
+                <button class="close-trim-btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+          {{end}}
         {{else}}
           <div class="hint">drag a video here<br>or click to choose</div>
         {{end}}
@@ -281,35 +354,152 @@ async function removeClip(slot) {
   }
 }
 
+function fmt(t) {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function wireTrim(slot) {
+  const panel  = slot.querySelector('.trim-panel');
+  if (!panel) return;
+  const video  = panel.querySelector('video');
+  const inEl   = panel.querySelector('.trim-in');
+  const outEl  = panel.querySelector('.trim-out');
+  const inVal  = panel.querySelector('.trim-in-val');
+  const outVal = panel.querySelector('.trim-out-val');
+  const winDisp= panel.querySelector('.trim-window-disp');
+  const previewBtn = panel.querySelector('.preview-btn');
+  const saveBtn    = panel.querySelector('.save-trim-btn');
+  const resetBtn   = panel.querySelector('.reset-trim-btn');
+  const closeBtn   = panel.querySelector('.close-trim-btn');
+
+  // Sync helpers
+  function refresh() {
+    inVal.textContent  = fmt(parseFloat(inEl.value));
+    outVal.textContent = fmt(parseFloat(outEl.value));
+    winDisp.textContent = fmt(parseFloat(inEl.value)) + '–' + fmt(parseFloat(outEl.value));
+  }
+
+  // Slide-in: clamp to < out, seek video to that frame.
+  inEl.addEventListener('input', () => {
+    if (parseFloat(inEl.value) >= parseFloat(outEl.value)) {
+      inEl.value = parseFloat(outEl.value) - 0.1;
+    }
+    if (video.readyState > 0) video.currentTime = parseFloat(inEl.value);
+    refresh();
+  });
+  // Slide-out: clamp to > in, seek video to that frame.
+  outEl.addEventListener('input', () => {
+    if (parseFloat(outEl.value) <= parseFloat(inEl.value)) {
+      outEl.value = parseFloat(inEl.value) + 0.1;
+    }
+    if (video.readyState > 0) video.currentTime = parseFloat(outEl.value);
+    refresh();
+  });
+
+  // Preview window: jump to in, play, auto-pause at out.
+  let pauseAt = null;
+  previewBtn.addEventListener('click', () => {
+    video.currentTime = parseFloat(inEl.value);
+    pauseAt = parseFloat(outEl.value);
+    video.play();
+  });
+  video.addEventListener('timeupdate', () => {
+    if (pauseAt !== null && video.currentTime >= pauseAt) {
+      video.pause();
+      pauseAt = null;
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    inEl.value = 0;
+    outEl.value = parseFloat(slot.dataset.duration || '0');
+    refresh();
+    if (video.readyState > 0) video.currentTime = 0;
+  });
+
+  closeBtn.addEventListener('click', () => {
+    slot.classList.remove('is-open');
+    video.pause();
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/trim', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          trim_in:        parseFloat(inEl.value),
+          trim_out:       parseFloat(outEl.value),
+          auto_suggested: false
+        })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSlotError(slot, body.message || ('HTTP ' + res.status));
+        saveBtn.disabled = false;
+        return;
+      }
+      location.reload();   // re-render to show new "trimmed: A–B" pill
+    } catch (e) {
+      setSlotError(slot, e.message);
+      saveBtn.disabled = false;
+    }
+  });
+
+  refresh();
+}
+
 document.querySelectorAll('.slot').forEach(slot => {
   const input = slot.querySelector('input[type=file]');
 
-  // Click anywhere on the slot opens the file picker (unless click on a button/file-input).
+  // Click on slot body (not buttons/sliders/video/range) opens the file picker.
   slot.addEventListener('click', (e) => {
-    if (e.target.tagName === 'BUTTON') return;
+    const t = e.target;
+    const tag = (t.tagName || '').toUpperCase();
+    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'VIDEO' || tag === 'LABEL') return;
+    if (t.closest('.trim-panel')) return; // ignore clicks inside the trim panel
     input.click();
   });
   input.addEventListener('change', () => {
     if (input.files && input.files[0]) uploadFile(slot, input.files[0]);
   });
 
-  // Drag-and-drop
+  // Drag-and-drop (also disabled when trim panel is open to avoid accidents)
   slot.addEventListener('dragover', (e) => {
+    if (slot.classList.contains('is-open')) return;
     e.preventDefault();
     slot.classList.add('dropping');
   });
   slot.addEventListener('dragleave', () => slot.classList.remove('dropping'));
   slot.addEventListener('drop', (e) => {
+    if (slot.classList.contains('is-open')) return;
     e.preventDefault();
     slot.classList.remove('dropping');
     if (e.dataTransfer.files && e.dataTransfer.files[0]) uploadFile(slot, e.dataTransfer.files[0]);
   });
 
-  // Buttons
+  // Action buttons
   const removeBtn = slot.querySelector('.remove-btn');
   if (removeBtn) removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeClip(slot); });
   const replaceBtn = slot.querySelector('.replace-btn');
   if (replaceBtn) replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); input.click(); });
+
+  const trimBtn = slot.querySelector('.trim-btn');
+  if (trimBtn) trimBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    slot.classList.toggle('is-open');
+    if (slot.classList.contains('is-open')) {
+      const video = slot.querySelector('video');
+      // Pause the video on close — also seek to trim_in so the operator sees the start frame.
+      if (video && video.readyState > 0) video.currentTime = parseFloat(slot.dataset.trimIn || '0');
+    }
+  });
+
+  // Wire trim controls if the panel is present.
+  wireTrim(slot);
 });
 </script>
 </body>

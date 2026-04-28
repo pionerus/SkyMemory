@@ -346,6 +346,9 @@ func main() {
 			clipRow.FPS = md.FPS
 			clipRow.HasAudio = md.HasAudio
 			clipRow.AudioCodec = md.AudioCodec
+			// Default trim = full clip; operator narrows it on the trim panel.
+			clipRow.TrimInSeconds = 0
+			clipRow.TrimOutSeconds = md.DurationSeconds
 		} else if err != nil {
 			log.Printf("WARN: ffprobe failed on %s: %v", dstPath, err)
 		}
@@ -389,6 +392,88 @@ func main() {
 			return
 		}
 		writeStudioJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	})
+
+	// PUT trim window. Body: {trim_in: 0, trim_out: 12.34, auto_suggested: false}.
+	r.Put("/projects/{id}/clips/{kind}/trim", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+
+		var body struct {
+			TrimIn        float64 `json:"trim_in"`
+			TrimOut       float64 `json:"trim_out"`
+			AutoSuggested bool    `json:"auto_suggested"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		// Validate. trim_out=0 is allowed and means "use full duration".
+		if body.TrimIn < 0 {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_TRIM", "message": "trim_in must be ≥ 0"})
+			return
+		}
+		if body.TrimOut > 0 && body.TrimOut <= body.TrimIn {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_TRIM", "message": "trim_out must be greater than trim_in"})
+			return
+		}
+		if clip.DurationSeconds > 0 && body.TrimOut > clip.DurationSeconds+0.5 {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_TRIM", "message": "trim_out exceeds clip duration"})
+			return
+		}
+
+		if err := stateDB.UpdateClipTrim(req.Context(), id, kind, body.TrimIn, body.TrimOut, body.AutoSuggested); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"status":         "updated",
+			"trim_in":        body.TrimIn,
+			"trim_out":       body.TrimOut,
+			"auto_suggested": body.AutoSuggested,
+		})
+	})
+
+	// Stream the raw clip file (for inline <video> preview during trim). Uses
+	// http.ServeFile which natively handles Range requests, so the browser can
+	// scrub the timeline without downloading the whole thing.
+	r.Get("/projects/{id}/clips/{kind}/file", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			http.NotFound(w, req)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Defensive: only serve files we ourselves wrote (under jobsDir).
+		if !strings.HasPrefix(clip.SourcePath, jobsDir+string(os.PathSeparator)) {
+			http.Error(w, "clip path is outside jobs directory", http.StatusForbidden)
+			return
+		}
+		http.ServeFile(w, req, clip.SourcePath)
 	})
 
 	srv := &http.Server{

@@ -165,4 +165,14 @@ var schemaSteps = map[int]string{
 		);
 		CREATE INDEX idx_clips_project ON clips(project_id);
 	`,
+
+	3: `
+		-- Trim window in seconds (manual or auto-suggested). NULL means "use full clip"
+		-- so that older rows pre-dating this column degrade gracefully.
+		ALTER TABLE clips ADD COLUMN trim_in_seconds  REAL;
+		ALTER TABLE clips ADD COLUMN trim_out_seconds REAL;
+		-- True when the values came from auto-detection (silencedetect / motion magnitude),
+		-- false when operator dragged the sliders. UI surfaces an "AI suggested" badge for the former.
+		ALTER TABLE clips ADD COLUMN trim_auto_suggested INTEGER NOT NULL DEFAULT 0;
+	`,
 }
