@@ -1,0 +1,56 @@
+# Local dev infra. Starts Postgres, Redis, and MinIO so the cloud server can run end-to-end without external services.
+# `compose.prod.yml` (later) overlays Caddy + drops MinIO + uses real Hetzner OS / Backblaze B2.
+#
+# Ports use 5xxxx to dodge XAMPP / system collisions on Windows (mirrors Flowtark convention).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: freefall-postgres
+    environment:
+      POSTGRES_DB: freefall
+      POSTGRES_USER: freefall
+      POSTGRES_PASSWORD: freefall_dev
+    ports:
+      - "55433:5432"          # 55432 belongs to Flowtark on this machine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freefall -d freefall"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: freefall-redis
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # S3-compatible object storage for dev. Operators in production point at their own S3/MinIO.
+  minio:
+    image: minio/minio:latest
+    container_name: freefall-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: freefall
+      MINIO_ROOT_PASSWORD: freefall_dev_secret
+    ports:
+      - "59000:9000"   # S3 API
+      - "59001:9001"   # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  minio_data:

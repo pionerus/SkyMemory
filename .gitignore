@@ -1,0 +1,41 @@
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+go.sum.tmp
+vendor/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Studio runtime data
+.freefall-studio/
+~/.freefall-studio/
+
+# Bundled FFmpeg binaries (downloaded by build script, not committed)
+build/ffmpeg/*.exe
+build/ffmpeg/*.tar.xz
+build/ffmpeg/*.zip
+
+# Test outputs
+testdata/output/
+*.test
+coverage.out
+
+# Logs
+*.log
