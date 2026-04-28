@@ -179,6 +179,46 @@
     background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px;
     padding: 12px 16px; margin-top: 16px; font-size: 13px; color: #92400e;
   }
+
+  /* Music section */
+  .music-current {
+    background: linear-gradient(135deg,#f5f5ff,#fdfdf3);
+    border: 1px solid #c5b9ff; border-radius: 12px;
+    padding: 14px 16px; margin-top: 8px;
+  }
+  .music-current .music-title { font-weight: 600; font-size: 15px; }
+  .music-current .music-artist { color: #777; font-weight: 400; font-size: 14px; }
+  .music-current .music-meta { margin-top: 4px; }
+  .music-empty {
+    background: #fafafa; border: 1px dashed #ddd; border-radius: 12px;
+    padding: 14px 16px; color: #999; margin-top: 8px;
+  }
+  .music-catalog { margin-top: 16px; }
+  .music-catalog-header {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 12px;
+  }
+  .music-catalog-header input[type=search] {
+    flex: 1; padding: 9px 12px; border-radius: 8px; border: 1px solid #ddd; font: inherit;
+  }
+  .music-catalog-header input[type=search]:focus { outline: 2px solid #4f46e5; border-color: transparent; }
+  .music-row {
+    display: grid; grid-template-columns: 1fr 220px auto; gap: 12px;
+    align-items: center; padding: 10px 12px;
+    border: 1px solid #eee; border-radius: 10px;
+    margin-bottom: 6px; background: white;
+  }
+  .music-row.picked { border-color: #c5b9ff; background: #f5f5ff; }
+  .music-row .info { min-width: 0; }
+  .music-row .title { font-weight: 600; font-size: 14px; word-break: break-word; }
+  .music-row .meta  { font-size: 12px; color: #777; margin-top: 2px; }
+  .music-row .meta .pill { font-size: 10px; padding: 1px 6px; margin-right: 3px; }
+  .music-row audio { width: 220px; height: 32px; }
+  .music-row .pick-btn {
+    padding: 7px 12px; font-size: 12px; border-radius: 8px;
+    background: #4f46e5; color: white; border: none; cursor: pointer; font-weight: 600;
+  }
+  .music-row .pick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .music-row .pick-btn.picked   { background: #b5e4ca; color: #14532d; cursor: default; }
 </style>
 </head>
 <body>
@@ -208,6 +248,41 @@
     <div class="actions" style="margin-top:16px">
       <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank" class="btn secondary">Preview client portal →</a>
     </div>
+  </div>
+
+  <div class="card" id="music-section">
+    <div style="display:flex;align-items:center;gap:12px">
+      <h2 style="margin:0">Music</h2>
+      <button class="btn secondary" id="open-catalog-btn">Browse library</button>
+    </div>
+    <p class="sub" style="margin-top:6px">Pick a royalty-free track from the cloud library. Studio will use it as the project's score during render.</p>
+
+    <div id="current-music">
+      {{if .P.MusicTrackID}}
+        <div class="music-current">
+          <div class="music-title">🎵 {{.P.MusicTitle}}{{if .P.MusicArtist}} <span class="music-artist">— {{.P.MusicArtist}}</span>{{end}}</div>
+          <div class="music-meta">
+            <span class="pill muted">{{durationHuman .P.MusicDurationS}}</span>
+            <span class="pill muted">cloud track #{{.P.MusicTrackID}}</span>
+          </div>
+          <button class="btn secondary" id="clear-music-btn" style="margin-top:8px">Remove track</button>
+        </div>
+      {{else}}
+        <div class="music-empty">No track picked yet. Click <em>Browse library</em>.</div>
+      {{end}}
+    </div>
+
+    <div id="music-catalog" class="music-catalog" style="display:none">
+      <div class="music-catalog-header">
+        <input type="search" id="music-filter" placeholder="Filter by title, artist, mood…">
+        <button class="btn secondary" id="close-catalog-btn">Close</button>
+      </div>
+      <div id="music-list">
+        <div class="empty">Loading catalog…</div>
+      </div>
+    </div>
+
+    <div id="music-err" class="err"></div>
   </div>
 
   <div class="card">
@@ -526,6 +601,174 @@ function wireTrim(slot) {
   }
 
   refresh();
+}
+
+// =====================================================================
+// Music section: browse cloud catalog, pick a track, clear.
+// =====================================================================
+const MUSIC_PICKED_ID = {{if .P.MusicTrackID}}{{.P.MusicTrackID}}{{else}}0{{end}};
+const musicErr = document.getElementById('music-err');
+const openCatalogBtn  = document.getElementById('open-catalog-btn');
+const closeCatalogBtn = document.getElementById('close-catalog-btn');
+const catalogPanel    = document.getElementById('music-catalog');
+const musicListEl     = document.getElementById('music-list');
+const musicFilter     = document.getElementById('music-filter');
+const clearMusicBtn   = document.getElementById('clear-music-btn');
+
+let musicCatalog = [];   // last-fetched tracks
+let musicLoaded  = false;
+
+function setMusicError(msg) {
+  musicErr.textContent = msg;
+  musicErr.classList.add('show');
+}
+function clearMusicError() { musicErr.classList.remove('show'); }
+
+function fmtMusicDur(s) {
+  if (!s) return '';
+  s = Math.round(s);
+  return Math.floor(s/60) + ':' + String(s%60).padStart(2, '0');
+}
+
+function escMusic(s) {
+  return String(s)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function renderMusicCatalog(filter) {
+  filter = (filter || '').trim().toLowerCase();
+  const tracks = musicCatalog.filter(t => {
+    if (!filter) return true;
+    const hay = [t.title, t.artist || '', (t.mood || []).join(','), t.license, (t.suggested_for || []).join(',')]
+      .join(' ').toLowerCase();
+    return hay.indexOf(filter) >= 0;
+  });
+
+  if (tracks.length === 0) {
+    musicListEl.innerHTML = '<div class="empty" style="padding:24px;text-align:center;color:#999">'
+      + (musicCatalog.length === 0 ? 'No tracks in the cloud library yet. Ask the owner to upload at least one.' : 'No tracks match your filter.')
+      + '</div>';
+    return;
+  }
+  let h = '';
+  for (const t of tracks) {
+    const picked = t.id === MUSIC_PICKED_ID;
+    const moodPills = (t.mood || []).map(m => '<span class="pill">' + escMusic(m) + '</span>').join('');
+    const intent    = (t.suggested_for || []).map(m => '<span class="pill">' + escMusic(m) + '</span>').join('');
+    h += '<div class="music-row ' + (picked ? 'picked' : '') + '" data-track-id="' + t.id + '">'
+       + '<div class="info">'
+       +   '<div class="title">' + escMusic(t.title) + (t.artist ? ' <span style="color:#888">— ' + escMusic(t.artist) + '</span>' : '') + '</div>'
+       +   '<div class="meta">'
+       +     '<span class="pill muted">' + fmtMusicDur(t.duration_seconds) + '</span>'
+       +     '<span class="pill muted">' + escMusic(t.license || '') + '</span>'
+       +     moodPills + intent
+       +   '</div>'
+       + '</div>'
+       + '<div>' + (t.preview_url
+            ? '<audio controls preload="none" src="' + escMusic(t.preview_url) + '"></audio>'
+            : '<span class="pill">no preview</span>') + '</div>'
+       + '<div>' + (picked
+            ? '<button class="pick-btn picked" disabled>✓ Picked</button>'
+            : '<button class="pick-btn">Use this track</button>') + '</div>'
+       + '</div>';
+  }
+  musicListEl.innerHTML = h;
+
+  for (const btn of musicListEl.querySelectorAll('.pick-btn:not(.picked)')) {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.music-row');
+      const tid = parseInt(row.dataset.trackId, 10);
+      const track = musicCatalog.find(t => t.id === tid);
+      if (track) pickTrack(track, btn);
+    });
+  }
+}
+
+async function ensureCatalogLoaded() {
+  if (musicLoaded) return;
+  clearMusicError();
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/music/catalog');
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setMusicError(b.message || ('Catalog HTTP ' + res.status));
+      return;
+    }
+    const body = await res.json();
+    musicCatalog = body.tracks || [];
+    musicLoaded = true;
+    renderMusicCatalog('');
+  } catch (e) {
+    setMusicError('Catalog fetch failed: ' + e.message);
+  }
+}
+
+async function pickTrack(track, btn) {
+  clearMusicError();
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/music', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        music_track_id:   track.id,
+        music_title:      track.title,
+        music_artist:     track.artist || '',
+        music_duration_s: track.duration_seconds || 0
+      })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMusicError(body.message || ('HTTP ' + res.status));
+      btn.disabled = false;
+      btn.textContent = orig;
+      return;
+    }
+    location.reload();
+  } catch (e) {
+    setMusicError('Pick failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+async function clearTrack() {
+  if (!confirm('Remove the picked track from this project?')) return;
+  clearMusicError();
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/music', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ music_track_id: 0, music_title: '', music_artist: '', music_duration_s: 0 })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMusicError(body.message || ('HTTP ' + res.status));
+      return;
+    }
+    location.reload();
+  } catch (e) {
+    setMusicError('Clear failed: ' + e.message);
+  }
+}
+
+if (openCatalogBtn) {
+  openCatalogBtn.addEventListener('click', () => {
+    catalogPanel.style.display = 'block';
+    ensureCatalogLoaded();
+  });
+}
+if (closeCatalogBtn) {
+  closeCatalogBtn.addEventListener('click', () => { catalogPanel.style.display = 'none'; });
+}
+if (clearMusicBtn) {
+  clearMusicBtn.addEventListener('click', clearTrack);
+}
+if (musicFilter) {
+  musicFilter.addEventListener('input', () => renderMusicCatalog(musicFilter.value));
 }
 
 document.querySelectorAll('.slot').forEach(slot => {

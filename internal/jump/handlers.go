@@ -136,6 +136,94 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
+// PUT /api/v1/jumps/:id/music — set/clear the picked music track for a jump.
+// Body: {music_track_id: 42} or {music_track_id: 0} to clear.
+// =====================================================================
+type SetMusicRequest struct {
+	MusicTrackID int64 `json:"music_track_id"`
+}
+
+type SetMusicResponse struct {
+	JumpID       int64 `json:"jump_id"`
+	MusicTrackID int64 `json:"music_track_id"`
+}
+
+func (h *Handlers) SetMusic(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+
+	id, err := parseInt64Param(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", err.Error())
+		return
+	}
+
+	var req SetMusicRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Verify the jump belongs to this tenant before touching it.
+	var owned bool
+	err = h.DB.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM jumps WHERE id = $1 AND tenant_id = $2)`,
+		id, s.TenantID,
+	).Scan(&owned)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	if !owned {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "Jump not found in this tenant.")
+		return
+	}
+
+	// Verify the requested track is visible to this tenant (NULL = global).
+	// 0 means "clear", which we allow without further check.
+	if req.MusicTrackID > 0 {
+		var visible bool
+		err = h.DB.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1 FROM music_visible_to
+			  WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)
+			)`,
+			req.MusicTrackID, s.TenantID,
+		).Scan(&visible)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusBadRequest, "INVALID_TRACK", "Track not in your library or inactive.")
+			return
+		}
+	}
+
+	// 0 in incoming JSON means clear — translate to NULL.
+	if req.MusicTrackID == 0 {
+		_, err = h.DB.Exec(ctx,
+			`UPDATE jumps SET music_track_id = NULL WHERE id = $1 AND tenant_id = $2`,
+			id, s.TenantID)
+	} else {
+		_, err = h.DB.Exec(ctx,
+			`UPDATE jumps SET music_track_id = $1 WHERE id = $2 AND tenant_id = $3`,
+			req.MusicTrackID, id, s.TenantID)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SetMusicResponse{
+		JumpID:       id,
+		MusicTrackID: req.MusicTrackID,
+	})
+}
+
+// =====================================================================
 // GET /api/v1/jumps/:id  — used by studio to refresh status from cloud
 // (e.g. after operator hits "Send to client" the cloud flips status to 'sent')
 // =====================================================================

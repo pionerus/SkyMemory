@@ -175,4 +175,15 @@ var schemaSteps = map[int]string{
 		-- false when operator dragged the sliders. UI surfaces an "AI suggested" badge for the former.
 		ALTER TABLE clips ADD COLUMN trim_auto_suggested INTEGER NOT NULL DEFAULT 0;
 	`,
+
+	4: `
+		-- Picked music track id. References cloud's music_tracks.id; we don't have
+		-- foreign keys here because the catalog lives in the cloud DB, not in state.db.
+		-- We additionally stash a denormalised copy of title/artist/duration so the
+		-- project list can render without a cloud round-trip if offline.
+		ALTER TABLE projects ADD COLUMN music_track_id   INTEGER;
+		ALTER TABLE projects ADD COLUMN music_title      TEXT;
+		ALTER TABLE projects ADD COLUMN music_artist     TEXT;
+		ALTER TABLE projects ADD COLUMN music_duration_s REAL;
+	`,
 }

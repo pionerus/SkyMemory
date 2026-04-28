@@ -184,6 +184,9 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	// API v1 — studio-facing endpoints. Each is gated by RequireLicenseToken.
 	r.With(requireToken).Post("/api/v1/jumps/register", jumpH.Register)
 	r.With(requireToken).Get("/api/v1/jumps/{id}", jumpH.GetByIDForStudio)
+	r.With(requireToken).Put("/api/v1/jumps/{id}/music", jumpH.SetMusic)
+	r.With(requireToken).Get("/api/v1/music", musicH.StudioCatalog)
+	r.With(requireToken).Post("/api/v1/music/suggest", musicH.StudioSuggest)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

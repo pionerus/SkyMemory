@@ -24,6 +24,7 @@ import (
 	"github.com/pionerus/freefall/internal/studio/ffprobe"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
+	studiomusic "github.com/pionerus/freefall/internal/studio/music"
 	"github.com/pionerus/freefall/internal/studio/state"
 	"github.com/pionerus/freefall/internal/studio/trim"
 	"github.com/pionerus/freefall/internal/studio/ui"
@@ -65,6 +66,7 @@ func main() {
 	licenseMgr.Start(ctx)
 
 	jumpClient := jump.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	musicClient := studiomusic.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -491,6 +493,87 @@ func main() {
 			"trim_in":  suggestion.TrimIn,
 			"trim_out": suggestion.TrimOut,
 			"reason":   suggestion.Reason,
+		})
+	})
+
+	// GET music catalog — proxies to cloud /api/v1/music. Studio doesn't cache;
+	// each render of project_detail re-fetches so presigned URLs are fresh.
+	r.Get("/projects/{id}/music/catalog", func(w http.ResponseWriter, req *http.Request) {
+		// project id is in the URL but the cloud catalog endpoint is project-agnostic;
+		// we still parse it to keep the URL shape consistent with the rest of /projects/{id}/*.
+		if _, err := parseInt64URLParam(req, "id"); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		callCtx, cancel := context.WithTimeout(req.Context(), 8*time.Second)
+		defer cancel()
+		out, err := musicClient.Catalog(callCtx)
+		if err != nil {
+			var apiErr *studiomusic.APIError
+			if errors.As(err, &apiErr) {
+				writeStudioJSON(w, apiErr.HTTPStatus, map[string]string{"code": apiErr.Code, "message": apiErr.Message})
+				return
+			}
+			writeStudioJSON(w, http.StatusBadGateway, map[string]string{"code": "CLOUD_UNREACHABLE", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, out)
+	})
+
+	// PUT music — body {music_track_id, music_title, music_artist, music_duration_s}.
+	// The denormalised title/artist/duration come from the catalog row the operator
+	// just clicked, so we don't need a second round-trip to read them.
+	// Sends to cloud first; persists local SQLite snapshot only if cloud accepts.
+	r.Put("/projects/{id}/music", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+
+		var body struct {
+			MusicTrackID    int64   `json:"music_track_id"`
+			MusicTitle      string  `json:"music_title"`
+			MusicArtist     string  `json:"music_artist"`
+			MusicDurationS  float64 `json:"music_duration_s"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+
+		p, err := stateDB.GetProject(req.Context(), id)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "Project not in local state.db."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		callCtx, cancel := context.WithTimeout(req.Context(), 8*time.Second)
+		defer cancel()
+		if err := musicClient.SetJumpMusic(callCtx, p.RemoteJumpID, body.MusicTrackID); err != nil {
+			var apiErr *studiomusic.APIError
+			if errors.As(err, &apiErr) {
+				writeStudioJSON(w, apiErr.HTTPStatus, map[string]string{"code": apiErr.Code, "message": apiErr.Message})
+				return
+			}
+			writeStudioJSON(w, http.StatusBadGateway, map[string]string{"code": "CLOUD_UNREACHABLE", "message": err.Error()})
+			return
+		}
+
+		if err := stateDB.SetProjectMusic(req.Context(), id, body.MusicTrackID, body.MusicTitle, body.MusicArtist, body.MusicDurationS); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "LOCAL_PERSIST_FAILED", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"status":           "updated",
+			"music_track_id":   body.MusicTrackID,
+			"music_title":      body.MusicTitle,
+			"music_artist":     body.MusicArtist,
+			"music_duration_s": body.MusicDurationS,
 		})
 	})
 

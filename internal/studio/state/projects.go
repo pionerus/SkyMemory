@@ -24,9 +24,17 @@ type Project struct {
 	OutputVertical    bool
 	OutputPhotos      bool
 	HasOperatorPhotos bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	Archived          bool
+
+	// Picked music track. ID 0 = none yet. Title/Artist/Duration are denormalised
+	// snapshots so the UI can render offline.
+	MusicTrackID    int64
+	MusicTitle      string
+	MusicArtist     string
+	MusicDurationS  float64
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Archived  bool
 }
 
 // ErrNotFound is returned when a Project lookup misses.
@@ -54,15 +62,48 @@ func (db *DB) CreateProject(ctx context.Context, p Project) (int64, error) {
 	return res.LastInsertId()
 }
 
+// projectColumns is the canonical SELECT list. Keep it in sync with scanProject.
+const projectColumns = `id, COALESCE(remote_jump_id,0), COALESCE(remote_client_id,0),
+	COALESCE(access_code,''), status,
+	client_name, COALESCE(client_email,''), COALESCE(client_phone,''),
+	output_1080p, output_4k, output_vertical, output_photos,
+	has_operator_photos,
+	COALESCE(music_track_id,0), COALESCE(music_title,''),
+	COALESCE(music_artist,''), COALESCE(music_duration_s,0),
+	created_at, updated_at, archived`
+
+func scanProject(row interface {
+	Scan(dst ...any) error
+}) (Project, error) {
+	var (
+		p                                     Project
+		o1080, o4k, overt, ophot, ophown, arch int
+		created, updated                       string
+	)
+	err := row.Scan(&p.ID, &p.RemoteJumpID, &p.RemoteClientID,
+		&p.AccessCode, &p.Status,
+		&p.ClientName, &p.ClientEmail, &p.ClientPhone,
+		&o1080, &o4k, &overt, &ophot, &ophown,
+		&p.MusicTrackID, &p.MusicTitle, &p.MusicArtist, &p.MusicDurationS,
+		&created, &updated, &arch,
+	)
+	if err != nil {
+		return p, err
+	}
+	p.Output1080p = o1080 == 1
+	p.Output4K = o4k == 1
+	p.OutputVertical = overt == 1
+	p.OutputPhotos = ophot == 1
+	p.HasOperatorPhotos = ophown == 1
+	p.Archived = arch == 1
+	p.CreatedAt = parseTime(created)
+	p.UpdatedAt = parseTime(updated)
+	return p, nil
+}
+
 // ListProjects returns active (non-archived) projects, newest first.
 func (db *DB) ListProjects(ctx context.Context, includeArchived bool) ([]Project, error) {
-	q := `
-		SELECT id, COALESCE(remote_jump_id,0), COALESCE(remote_client_id,0),
-		       COALESCE(access_code,''), status,
-		       client_name, COALESCE(client_email,''), COALESCE(client_phone,''),
-		       output_1080p, output_4k, output_vertical, output_photos,
-		       has_operator_photos, created_at, updated_at, archived
-		FROM projects`
+	q := `SELECT ` + projectColumns + ` FROM projects`
 	if !includeArchived {
 		q += ` WHERE archived = 0`
 	}
@@ -76,28 +117,10 @@ func (db *DB) ListProjects(ctx context.Context, includeArchived bool) ([]Project
 
 	var out []Project
 	for rows.Next() {
-		var p Project
-		var (
-			created, updated string
-			arch             int
-			o1080, o4k, overt, ophot, ophown int
-		)
-		if err := rows.Scan(&p.ID, &p.RemoteJumpID, &p.RemoteClientID,
-			&p.AccessCode, &p.Status,
-			&p.ClientName, &p.ClientEmail, &p.ClientPhone,
-			&o1080, &o4k, &overt, &ophot, &ophown,
-			&created, &updated, &arch,
-		); err != nil {
+		p, err := scanProject(rows)
+		if err != nil {
 			return nil, err
 		}
-		p.Output1080p = o1080 == 1
-		p.Output4K = o4k == 1
-		p.OutputVertical = overt == 1
-		p.OutputPhotos = ophot == 1
-		p.HasOperatorPhotos = ophown == 1
-		p.Archived = arch == 1
-		p.CreatedAt = parseTime(created)
-		p.UpdatedAt = parseTime(updated)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -105,41 +128,40 @@ func (db *DB) ListProjects(ctx context.Context, includeArchived bool) ([]Project
 
 // GetProject returns one project by local id, or ErrNotFound.
 func (db *DB) GetProject(ctx context.Context, id int64) (*Project, error) {
-	var (
-		p Project
-		o1080, o4k, overt, ophot, ophown int
-		created, updated string
-		arch             int
-	)
-	err := db.QueryRowContext(ctx, `
-		SELECT id, COALESCE(remote_jump_id,0), COALESCE(remote_client_id,0),
-		       COALESCE(access_code,''), status,
-		       client_name, COALESCE(client_email,''), COALESCE(client_phone,''),
-		       output_1080p, output_4k, output_vertical, output_photos,
-		       has_operator_photos, created_at, updated_at, archived
-		FROM projects WHERE id = ?`,
-		id,
-	).Scan(&p.ID, &p.RemoteJumpID, &p.RemoteClientID,
-		&p.AccessCode, &p.Status,
-		&p.ClientName, &p.ClientEmail, &p.ClientPhone,
-		&o1080, &o4k, &overt, &ophot, &ophown,
-		&created, &updated, &arch,
-	)
+	row := db.QueryRowContext(ctx,
+		`SELECT `+projectColumns+` FROM projects WHERE id = ?`, id)
+	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	p.Output1080p = o1080 == 1
-	p.Output4K = o4k == 1
-	p.OutputVertical = overt == 1
-	p.OutputPhotos = ophot == 1
-	p.HasOperatorPhotos = ophown == 1
-	p.Archived = arch == 1
-	p.CreatedAt = parseTime(created)
-	p.UpdatedAt = parseTime(updated)
 	return &p, nil
+}
+
+// SetProjectMusic sets (or clears, with trackID=0) the picked music track.
+// title/artist/duration are denormalised so the UI works offline.
+// Pass title="" + artist="" + duration=0 when clearing.
+func (db *DB) SetProjectMusic(ctx context.Context, id, trackID int64, title, artist string, durationSeconds float64) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE projects SET
+			music_track_id   = NULLIF(?, 0),
+			music_title      = NULLIF(?, ''),
+			music_artist     = NULLIF(?, ''),
+			music_duration_s = NULLIF(?, 0),
+			updated_at       = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+		WHERE id = ?`,
+		trackID, title, artist, durationSeconds, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // =====================================================================
