@@ -99,6 +99,14 @@ func main() {
 	r.Post("/auth/logout", authH.Logout)
 	r.With(sessions.RequireSession).Get("/auth/me", authH.Me)
 
+	// Admin: license token CRUD (owner-only). Tokens get installed in studio.exe.
+	r.With(sessions.RequireOwner).Post("/admin/license-tokens", authH.CreateToken)
+	r.With(sessions.RequireOwner).Get("/admin/license-tokens", authH.ListTokens)
+	r.With(sessions.RequireOwner).Delete("/admin/license-tokens/{id}", authH.RevokeToken)
+
+	// API v1: license validation (auth = the token in the request body itself, no session)
+	r.Post("/api/v1/license/validate", authH.ValidateLicense)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           r,

@@ -1,8 +1,15 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pionerus/freefall/internal/db"
 )
 
 // RequireSession blocks unauthenticated requests and stashes SessionData in the request context.
@@ -29,6 +36,69 @@ func (m *Manager) RequireOwner(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// RequireLicenseToken authenticates a request via "Authorization: Bearer <token>".
+// Used for studio-facing endpoints (jumps/register, music/suggest, upload-init, …).
+// On success, stashes SessionData in the request context like RequireSession does,
+// so handlers can use the same MustFromContext / FromContext helpers.
+func RequireLicenseToken(pool *db.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			plaintext, err := ParseLicenseTokenFromHeader(r.Header.Get("Authorization"))
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", err.Error())
+				return
+			}
+			hash := HashLicenseToken(plaintext)
+
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+
+			var (
+				operatorID    int64
+				tenantID      int64
+				role          string
+				operatorEmail string
+				revoked       *time.Time
+				tenantDeleted *time.Time
+			)
+			err = pool.QueryRow(ctx,
+				`SELECT lt.operator_id, lt.tenant_id, lt.revoked_at,
+				        o.role, o.email, t.deleted_at
+				 FROM license_tokens lt
+				 JOIN operators o ON o.id = lt.operator_id
+				 JOIN tenants t ON t.id = lt.tenant_id
+				 WHERE lt.token_hash = $1`,
+				hash,
+			).Scan(&operatorID, &tenantID, &revoked, &role, &operatorEmail, &tenantDeleted)
+
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusUnauthorized, "TOKEN_INVALID", "Token not recognized.")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+				return
+			}
+			if revoked != nil {
+				writeError(w, http.StatusUnauthorized, "TOKEN_REVOKED", "Token has been revoked.")
+				return
+			}
+			if tenantDeleted != nil {
+				writeError(w, http.StatusUnauthorized, "TENANT_DELETED", "Tenant is no longer active.")
+				return
+			}
+
+			s := SessionData{
+				OperatorID:    operatorID,
+				TenantID:      tenantID,
+				OperatorRole:  role,
+				OperatorEmail: operatorEmail,
+			}
+			next.ServeHTTP(w, r.WithContext(WithSession(r.Context(), s)))
+		})
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
