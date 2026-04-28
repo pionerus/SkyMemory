@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.P.ClientName}} · Freefall Studio</title>
+<style>
+  body {
+    margin: 0;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: #fbfaf7;
+    color: #0a0a14;
+  }
+  header {
+    padding: 18px 32px;
+    border-bottom: 1px solid #eee;
+    display: flex; align-items: center; gap: 16px;
+    background: white;
+  }
+  header .mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg,#ffd6b3,#e0d4ff); display: grid; place-items: center; font-size: 18px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: #777; font-size: 13px; }
+  header .nav { margin-left: auto; }
+  header .nav a { color: #4f46e5; font-size: 14px; text-decoration: none; }
+  main { max-width: 960px; margin: 32px auto; padding: 0 24px; }
+  .card { background: white; border: 1px solid #eee; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+  h2 { margin: 0 0 4px; font-size: 22px; }
+  .sub { color: #777; font-size: 14px; margin: 0 0 20px; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #b5e4ca; }
+  .pill.muted { background: #eee; color: #555; }
+  .meta-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-row .k { color: #777; }
+  .meta-row .v { font-weight: 600; }
+  .code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #4f46e5;
+  }
+  .step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .slot {
+    border: 2px dashed #ddd;
+    border-radius: 12px;
+    padding: 18px;
+    text-align: center;
+    color: #999;
+    font-size: 13px;
+    background: #fafafa;
+  }
+  .slot .name { font-weight: 600; color: #333; margin-bottom: 4px; }
+  .slot .hint { font-size: 11px; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .btn {
+    display: inline-block; padding: 10px 18px;
+    border-radius: 10px; background: #4f46e5; color: white;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+    border: none; cursor: pointer;
+  }
+  .btn.secondary { background: white; color: #0a0a14; border: 1px solid #ddd; }
+  .next-up {
+    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px;
+    padding: 14px 18px; margin-top: 16px; font-size: 13px; color: #92400e;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">🪂</div>
+  <div>
+    <h1>{{.P.ClientName}}</h1>
+    <div class="meta">project #{{.P.ID}} · status <code>{{.P.Status}}</code></div>
+  </div>
+  <div class="nav"><a href="/">← All projects</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <div class="meta-row"><span class="k">Access code</span><span class="v"><span class="code">{{.P.AccessCode}}</span></span></div>
+    <div class="meta-row"><span class="k">Cloud jump_id</span><span class="v">#{{.P.RemoteJumpID}}</span></div>
+    <div class="meta-row"><span class="k">Cloud client_id</span><span class="v">#{{.P.RemoteClientID}}</span></div>
+    {{if .P.ClientEmail}}<div class="meta-row"><span class="k">Email</span><span class="v">{{.P.ClientEmail}}</span></div>{{end}}
+    {{if .P.ClientPhone}}<div class="meta-row"><span class="k">Phone</span><span class="v">{{.P.ClientPhone}}</span></div>{{end}}
+    <div class="meta-row"><span class="k">Outputs</span><span class="v">
+      {{if .P.Output1080p}}<span class="pill">1080p</span>{{end}}
+      {{if .P.Output4K}}<span class="pill">4K</span>{{end}}
+      {{if .P.OutputVertical}}<span class="pill">vertical</span>{{end}}
+      {{if .P.OutputPhotos}}<span class="pill">{{if .P.HasOperatorPhotos}}DSLR photos{{else}}auto photos{{end}}</span>{{end}}
+    </span></div>
+    <div class="meta-row"><span class="k">Created</span><span class="v">{{.P.CreatedAt.Format "Mon, Jan 2 2006 at 15:04"}}</span></div>
+
+    <div class="actions" style="margin-top:16px">
+      <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank" class="btn secondary">Preview client portal →</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Step 1 — clip uploads</h2>
+    <p class="sub">Drop your 7 segments below. Each clip will be validated with ffprobe (codec, duration, fps, resolution) and stored locally before any pipeline work begins.</p>
+
+    <div class="step-grid">
+      <div class="slot"><div class="name">Intro</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Interview (pre-jump)</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Walk to plane</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Interview (in plane)</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Freefall</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Landing</div><div class="hint">drop a clip</div></div>
+      <div class="slot"><div class="name">Closing</div><div class="hint">drop a clip</div></div>
+    </div>
+
+    <div class="next-up">
+      Upload UI is being implemented next. The slots above are the canonical 7 segments — operator can also add custom segments (e.g. <em>slow_motion</em>, <em>group_photo</em>) when the upload form is wired up.
+    </div>
+  </div>
+</main>
+</body>
+</html>

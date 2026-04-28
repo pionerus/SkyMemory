@@ -111,9 +111,45 @@
 <main>
   {{if .License.Valid}}
   <div class="card">
-    <h2 style="margin-top:0">My projects</h2>
-    <p style="color:#666">List view + edit/regenerate coming soon. For now you can create a new project — Step 1 of the wizard registers it in the cloud and gives you an access code for the client.</p>
-    <a href="/projects/new" class="btn">+ New project</a>
+    <div style="display:flex;align-items:center;gap:12px">
+      <h2 style="margin:0">My projects</h2>
+      <span class="pill muted">{{len .Projects}}</span>
+      <a href="/projects/new" class="btn" style="margin-left:auto">+ New project</a>
+    </div>
+    {{if .Projects}}
+      <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px">
+        <thead>
+          <tr style="text-align:left;color:#777;font-size:12px;text-transform:uppercase">
+            <th style="padding:8px 4px;border-bottom:1px solid #eee">Client</th>
+            <th style="padding:8px 4px;border-bottom:1px solid #eee">Outputs</th>
+            <th style="padding:8px 4px;border-bottom:1px solid #eee">Code</th>
+            <th style="padding:8px 4px;border-bottom:1px solid #eee">Status</th>
+            <th style="padding:8px 4px;border-bottom:1px solid #eee">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Projects}}
+          <tr style="cursor:pointer" onclick="location.href='/projects/{{.ID}}'">
+            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5">
+              <strong>{{.ClientName}}</strong>
+              {{if .ClientEmail}}<div style="color:#999;font-size:12px">{{.ClientEmail}}</div>{{end}}
+            </td>
+            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;font-size:12px">
+              {{if .Output1080p}}<span class="pill" style="margin-right:4px">1080p</span>{{end}}
+              {{if .Output4K}}<span class="pill" style="margin-right:4px">4K</span>{{end}}
+              {{if .OutputVertical}}<span class="pill" style="margin-right:4px">vert</span>{{end}}
+              {{if .OutputPhotos}}<span class="pill" style="margin-right:4px">photo</span>{{end}}
+            </td>
+            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">{{.AccessCode}}</td>
+            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5"><span class="pill muted">{{.Status}}</span></td>
+            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;color:#999;font-size:12px">{{.CreatedAt.Format "Jan 2, 15:04"}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    {{else}}
+      <p style="color:#888;margin-top:16px">No projects yet. Click <em>+ New project</em> to create your first one.</p>
+    {{end}}
   </div>
   {{else}}
   <div class="card" style="background:#fff7ed; border-color:#fed7aa">

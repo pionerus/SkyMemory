@@ -1,0 +1,136 @@
+// Package state owns the studio's local SQLite database (~/.freefall-studio/state.db).
+// It tracks projects (one per jump), clips, photos, and upload progress — everything
+// the operator needs to resume work after restart.
+//
+// We use modernc.org/sqlite (pure Go, no cgo) so studio.exe stays a single static
+// binary on Windows without requiring gcc/MinGW for a build.
+package state
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// DB wraps *sql.DB so we can hang typed helpers off it (CreateProject, ListProjects, …).
+type DB struct {
+	*sql.DB
+	path string
+}
+
+// Open opens (or creates) state.db at the given path, applies the latest schema
+// migration, and returns a ready-to-use handle. Path's parent directory is
+// created if missing — operators don't need to mkdir manually.
+func Open(ctx context.Context, path string) (*DB, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir state dir: %w", err)
+	}
+
+	// _pragma=foreign_keys(1) — explicit FK enforcement (off by default in SQLite).
+	// _pragma=journal_mode(wal) — Write-Ahead Log: better concurrency.
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)"
+	sqlDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(pingCtx); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("ping: %w", err)
+	}
+
+	db := &DB{DB: sqlDB, path: path}
+	if err := db.migrate(ctx); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return db, nil
+}
+
+// Path returns the location of the state.db file (used by the UI for diagnostics).
+func (db *DB) Path() string { return db.path }
+
+// migrate applies the schema. Idempotent — safe to call on every boot.
+// We track applied versions in a tiny `meta` table so that future schema changes
+// can be appended without breaking older state.db files in the wild.
+func (db *DB) migrate(ctx context.Context) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS meta (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`); err != nil {
+		return err
+	}
+
+	current, err := db.schemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	for v, stmt := range schemaSteps {
+		if v <= current {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("apply schema v%d: %w", v, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)`,
+			fmt.Sprintf("%d", v),
+		); err != nil {
+			return fmt.Errorf("record schema v%d: %w", v, err)
+		}
+	}
+	return nil
+}
+
+func (db *DB) schemaVersion(ctx context.Context) (int, error) {
+	var v string
+	err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, err = fmt.Sscanf(v, "%d", &n)
+	return n, err
+}
+
+// schemaSteps is an ordered append-only list. Each step is one self-contained SQL
+// blob applied when the local DB is below that version. Add new steps; never edit
+// past ones — they may have run on operator machines already.
+var schemaSteps = map[int]string{
+	1: `
+		CREATE TABLE projects (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			remote_jump_id  INTEGER,                          -- jump_id assigned by cloud /api/v1/jumps/register
+			remote_client_id INTEGER,                          -- client_id likewise
+			access_code     TEXT,                             -- formatted XXXX-XXXX (returned by cloud)
+			status          TEXT NOT NULL DEFAULT 'draft',
+				-- draft | encoding | uploading | done | sent | failed
+			client_name     TEXT NOT NULL,
+			client_email    TEXT,
+			client_phone    TEXT,
+			output_1080p    INTEGER NOT NULL DEFAULT 1,
+			output_4k       INTEGER NOT NULL DEFAULT 0,
+			output_vertical INTEGER NOT NULL DEFAULT 0,
+			output_photos   INTEGER NOT NULL DEFAULT 0,
+			has_operator_photos INTEGER NOT NULL DEFAULT 0,
+			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			archived        INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX idx_projects_updated ON projects(updated_at DESC);
+	`,
+}

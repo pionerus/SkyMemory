@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/pionerus/freefall/internal/config"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
+	"github.com/pionerus/freefall/internal/studio/state"
 	"github.com/pionerus/freefall/internal/studio/ui"
 )
 
@@ -34,6 +36,13 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	stateDB, err := state.Open(ctx, cfg.StatePath)
+	if err != nil {
+		log.Fatalf("state.Open: %v", err)
+	}
+	defer stateDB.Close()
+	log.Printf("state: %s", stateDB.Path())
 
 	licenseClient := license.NewClient(cfg.CloudBaseURL)
 	licenseMgr := license.NewManager(licenseClient, cfg.LicenseToken, version, 0 /* default 6h */)
@@ -57,18 +66,26 @@ func main() {
 		})
 	})
 
-	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
 		res, lastAt := licenseMgr.Snapshot()
+
+		// Pull projects list — best-effort. If state is unreadable we still render the page.
+		projects, perr := stateDB.ListProjects(req.Context(), false)
+		if perr != nil {
+			log.Printf("WARN: list projects: %v", perr)
+		}
+
 		data := homeData{
-			Version:           version,
-			Platform:          runtime.GOOS + "/" + runtime.GOARCH,
-			Addr:              cfg.HTTPAddr,
-			CloudBaseURL:      cfg.CloudBaseURL,
-			StatePath:         cfg.StatePath,
-			TokenConfigured:   cfg.LicenseToken != "",
-			License:           res,
-			LicenseCheckedAt:  lastAt,
-			CloudReachable:    pingCloud(cfg.CloudBaseURL),
+			Version:          version,
+			Platform:         runtime.GOOS + "/" + runtime.GOARCH,
+			Addr:             cfg.HTTPAddr,
+			CloudBaseURL:     cfg.CloudBaseURL,
+			StatePath:        cfg.StatePath,
+			TokenConfigured:  cfg.LicenseToken != "",
+			License:          res,
+			LicenseCheckedAt: lastAt,
+			CloudReachable:   pingCloud(cfg.CloudBaseURL),
+			Projects:         projects,
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := ui.Templates.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -133,10 +150,32 @@ func main() {
 			return
 		}
 
+		// Persist locally so the project survives studio restarts.
+		localID, err := stateDB.CreateProject(callCtx, state.Project{
+			RemoteJumpID:      out.JumpID,
+			RemoteClientID:    out.ClientID,
+			AccessCode:        out.AccessCode,
+			ClientName:        jr.ClientName,
+			ClientEmail:       jr.ClientEmail,
+			ClientPhone:       jr.ClientPhone,
+			Output1080p:       jr.Output1080p,
+			Output4K:          jr.Output4K,
+			OutputVertical:    jr.OutputVertical,
+			OutputPhotos:      jr.OutputPhotos,
+			HasOperatorPhotos: jr.HasOperatorUploadedPhotos,
+		})
+		if err != nil {
+			// Cloud succeeded; local save failed. Don't fail the request — we have an
+			// access_code to show. Surface a warning so the operator sees the gap.
+			log.Printf("WARN: cloud register OK but local persist failed: %v", err)
+			localID = 0
+		}
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = ui.Templates.ExecuteTemplate(w, "new_project_done.html", map[string]any{
 			"License":                   res,
 			"CloudBaseURL":              cfg.CloudBaseURL,
+			"LocalID":                   localID,
 			"JumpID":                    out.JumpID,
 			"ClientID":                  out.ClientID,
 			"AccessCode":                out.AccessCode,
@@ -149,6 +188,33 @@ func main() {
 			"OutputVertical":            jr.OutputVertical,
 			"OutputPhotos":              jr.OutputPhotos,
 			"HasOperatorUploadedPhotos": jr.HasOperatorUploadedPhotos,
+		})
+	})
+
+	// Detail page for one local project. Placeholder for the upcoming clip-upload UI.
+	r.Get("/projects/{id}", func(w http.ResponseWriter, req *http.Request) {
+		idStr := chi.URLParam(req, "id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+		p, err := stateDB.GetProject(req.Context(), id)
+		if errors.Is(err, state.ErrNotFound) {
+			http.NotFound(w, req)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		licRes, _ := licenseMgr.Snapshot()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = ui.Templates.ExecuteTemplate(w, "project_detail.html", map[string]any{
+			"License":      licRes,
+			"CloudBaseURL": cfg.CloudBaseURL,
+			"P":            p,
+			"AccessCodeCanonical": strings.ReplaceAll(p.AccessCode, "-", ""),
 		})
 	})
 
@@ -188,6 +254,7 @@ type homeData struct {
 	License          license.Result
 	LicenseCheckedAt time.Time
 	CloudReachable   bool
+	Projects         []state.Project
 }
 
 // writeStudioJSON sends a JSON response from a studio handler.
