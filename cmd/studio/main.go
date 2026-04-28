@@ -9,13 +9,16 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	v1 "github.com/pionerus/freefall/internal/api/v1"
 	"github.com/pionerus/freefall/internal/config"
+	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
 	"github.com/pionerus/freefall/internal/studio/ui"
 )
@@ -35,6 +38,8 @@ func main() {
 	licenseClient := license.NewClient(cfg.CloudBaseURL)
 	licenseMgr := license.NewManager(licenseClient, cfg.LicenseToken, version, 0 /* default 6h */)
 	licenseMgr.Start(ctx)
+
+	jumpClient := jump.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -79,6 +84,74 @@ func main() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
+	// New project flow. GET renders the form, POST sends it through to the cloud
+	// (POST /api/v1/jumps/register) and renders the access_code on success.
+	r.Get("/projects/new", func(w http.ResponseWriter, req *http.Request) {
+		res, _ := licenseMgr.Snapshot()
+		if !res.Valid {
+			http.Redirect(w, req, "/", http.StatusSeeOther)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = ui.Templates.ExecuteTemplate(w, "new_project.html", map[string]any{
+			"License": res,
+		})
+	})
+
+	r.Post("/projects", func(w http.ResponseWriter, req *http.Request) {
+		res, _ := licenseMgr.Snapshot()
+		if !res.Valid {
+			writeStudioJSON(w, http.StatusUnauthorized, map[string]string{
+				"code": "LICENSE_INVALID", "message": "License is not valid.",
+			})
+			return
+		}
+
+		var jr v1.JumpRegisterRequest
+		if err := json.NewDecoder(req.Body).Decode(&jr); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{
+				"code": "INVALID_JSON", "message": "Could not parse form payload.",
+			})
+			return
+		}
+
+		callCtx, cancel := context.WithTimeout(req.Context(), 12*time.Second)
+		defer cancel()
+
+		out, err := jumpClient.Register(callCtx, jr)
+		if err != nil {
+			var apiErr *jump.APIError
+			if errors.As(err, &apiErr) {
+				writeStudioJSON(w, apiErr.HTTPStatus, map[string]string{
+					"code": apiErr.Code, "message": apiErr.Message,
+				})
+				return
+			}
+			writeStudioJSON(w, http.StatusBadGateway, map[string]string{
+				"code": "CLOUD_UNREACHABLE", "message": err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = ui.Templates.ExecuteTemplate(w, "new_project_done.html", map[string]any{
+			"License":                   res,
+			"CloudBaseURL":              cfg.CloudBaseURL,
+			"JumpID":                    out.JumpID,
+			"ClientID":                  out.ClientID,
+			"AccessCode":                out.AccessCode,
+			"AccessCodeCanonical":       strings.ReplaceAll(out.AccessCode, "-", ""),
+			"ClientName":                jr.ClientName,
+			"ClientEmail":               jr.ClientEmail,
+			"ClientPhone":               jr.ClientPhone,
+			"Output1080p":               jr.Output1080p,
+			"Output4K":                  jr.Output4K,
+			"OutputVertical":            jr.OutputVertical,
+			"OutputPhotos":              jr.OutputPhotos,
+			"HasOperatorUploadedPhotos": jr.HasOperatorUploadedPhotos,
+		})
+	})
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           r,
@@ -115,6 +188,13 @@ type homeData struct {
 	License          license.Result
 	LicenseCheckedAt time.Time
 	CloudReachable   bool
+}
+
+// writeStudioJSON sends a JSON response from a studio handler.
+func writeStudioJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // pingCloud does a fast HEAD to /healthz to populate the "Cloud connected" pill.

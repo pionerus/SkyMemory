@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New project · Freefall Studio</title>
+<style>
+  body {
+    margin: 0;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: #fbfaf7;
+    color: #0a0a14;
+  }
+  header {
+    padding: 18px 32px;
+    border-bottom: 1px solid #eee;
+    display: flex; align-items: center; gap: 16px;
+    background: white;
+  }
+  header .mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg,#ffd6b3,#e0d4ff); display: grid; place-items: center; font-size: 18px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: #777; font-size: 13px; }
+  header .nav { margin-left: auto; }
+  header .nav a { color: #4f46e5; font-size: 14px; text-decoration: none; }
+  main { max-width: 720px; margin: 32px auto; padding: 0 24px; }
+  .card { background: white; border: 1px solid #eee; border-radius: 16px; padding: 28px; margin-bottom: 16px; }
+  h2 { margin: 0 0 6px; font-size: 22px; }
+  .sub { color: #777; font-size: 14px; margin: 0 0 24px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+  input[type="text"], input[type="email"], input[type="tel"] {
+    width: 100%; box-sizing: border-box; padding: 10px 12px;
+    border-radius: 10px; border: 1px solid #ddd; font: inherit;
+  }
+  input:focus { outline: 2px solid #4f46e5; border-color: transparent; }
+  fieldset {
+    border: 1px solid #eee; border-radius: 12px; padding: 16px 20px;
+    margin: 18px 0 8px; background: #fafafa;
+  }
+  fieldset legend { padding: 0 8px; font-size: 13px; font-weight: 600; color: #555; }
+  .checkbox-row {
+    display: flex; align-items: flex-start; gap: 10px; margin: 8px 0;
+  }
+  .checkbox-row input { margin-top: 4px; }
+  .checkbox-row label { display: inline; font-weight: 600; margin: 0; }
+  .checkbox-row .desc { display: block; color: #777; font-size: 12px; font-weight: 400; margin-top: 2px; }
+  button {
+    margin-top: 20px; padding: 12px 24px;
+    border-radius: 10px; background: #4f46e5; color: white;
+    border: none; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button[disabled] { opacity: 0.5; cursor: not-allowed; }
+  .secondary {
+    background: white; color: #0a0a14; border: 1px solid #ddd;
+    text-decoration: none; display: inline-block;
+  }
+  .err {
+    background: #fee2e2; color: #991b1b;
+    padding: 10px 12px; border-radius: 10px;
+    margin-top: 16px; font-size: 13px; display: none;
+  }
+  .err.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">🪂</div>
+  <div>
+    <h1>New project</h1>
+    <div class="meta">{{.License.TenantName}} · {{.License.OperatorEmail}}</div>
+  </div>
+  <div class="nav"><a href="/">← Cancel</a></div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Tell us about the jumper</h2>
+    <p class="sub">Step 1 of 5. We'll register the project in the cloud and get back an access code that the client uses to watch their video.</p>
+
+    <form id="f" novalidate>
+      <label>Client name *</label>
+      <input name="client_name" type="text" required autofocus maxlength="200" placeholder="Sergei Z">
+
+      <label>Client email <span style="color:#999;font-weight:400">(optional, used to send the watch link)</span></label>
+      <input name="client_email" type="email" placeholder="sergei@example.com">
+
+      <label>Phone <span style="color:#999;font-weight:400">(optional)</span></label>
+      <input name="client_phone" type="tel" placeholder="+372 555 1234">
+
+      <fieldset>
+        <legend>Outputs</legend>
+
+        <div class="checkbox-row">
+          <input type="checkbox" name="output_1080p" id="o1080" checked>
+          <div>
+            <label for="o1080">Client video — 1080p horizontal</label>
+            <span class="desc">The main MP4 the client gets in their email link.</span>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" name="output_4k" id="o4k">
+          <div>
+            <label for="o4k">Client video — 4K horizontal</label>
+            <span class="desc">For clients who want maximum quality. Source clips must be ≥ 4K.</span>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" name="output_vertical" id="overt">
+          <div>
+            <label for="overt">Instagram vertical (1080×1920)</label>
+            <span class="desc">Center-cropped reel for social.</span>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" name="output_photos" id="ophot">
+          <div>
+            <label for="ophot">Photos</label>
+            <span class="desc">If checked: 15 auto-screenshots from freefall (unless you upload your own DSLR photos in step 2 — then those are used instead).</span>
+          </div>
+        </div>
+
+        <div class="checkbox-row" style="margin-top: 14px; padding-left: 20px; border-left: 3px solid #e0d4ff">
+          <input type="checkbox" name="has_operator_uploaded_photos" id="ophotown">
+          <div>
+            <label for="ophotown">I'll upload my own photos (DSLR)</label>
+            <span class="desc">Skips auto-screenshots. You can drop JPGs in the next step.</span>
+          </div>
+        </div>
+      </fieldset>
+
+      <div style="display:flex; gap: 12px; align-items: center; margin-top: 8px">
+        <button type="submit" id="submitBtn">Create project</button>
+        <a href="/" class="secondary" style="padding:12px 18px;border-radius:10px">Cancel</a>
+      </div>
+
+      <div id="err" class="err"></div>
+    </form>
+  </div>
+</main>
+
+<script>
+document.getElementById('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = {
+    client_name:                  (fd.get('client_name') || '').trim(),
+    client_email:                 (fd.get('client_email') || '').trim(),
+    client_phone:                 (fd.get('client_phone') || '').trim(),
+    output_1080p:                 fd.get('output_1080p')   === 'on',
+    output_4k:                    fd.get('output_4k')      === 'on',
+    output_vertical:              fd.get('output_vertical')=== 'on',
+    output_photos:                fd.get('output_photos')  === 'on',
+    has_operator_uploaded_photos: fd.get('has_operator_uploaded_photos') === 'on'
+  };
+  const errEl = document.getElementById('err');
+  errEl.classList.remove('show');
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/projects', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      // Server-rendered success page — replace the document.
+      const html = await res.text();
+      document.open(); document.write(html); document.close();
+      return;
+    }
+    let msg = 'HTTP ' + res.status;
+    try { const body = await res.json(); if (body.message) msg = body.message; } catch {}
+    errEl.textContent = msg;
+    errEl.classList.add('show');
+    btn.disabled = false;
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('show');
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
