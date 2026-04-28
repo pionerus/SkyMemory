@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Music library · Freefall admin</title>
+<style>
+  body {
+    margin: 0;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: #fbfaf7;
+    color: #0a0a14;
+  }
+  header {
+    padding: 18px 32px;
+    border-bottom: 1px solid #eee;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: white;
+  }
+  header .mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg,#ffd6b3,#e0d4ff); display: grid; place-items: center; font-size: 18px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .meta { color: #777; font-size: 13px; }
+  header .nav { margin-left: auto; display: flex; gap: 16px; font-size: 14px; }
+  header .nav a { color: #4f46e5; text-decoration: none; }
+  main { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+  .card { background: white; border: 1px solid #eee; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+  h2 { margin: 0 0 4px; font-size: 18px; }
+  .sub { color: #777; font-size: 14px; margin: 0 0 20px; }
+
+  .upload-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px;
+    margin-top: 8px;
+  }
+  .upload-grid label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #555; }
+  .upload-grid input[type="text"], .upload-grid input[type="number"] {
+    width: 100%; box-sizing: border-box; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid #ddd; font: inherit;
+  }
+  .upload-grid input:focus { outline: 2px solid #4f46e5; border-color: transparent; }
+  .upload-grid .full { grid-column: 1 / -1; }
+  .file-zone {
+    border: 2px dashed #ddd; border-radius: 10px;
+    padding: 18px; text-align: center; color: #999; font-size: 13px;
+    background: #fafafa;
+    transition: border-color 120ms;
+  }
+  .file-zone.has-file { border-style: solid; border-color: #c5b9ff; background: white; color: #0a0a14; }
+  .file-zone input[type="file"] { display: none; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  th { color: #777; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  tr.inactive { color: #999; }
+  audio { width: 220px; height: 36px; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eee; color: #555; margin-right: 4px; }
+  .pill.mood     { background: #e0d4ff; color: #4338ca; }
+  .pill.intent   { background: #b5e4ca; color: #14532d; }
+  .pill.inactive { background: #ffd1d6; color: #7f1d1d; }
+
+  .btn {
+    display: inline-block; padding: 9px 16px; border-radius: 8px;
+    background: #4f46e5; color: white; text-decoration: none;
+    font-weight: 600; font-size: 13px; border: none; cursor: pointer;
+  }
+  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+  .btn.secondary { background: white; color: #0a0a14; border: 1px solid #ddd; }
+  .btn.danger    { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+  .err { background: #fee2e2; color: #991b1b; padding: 10px 12px; border-radius: 10px; margin-top: 16px; font-size: 13px; display: none; }
+  .err.show { display: block; }
+  .ok  { background: #dcfce7; color: #14532d; padding: 10px 12px; border-radius: 10px; margin-top: 16px; font-size: 13px; display: none; }
+  .ok.show  { display: block; }
+
+  .empty { color: #888; text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">🪂</div>
+  <div>
+    <h1>Music library</h1>
+    <div class="meta">{{.OperatorEmail}} · global tracks visible to all clubs</div>
+  </div>
+  <div class="nav">
+    <a href="/">← Dashboard</a>
+    <a href="/admin/tokens">License tokens</a>
+    <form method="POST" action="/auth/logout" style="display:inline">
+      <button type="submit" class="btn secondary" style="font-size:13px;padding:6px 12px">Sign out</button>
+    </form>
+  </div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Upload a new track</h2>
+    <p class="sub">MP3 file (≤100 MB). License + mood tags help studio operators pick a fitting track. Tracks are <strong>global</strong> — every club sees them in their studio.</p>
+
+    <form id="f" novalidate>
+      <div class="file-zone" id="dropZone">
+        <input type="file" name="file" accept="audio/mpeg,audio/mp3,audio/*" id="fileIn">
+        <span id="fileLabel">Click or drop an MP3 file here</span>
+      </div>
+
+      <div class="upload-grid" style="margin-top:14px">
+        <div class="full"><label>Title *</label>
+          <input type="text" name="title" required maxlength="200"
+                 placeholder="auto-filled from filename if empty">
+        </div>
+        <div><label>Artist</label>
+          <input type="text" name="artist" maxlength="100">
+        </div>
+        <div><label>Duration in seconds *</label>
+          <input type="number" name="duration_seconds" min="1" max="3600" required
+                 placeholder="e.g. 187">
+        </div>
+        <div><label>License *</label>
+          <input type="text" name="license" required value="CC0"
+                 placeholder="CC0 / CC-BY / YouTube Audio Library">
+        </div>
+        <div><label>Mood (csv) <span style="color:#999;font-weight:400">e.g. epic, fun</span></label>
+          <input type="text" name="mood" placeholder="epic, chill">
+        </div>
+        <div class="full"><label>Suggested for (csv) <span style="color:#999;font-weight:400">intro / main / outro</span></label>
+          <input type="text" name="suggested_for" placeholder="main">
+        </div>
+      </div>
+
+      <button type="submit" class="btn" style="margin-top:14px" id="uploadBtn">Upload track</button>
+      <div id="err" class="err"></div>
+      <div id="ok"  class="ok"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Library</h2>
+    <p class="sub">Soft-delete keeps the row for audit (old jumps may reference it). Hard-delete also removes the S3 object — only do this for tracks no jump has ever picked.</p>
+    <div id="tableHost"><div class="empty">Loading…</div></div>
+  </div>
+</main>
+
+<script>
+const fileIn    = document.getElementById('fileIn');
+const dropZone  = document.getElementById('dropZone');
+const fileLabel = document.getElementById('fileLabel');
+const form      = document.getElementById('f');
+const uploadBtn = document.getElementById('uploadBtn');
+const errEl     = document.getElementById('err');
+const okEl      = document.getElementById('ok');
+const tableHost = document.getElementById('tableHost');
+
+dropZone.addEventListener('click', () => fileIn.click());
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('has-file'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('has-file'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    fileIn.files = e.dataTransfer.files;
+    fileLabel.textContent = e.dataTransfer.files[0].name;
+    dropZone.classList.add('has-file');
+  }
+});
+fileIn.addEventListener('change', () => {
+  if (fileIn.files && fileIn.files[0]) {
+    fileLabel.textContent = fileIn.files[0].name;
+    dropZone.classList.add('has-file');
+  }
+});
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errEl.classList.remove('show'); okEl.classList.remove('show');
+  if (!fileIn.files || !fileIn.files[0]) {
+    errEl.textContent = 'Please pick an MP3 file first.';
+    errEl.classList.add('show');
+    return;
+  }
+  uploadBtn.disabled = true;
+  const orig = uploadBtn.textContent;
+  uploadBtn.textContent = 'Uploading…';
+  try {
+    const fd = new FormData(form);
+    const res = await fetch('/admin/music', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    okEl.textContent = 'Uploaded "' + body.title + '" (id #' + body.id + ').';
+    okEl.classList.add('show');
+    form.reset();
+    fileLabel.textContent = 'Click or drop an MP3 file here';
+    dropZone.classList.remove('has-file');
+    load();
+  } catch (e) {
+    errEl.textContent = 'Upload failed: ' + e.message;
+    errEl.classList.add('show');
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = orig;
+  }
+});
+
+function durFmt(s) { if (!s) return ''; return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+
+async function load() {
+  try {
+    const res = await fetch('/admin/music?include_inactive=1', { credentials: 'same-origin' });
+    if (!res.ok) {
+      if (res.status === 401) { location.href = '/login'; return; }
+      throw new Error('HTTP ' + res.status);
+    }
+    const body = await res.json();
+    render(body.tracks || []);
+  } catch (e) {
+    tableHost.innerHTML = '<div class="empty" style="color:#991b1b">Failed: ' + e.message + '</div>';
+  }
+}
+
+function render(tracks) {
+  if (tracks.length === 0) {
+    tableHost.innerHTML = '<div class="empty">No tracks yet. Upload your first above.</div>';
+    return;
+  }
+  let h = '<table><thead><tr>'
+        + '<th>ID</th><th>Title</th><th>Artist</th><th>Length</th>'
+        + '<th>Tags</th><th>License</th><th>Preview</th><th>Status</th><th></th></tr></thead><tbody>';
+  for (const t of tracks) {
+    const inactive = !t.is_active;
+    const moodPills   = (t.mood || []).map(m => '<span class="pill mood">' + m + '</span>').join('');
+    const intentPills = (t.suggested_for || []).map(m => '<span class="pill intent">' + m + '</span>').join('');
+    h += '<tr class="' + (inactive ? 'inactive' : '') + '">'
+       + '<td class="mono">#' + t.id + '</td>'
+       + '<td><strong>' + escapeHtml(t.title) + '</strong></td>'
+       + '<td>' + escapeHtml(t.artist || '') + '</td>'
+       + '<td class="mono">' + durFmt(t.duration_seconds) + '</td>'
+       + '<td>' + moodPills + intentPills + '</td>'
+       + '<td>' + escapeHtml(t.license) + '</td>'
+       + '<td>' + (t.preview_url
+           ? '<audio controls preload="none" src="' + t.preview_url + '"></audio>'
+           : '<span class="pill">no preview</span>') + '</td>'
+       + '<td>' + (inactive
+           ? '<span class="pill inactive">inactive</span>'
+           : '<span class="pill" style="background:#b5e4ca;color:#14532d">active</span>') + '</td>'
+       + '<td>' + (inactive
+           ? '<button class="btn danger" data-hard="' + t.id + '">Hard-delete</button>'
+           : '<button class="btn danger" data-soft="' + t.id + '">Deactivate</button>') + '</td>'
+       + '</tr>';
+  }
+  h += '</tbody></table>';
+  tableHost.innerHTML = h;
+  for (const btn of tableHost.querySelectorAll('button[data-soft]'))
+    btn.addEventListener('click', () => del(btn.dataset.soft, false));
+  for (const btn of tableHost.querySelectorAll('button[data-hard]'))
+    btn.addEventListener('click', () => del(btn.dataset.hard, true));
+}
+
+async function del(id, hard) {
+  const verb = hard ? 'hard-delete' : 'deactivate';
+  if (!confirm('Are you sure you want to ' + verb + ' track #' + id + '?')) return;
+  try {
+    const res = await fetch('/admin/music/' + id + (hard ? '?hard=1' : ''),
+                            { method: 'DELETE', credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    load();
+  } catch (e) {
+    errEl.textContent = verb + ' failed: ' + e.message;
+    errEl.classList.add('show');
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+load();
+</script>
+</body>
+</html>

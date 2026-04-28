@@ -16,6 +16,16 @@ type ServerConfig struct {
 	SecretKey       string // session signing
 	SentryDSN       string // optional, can also live in app_settings
 	PublicBaseURL   string // e.g. https://app.freefall.ing — used for signed-link emails
+
+	// S3-compatible object storage for the music library + (later) the
+	// platform's "cloud-hosted" storage fallback for tenants that don't bring
+	// their own bucket. Defaults match compose.yml's MinIO.
+	MusicEndpoint     string // e.g. http://localhost:59000 (path-style for MinIO)
+	MusicRegion       string // 'auto' / 'eu-central-1'
+	MusicAccessKey    string
+	MusicSecretKey    string
+	MusicBucket       string // 'freefall-music'
+	MusicUsePathStyle bool   // true for MinIO
 }
 
 // StudioConfig — minimal env for the local Windows binary.
@@ -35,6 +45,14 @@ func LoadServer() (*ServerConfig, error) {
 		SecretKey:     os.Getenv("FREEFALL_SECRET_KEY"),
 		SentryDSN:     os.Getenv("FREEFALL_SENTRY_DSN"),
 		PublicBaseURL: getenv("FREEFALL_PUBLIC_BASE_URL", "http://localhost:8000"),
+
+		// Music library storage. Defaults are dev MinIO from compose.yml.
+		MusicEndpoint:     getenv("FREEFALL_MUSIC_ENDPOINT", "http://localhost:59000"),
+		MusicRegion:       getenv("FREEFALL_MUSIC_REGION", "auto"),
+		MusicAccessKey:    getenv("FREEFALL_MUSIC_ACCESS_KEY", "freefall"),
+		MusicSecretKey:    getenv("FREEFALL_MUSIC_SECRET_KEY", "freefall_dev_secret"),
+		MusicBucket:       getenv("FREEFALL_MUSIC_BUCKET", "freefall-music"),
+		MusicUsePathStyle: getenv("FREEFALL_MUSIC_PATH_STYLE", "true") == "true",
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("FREEFALL_DATABASE_URL is required")

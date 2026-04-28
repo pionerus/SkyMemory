@@ -20,6 +20,8 @@ import (
 	"github.com/pionerus/freefall/internal/config"
 	"github.com/pionerus/freefall/internal/db"
 	"github.com/pionerus/freefall/internal/jump"
+	"github.com/pionerus/freefall/internal/music"
+	"github.com/pionerus/freefall/internal/storage"
 	"github.com/pionerus/freefall/web/server/templates"
 )
 
@@ -50,6 +52,20 @@ func main() {
 	authH := &auth.Handlers{DB: pool, Sessions: sessions}
 	jumpH := &jump.Handlers{DB: pool}
 	requireToken := auth.RequireLicenseToken(pool)
+
+	// Music storage. EnsureBucket is idempotent — safe on every boot.
+	musicStorage, err := storage.NewMusicClient(cfg)
+	if err != nil {
+		log.Fatalf("music storage: %v", err)
+	}
+	bucketCtx, bucketCancel := context.WithTimeout(ctx, 8*time.Second)
+	if berr := musicStorage.EnsureBucket(bucketCtx); berr != nil {
+		log.Printf("WARN: music bucket %q not ready (%v) — admin uploads will fail until it's reachable", cfg.MusicBucket, berr)
+	} else {
+		log.Printf("music bucket: %s @ %s", cfg.MusicBucket, cfg.MusicEndpoint)
+	}
+	bucketCancel()
+	musicH := &music.Handlers{DB: pool, Storage: musicStorage}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -97,6 +113,12 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
   <p><a href="/admin/tokens" class="btn">Manage license tokens →</a></p>
 </div>
 
+<div class="card">
+  <h3 style="margin-top:0">Music library</h3>
+  <p>Upload royalty-free MP3 tracks. Studio operators pick from this catalog when finalising a project.</p>
+  <p><a href="/admin/music-library" class="btn">Manage music library →</a></p>
+</div>
+
 <p style="margin-top:2rem;color:#888;font-size:13px">
   Diagnostics: <a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a>
 </p>
@@ -119,6 +141,22 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	r.With(sessions.RequireOwner).Post("/admin/license-tokens", authH.CreateToken)
 	r.With(sessions.RequireOwner).Get("/admin/license-tokens", authH.ListTokens)
 	r.With(sessions.RequireOwner).Delete("/admin/license-tokens/{id}", authH.RevokeToken)
+
+	// Admin: music library (owner-only). Tracks are GLOBAL — visible to all clubs.
+	r.With(sessions.RequireOwner).Post("/admin/music", musicH.Upload)
+	r.With(sessions.RequireOwner).Get("/admin/music", musicH.List)
+	r.With(sessions.RequireOwner).Delete("/admin/music/{id}", musicH.Delete)
+
+	// Admin HTML — music library page
+	r.With(sessions.RequireOwner).Get("/admin/music-library", func(w http.ResponseWriter, r *http.Request) {
+		s := auth.MustFromContext(r.Context())
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := templates.Templates.ExecuteTemplate(w, "admin_music.html", map[string]any{
+			"OperatorEmail": s.OperatorEmail,
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 
 	// Admin HTML — owner-rendered page that drives the JSON CRUD above.
 	r.With(sessions.RequireOwner).Get("/admin/tokens", func(w http.ResponseWriter, r *http.Request) {
