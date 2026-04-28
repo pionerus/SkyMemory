@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -76,11 +77,18 @@ func (db *DB) migrate(ctx context.Context) error {
 		return err
 	}
 
-	for v, stmt := range schemaSteps {
+	// schemaSteps is a map; iterate in numeric order so v1 always runs before v2.
+	versions := make([]int, 0, len(schemaSteps))
+	for v := range schemaSteps {
+		versions = append(versions, v)
+	}
+	sort.Ints(versions)
+
+	for _, v := range versions {
 		if v <= current {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		if _, err := db.ExecContext(ctx, schemaSteps[v]); err != nil {
 			return fmt.Errorf("apply schema v%d: %w", v, err)
 		}
 		if _, err := db.ExecContext(ctx,
@@ -132,5 +140,29 @@ var schemaSteps = map[int]string{
 			archived        INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX idx_projects_updated ON projects(updated_at DESC);
+	`,
+
+	2: `
+		CREATE TABLE clips (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			kind            TEXT NOT NULL,
+				-- canonical: intro | interview_pre | walk | interview_plane | freefall | landing | closing
+				-- custom:    custom:<label>
+			source_path     TEXT NOT NULL,                    -- absolute local path on operator's disk
+			source_filename TEXT NOT NULL,                    -- original filename for display
+			source_size_bytes INTEGER NOT NULL,
+			source_sha256   TEXT,                             -- not yet computed; reserved for dedup
+			duration_seconds REAL,                            -- ffprobe format.duration
+			codec           TEXT,                             -- ffprobe streams[0].codec_name
+			width           INTEGER,
+			height          INTEGER,
+			fps             REAL,                             -- numeric form of streams[0].r_frame_rate
+			has_audio       INTEGER NOT NULL DEFAULT 0,
+			audio_codec     TEXT,
+			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			UNIQUE(project_id, kind)                          -- one clip per slot per project; replace = upsert
+		);
+		CREATE INDEX idx_clips_project ON clips(project_id);
 	`,
 }

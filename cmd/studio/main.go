@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 	"github.com/pionerus/freefall/internal/config"
+	"github.com/pionerus/freefall/internal/studio/ffprobe"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
 	"github.com/pionerus/freefall/internal/studio/state"
@@ -43,6 +46,18 @@ func main() {
 	}
 	defer stateDB.Close()
 	log.Printf("state: %s", stateDB.Path())
+
+	// Job dir = sibling of state.db. Holds uploaded clips (and later, intermediate
+	// renders, music cache, output MP4s). Created lazily on first upload.
+	jobsDir := filepath.Join(filepath.Dir(cfg.StatePath), "jobs")
+	if err := os.MkdirAll(jobsDir, 0o755); err != nil {
+		log.Fatalf("mkdir jobs dir: %v", err)
+	}
+	log.Printf("jobs: %s", jobsDir)
+
+	if !ffprobe.IsAvailable() {
+		log.Printf("WARN: ffprobe not on PATH — clip uploads will be accepted without metadata. Install ffmpeg.")
+	}
 
 	licenseClient := license.NewClient(cfg.CloudBaseURL)
 	licenseMgr := license.NewManager(licenseClient, cfg.LicenseToken, version, 0 /* default 6h */)
@@ -191,12 +206,11 @@ func main() {
 		})
 	})
 
-	// Detail page for one local project. Placeholder for the upcoming clip-upload UI.
+	// Detail page for one local project. Shows real clip slots driven by state.db.
 	r.Get("/projects/{id}", func(w http.ResponseWriter, req *http.Request) {
-		idStr := chi.URLParam(req, "id")
-		id, err := strconv.ParseInt(idStr, 10, 64)
+		id, err := parseInt64URLParam(req, "id")
 		if err != nil {
-			http.Error(w, "invalid project id", http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		p, err := stateDB.GetProject(req.Context(), id)
@@ -208,14 +222,173 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		clips, err := stateDB.ListClips(req.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Build a {kind -> *Clip} map for template-side lookup per slot.
+		clipByKind := map[string]*state.Clip{}
+		for i := range clips {
+			c := clips[i]
+			clipByKind[c.Kind] = &c
+		}
+
 		licRes, _ := licenseMgr.Snapshot()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = ui.Templates.ExecuteTemplate(w, "project_detail.html", map[string]any{
-			"License":      licRes,
-			"CloudBaseURL": cfg.CloudBaseURL,
-			"P":            p,
+			"License":             licRes,
+			"CloudBaseURL":        cfg.CloudBaseURL,
+			"P":                   p,
 			"AccessCodeCanonical": strings.ReplaceAll(p.AccessCode, "-", ""),
+			"CanonicalKinds":      state.CanonicalKinds(),
+			"ClipByKind":          clipByKind,
+			"FFprobeAvailable":    ffprobe.IsAvailable(),
 		})
+	})
+
+	// POST a clip file into a project's slot. Multipart with field name "file".
+	// Stores under <jobsDir>/<project_id>/<sanitized_kind>.<ext>, runs ffprobe,
+	// upserts a row in clips. Returns the resulting clip JSON.
+	r.Post("/projects/{id}/clips/{kind}", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		if !isValidKind(kind) {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_KIND", "message": "Unknown segment kind: " + kind})
+			return
+		}
+
+		// Verify project exists locally (also enforces tenant isolation indirectly —
+		// state.db is per-machine; nobody else can hit this endpoint).
+		if _, err := stateDB.GetProject(req.Context(), id); err != nil {
+			if errors.Is(err, state.ErrNotFound) {
+				writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "PROJECT_NOT_FOUND", "message": "Project not found in local state.db."})
+				return
+			}
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		// Cap upload size at 30GB. 4K originals can be huge but we don't want a runaway disk fill.
+		if err := req.ParseMultipartForm(64 << 20); err != nil { // 64MB in-memory threshold; rest streams to temp
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_FORM", "message": err.Error()})
+			return
+		}
+		f, fh, err := req.FormFile("file")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "FILE_MISSING", "message": "Form field 'file' is missing."})
+			return
+		}
+		defer f.Close()
+		const maxClipBytes = int64(30) << 30 // 30GB
+		if fh.Size > maxClipBytes {
+			writeStudioJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"code": "FILE_TOO_LARGE", "message": "Clip larger than 30GB cap.",
+			})
+			return
+		}
+
+		ext := filepath.Ext(fh.Filename)
+		if ext == "" {
+			ext = ".mp4"
+		}
+		safeKind := sanitizeKindForFilename(kind)
+		projectDir := filepath.Join(jobsDir, strconv.FormatInt(id, 10))
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "FS_ERROR", "message": err.Error()})
+			return
+		}
+		dstPath := filepath.Join(projectDir, safeKind+ext)
+
+		// If a previous file existed for this slot with a different extension, drop it.
+		// Same-extension case is handled by the os.Create overwrite below.
+		if oldClip, _ := stateDB.GetClip(req.Context(), id, kind); oldClip != nil && oldClip.SourcePath != "" && oldClip.SourcePath != dstPath {
+			if filepath.Dir(oldClip.SourcePath) == projectDir {
+				_ = os.Remove(oldClip.SourcePath)
+			}
+		}
+
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "FS_ERROR", "message": err.Error()})
+			return
+		}
+		written, err := io.Copy(dst, f)
+		closeErr := dst.Close()
+		if err != nil {
+			_ = os.Remove(dstPath)
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "WRITE_ERROR", "message": err.Error()})
+			return
+		}
+		if closeErr != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "WRITE_ERROR", "message": closeErr.Error()})
+			return
+		}
+
+		// Best-effort ffprobe. If it fails (or ffprobe is missing) we still record the clip;
+		// metadata will be empty and the UI surfaces a "Probe failed" hint.
+		clipRow := state.Clip{
+			ProjectID:       id,
+			Kind:            kind,
+			SourcePath:      dstPath,
+			SourceFilename:  fh.Filename,
+			SourceSizeBytes: written,
+		}
+		if md, err := ffprobe.Probe(req.Context(), dstPath); err == nil && md != nil {
+			clipRow.DurationSeconds = md.DurationSeconds
+			clipRow.Codec = md.Codec
+			clipRow.Width = md.Width
+			clipRow.Height = md.Height
+			clipRow.FPS = md.FPS
+			clipRow.HasAudio = md.HasAudio
+			clipRow.AudioCodec = md.AudioCodec
+		} else if err != nil {
+			log.Printf("WARN: ffprobe failed on %s: %v", dstPath, err)
+		}
+
+		clipID, err := stateDB.UpsertClip(req.Context(), clipRow)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		clipRow.ID = clipID
+		writeStudioJSON(w, http.StatusOK, clipRow)
+	})
+
+	// DELETE a clip from a slot. Removes both the disk file (if under our jobs dir)
+	// and the state.db row. Used by the "Replace" button in the UI.
+	r.Delete("/projects/{id}/clips/{kind}", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		// Only delete the file if it's inside our jobs dir (defensive — never delete
+		// a path the operator might have given us pointing elsewhere).
+		if strings.HasPrefix(clip.SourcePath, jobsDir+string(os.PathSeparator)) {
+			_ = os.Remove(clip.SourcePath)
+		}
+
+		if err := stateDB.DeleteClip(req.Context(), id, kind); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	})
 
 	srv := &http.Server{
@@ -262,6 +435,49 @@ func writeStudioJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// parseInt64URLParam pulls a chi URL param and parses it as int64. Returns a
+// friendly error so handlers can return 400.
+func parseInt64URLParam(req *http.Request, name string) (int64, error) {
+	s := chi.URLParam(req, name)
+	if s == "" {
+		return 0, errors.New(name + " is required")
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, errors.New(name + " must be an integer")
+	}
+	return n, nil
+}
+
+// isValidKind permits the 7 canonical segment kinds plus operator-defined custom
+// ones with a "custom:" prefix and a non-empty alphanumeric label.
+func isValidKind(k string) bool {
+	switch k {
+	case state.KindIntro, state.KindInterviewPre, state.KindWalk,
+		state.KindInterviewPlane, state.KindFreefall, state.KindLanding, state.KindClosing:
+		return true
+	}
+	if !strings.HasPrefix(k, state.CustomPrefix) {
+		return false
+	}
+	label := k[len(state.CustomPrefix):]
+	if label == "" || len(label) > 40 {
+		return false
+	}
+	for _, c := range label {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// sanitizeKindForFilename converts a kind to a safe filesystem token.
+// "interview_pre" -> "interview_pre", "custom:slow_motion" -> "custom_slow_motion".
+func sanitizeKindForFilename(k string) string {
+	return strings.ReplaceAll(k, ":", "_")
 }
 
 // pingCloud does a fast HEAD to /healthz to populate the "Cloud connected" pill.
