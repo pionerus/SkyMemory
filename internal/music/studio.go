@@ -7,8 +7,11 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 	"github.com/pionerus/freefall/internal/auth"
@@ -59,6 +62,44 @@ func (h *Handlers) StudioCatalog(w http.ResponseWriter, r *http.Request) {
 		out = append(out, t)
 	}
 	writeJSON(w, http.StatusOK, v1.MusicListResponse{Tracks: out})
+}
+
+// =====================================================================
+// GET /api/v1/music/{id}/file — redirects studio to a fresh 30-min presigned
+// URL for downloading the FULL track file (used by the renderer to mix the
+// score in). Reuses tenant-visibility scope: a tenant can't fetch another
+// tenant's private uploads.
+// =====================================================================
+func (h *Handlers) StudioDownload(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "INVALID_ID", "track id must be an integer")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var s3Key string
+	err = h.DB.QueryRow(ctx, `
+		SELECT s3_key FROM music_visible_to
+		WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)`,
+		id, s.TenantID,
+	).Scan(&s3Key)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "NOT_FOUND", "Track not in your library or inactive.")
+		return
+	}
+
+	url, err := h.Storage.PresignGet(ctx, s3Key, 30*time.Minute)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "PRESIGN_FAILED", err.Error())
+		return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
 }
 
 // =====================================================================

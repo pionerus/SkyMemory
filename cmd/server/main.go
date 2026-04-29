@@ -187,6 +187,7 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	r.With(requireToken).Put("/api/v1/jumps/{id}/music", jumpH.SetMusic)
 	r.With(requireToken).Get("/api/v1/music", musicH.StudioCatalog)
 	r.With(requireToken).Post("/api/v1/music/suggest", musicH.StudioSuggest)
+	r.With(requireToken).Get("/api/v1/music/{id}/file", musicH.StudioDownload)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

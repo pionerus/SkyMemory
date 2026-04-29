@@ -68,7 +68,20 @@ func main() {
 
 	jumpClient := jump.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
 	musicClient := studiomusic.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
-	pipelineRunner := &pipeline.Runner{DB: stateDB, JobsDir: jobsDir}
+
+	// Music cache lives next to state.db so backups/cleanup are easy to reason about.
+	musicCacheDir := filepath.Join(filepath.Dir(cfg.StatePath), "music-cache")
+	musicCache, err := studiomusic.NewCache(musicCacheDir, musicClient)
+	if err != nil {
+		log.Fatalf("music cache: %v", err)
+	}
+	log.Printf("music cache: %s", musicCacheDir)
+
+	pipelineRunner := &pipeline.Runner{
+		DB:         stateDB,
+		JobsDir:    jobsDir,
+		MusicCache: musicCache,
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)

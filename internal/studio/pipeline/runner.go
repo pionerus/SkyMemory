@@ -33,9 +33,21 @@ type Runner struct {
 	DB      *state.DB
 	JobsDir string // ~/.freefall-studio/jobs
 
+	// MusicCache resolves a project's music_track_id to a local file path,
+	// downloading from cloud on first call. Optional — when nil, the pipeline
+	// silently skips the mix stage and the output has only the project audio.
+	MusicCache MusicCacheLike
+
 	// FFmpegPath / FFprobePath are looked up from PATH on first Run if empty.
 	FFmpegPath  string
 	FFprobePath string
+}
+
+// MusicCacheLike abstracts internal/studio/music.Cache so the pipeline package
+// doesn't import studio/music directly (avoids an import cycle with anything
+// that wants to use both packages from cmd/studio).
+type MusicCacheLike interface {
+	Ensure(ctx context.Context, trackID int64) (string, error)
 }
 
 // Run kicks off the synchronous pipeline. Caller is expected to invoke it
@@ -107,8 +119,8 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		return "", r.fail(ctx, generationID, "write concat list: "+err.Error())
 	}
 
-	finalOut := filepath.Join(projectDir, "output_1080p.mp4")
-	_ = os.Remove(finalOut) // overwrite previous
+	concatOnly := filepath.Join(intermediatesDir, "concat_only.mp4")
+	_ = os.Remove(concatOnly)
 
 	cmd := exec.CommandContext(ctx, r.FFmpegPath,
 		"-nostats", "-hide_banner",
@@ -116,15 +128,50 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		"-f", "concat",
 		"-safe", "0",
 		"-i", listFile,
-		"-c", "copy",      // intermediates are already H.264/AAC at 1080p — concat without re-encode
+		"-c", "copy", // intermediates are already H.264/AAC at 1080p — concat without re-encode
 		"-movflags", "+faststart",
-		finalOut,
+		concatOnly,
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", r.fail(ctx, generationID, fmt.Sprintf("ffmpeg concat failed: %v\n%s", err, string(out)))
 	}
 
-	// === Stage C: stat output, mark done ===
+	finalOut := filepath.Join(projectDir, "output_1080p.mp4")
+	_ = os.Remove(finalOut) // overwrite previous
+
+	// === Stage C: mix music (only if project has a picked track) ===
+	project, err := r.DB.GetProject(ctx, projectID)
+	if err != nil {
+		return "", r.fail(ctx, generationID, "load project for music: "+err.Error())
+	}
+
+	if project.MusicTrackID > 0 && r.MusicCache != nil {
+		_ = r.DB.UpdateGeneration(ctx, generationID, state.GenerationPatch{
+			Status:      ptr(state.GenStatusConcating),
+			StepLabel:   ptr("downloading music + mixing"),
+			ProgressPct: ptr(92),
+		})
+
+		musicPath, err := r.MusicCache.Ensure(ctx, project.MusicTrackID)
+		if err != nil {
+			return "", r.fail(ctx, generationID, "music download: "+err.Error())
+		}
+
+		// Total project duration (sum of trim windows) — used for the music fade-out.
+		// Falls back to "skip fade-out" if zero.
+		totalSec, _ := r.DB.SumProjectClipDuration(ctx, projectID)
+
+		if err := r.mixMusic(ctx, concatOnly, musicPath, totalSec, finalOut); err != nil {
+			return "", r.fail(ctx, generationID, "music mix: "+err.Error())
+		}
+	} else {
+		// No music picked: rename concat-only into the canonical output path.
+		if err := os.Rename(concatOnly, finalOut); err != nil {
+			return "", r.fail(ctx, generationID, "rename concat output: "+err.Error())
+		}
+	}
+
+	// === Stage D: stat output, mark done ===
 	stat, err := os.Stat(finalOut)
 	if err != nil {
 		return "", r.fail(ctx, generationID, "stat output: "+err.Error())
@@ -139,6 +186,52 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		Finish:      true,
 	})
 	return finalOut, nil
+}
+
+// mixMusic adds a music bed under the existing project audio.
+//
+// Filter chain:
+//   • [1:a] aloop=loop=-1:size=2e9   — repeat music if shorter than video
+//   • volume=0.25                    — duck music to 25% so dialogue stays clear
+//   • afade=t=in:st=0:d=1            — 1-sec fade-in at music start
+//   • [outa] amix duration=first     — output ends when project audio ends
+//   • afade=t=out:st=<end-1>:d=1     — 1-sec fade-out on the mixed result
+//
+// Video is stream-copied (-c:v copy) — no re-encode, no quality loss.
+func (r *Runner) mixMusic(ctx context.Context, videoPath, musicPath string, totalSec float64, dstPath string) error {
+	// Music stream filter: loop infinitely, drop to 25%, fade in over 1s.
+	bgFilter := "[1:a]aloop=loop=-1:size=2e9,volume=0.25,afade=t=in:st=0:d=1[bg]"
+
+	// Mix project audio with music. Apply a 1-second fade-out at the very end
+	// of the result if we know the duration; otherwise skip the fade.
+	mixFilter := "[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0"
+	if totalSec > 1.5 {
+		fadeStart := totalSec - 1.0
+		mixFilter += fmt.Sprintf(",afade=t=out:st=%s:d=1", floatStr(fadeStart))
+	}
+	mixFilter += "[outa]"
+
+	filterComplex := bgFilter + ";" + mixFilter
+
+	cmd := exec.CommandContext(ctx, r.FFmpegPath,
+		"-nostats", "-hide_banner",
+		"-y",
+		"-i", videoPath,
+		"-i", musicPath,
+		"-filter_complex", filterComplex,
+		"-map", "0:v",
+		"-map", "[outa]",
+		"-c:v", "copy",
+		"-c:a", "aac",
+		"-b:a", "192k",
+		"-ar", "48000",
+		"-movflags", "+faststart",
+		dstPath,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ffmpeg mix: %v\n%s", err, string(out))
+	}
+	return nil
 }
 
 // trimAndNormalise runs ffmpeg with -ss/-to + scale-pad to bring an arbitrary
