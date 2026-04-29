@@ -188,30 +188,44 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 	return finalOut, nil
 }
 
-// mixMusic adds a music bed under the existing project audio.
+// mixMusic adds a music bed under the existing project audio AND ducks the
+// music dynamically using sidechain compression triggered by the project
+// audio itself.
+//
+// Why this is the right shape (matches the pipeline plan §"Step 6 mix"):
+//   • Action segments (intro/walk/freefall/landing/closing/custom) had their
+//     audio muted in Stage A → silence at the duck trigger → music plays
+//     at full volume. The wind-noise / footsteps the operator didn't want
+//     are gone, replaced by the score.
+//   • Interview segments kept their speech → trigger the compressor → music
+//     ducks below the dialogue automatically. No manual volume keyframes.
 //
 // Filter chain:
-//   • [1:a] aloop=loop=-1:size=2e9   — repeat music if shorter than video
-//   • volume=0.25                    — duck music to 25% so dialogue stays clear
-//   • afade=t=in:st=0:d=1            — 1-sec fade-in at music start
-//   • [outa] amix duration=first     — output ends when project audio ends
-//   • afade=t=out:st=<end-1>:d=1     — 1-sec fade-out on the mixed result
+//   [1:a] aloop=loop=-1:size=2e9, afade=t=in:st=0:d=1, volume=0.7  [music_in]
+//          # repeat if music shorter than video, 1s fade-in at start, gentle
+//          # pre-attenuation so even un-ducked music isn't overpowering
+//   [music_in][0:a]
+//          sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400
+//                                                                    [duck]
+//          # music compressed by project audio: speech in [0:a] makes [duck]
+//          # drop ~8x; silence keeps [duck] at the [music_in] level.
+//   [0:a][duck] amix=inputs=2:duration=first:dropout_transition=0,
+//          afade=t=out:st=<dur-1>:d=1                              [outa]
+//          # mix speech and ducked music; 1s fade-out on the final result.
 //
 // Video is stream-copied (-c:v copy) — no re-encode, no quality loss.
 func (r *Runner) mixMusic(ctx context.Context, videoPath, musicPath string, totalSec float64, dstPath string) error {
-	// Music stream filter: loop infinitely, drop to 25%, fade in over 1s.
-	bgFilter := "[1:a]aloop=loop=-1:size=2e9,volume=0.25,afade=t=in:st=0:d=1[bg]"
+	musicIn := "[1:a]aloop=loop=-1:size=2e9,afade=t=in:st=0:d=1,volume=0.7[music_in]"
+	duckChain := "[music_in][0:a]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[duck]"
 
-	// Mix project audio with music. Apply a 1-second fade-out at the very end
-	// of the result if we know the duration; otherwise skip the fade.
-	mixFilter := "[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0"
+	finalChain := "[0:a][duck]amix=inputs=2:duration=first:dropout_transition=0"
 	if totalSec > 1.5 {
 		fadeStart := totalSec - 1.0
-		mixFilter += fmt.Sprintf(",afade=t=out:st=%s:d=1", floatStr(fadeStart))
+		finalChain += fmt.Sprintf(",afade=t=out:st=%s:d=1", floatStr(fadeStart))
 	}
-	mixFilter += "[outa]"
+	finalChain += "[outa]"
 
-	filterComplex := bgFilter + ";" + mixFilter
+	filterComplex := musicIn + ";" + duckChain + ";" + finalChain
 
 	cmd := exec.CommandContext(ctx, r.FFmpegPath,
 		"-nostats", "-hide_banner",
@@ -234,17 +248,29 @@ func (r *Runner) mixMusic(ctx context.Context, videoPath, musicPath string, tota
 	return nil
 }
 
+// isInterviewKind returns true for clip kinds where the operator wants the
+// jumper's spoken audio preserved in the final mix. Everything else (intro,
+// walk, freefall, landing, closing, custom_*) is "action" — the source audio
+// is replaced with silence so only the music score is heard there. The
+// silence ALSO becomes the sidechain duck trigger: zero level → no duck →
+// music plays at full volume during action.
+func isInterviewKind(kind string) bool {
+	return kind == state.KindInterviewPre || kind == state.KindInterviewPlane
+}
+
 // trimAndNormalise runs ffmpeg with -ss/-to + scale-pad to bring an arbitrary
 // source clip into the canonical 1080p H.264 + AAC stereo intermediate format
 // that the concat demuxer can stitch with -c copy.
 //
-// We put -ss/-to AFTER the -i so cuts are frame-accurate (slower than the
-// before-input fast-seek form, but correct — the fast form snaps to keyframes
-// which can over-cut by up to a GOP).
+// Audio handling depends on clip kind:
+//   • interview_pre / interview_plane: clip's own audio is kept (speech).
+//   • everything else (intro / walk / freefall / landing / closing / custom):
+//     audio is replaced with stereo silence via `anullsrc`. The downstream
+//     mix stage uses the concatenated audio as a sidechain duck trigger —
+//     muted action segments → no duck → music plays at full volume there.
 //
-// When the source has no audio, we synthesise a silent stereo track via
-// `anullsrc` and map it explicitly, so all intermediates have a uniform
-// stream layout — concat demuxer chokes on heterogeneous streams.
+// Frame-accurate -ss/-to AFTER -i (slower than fast-seek but correct — the
+// before-input form snaps to keyframes and can over-cut by up to a GOP).
 func (r *Runner) trimAndNormalise(ctx context.Context, c state.Clip, dstPath string) error {
 	in := c.TrimInSeconds
 	if in < 0 {
@@ -277,15 +303,18 @@ func (r *Runner) trimAndNormalise(ctx context.Context, c state.Clip, dstPath str
 		dstPath,
 	}
 
+	keepRealAudio := c.HasAudio && isInterviewKind(c.Kind)
+
 	var args []string
-	if c.HasAudio {
+	if keepRealAudio {
 		args = append([]string{
 			"-nostats", "-hide_banner", "-y",
 			"-i", c.SourcePath,
 		}, commonOut...)
 	} else {
-		// Two inputs: real video + synthetic silence. -shortest stops at the
-		// shorter of the two (the trimmed video).
+		// Either the source has no audio at all (anullsrc fills in the silent
+		// channel) OR it's an action clip whose audio we deliberately mute
+		// (anullsrc replaces it). Same code path.
 		args = append([]string{
 			"-nostats", "-hide_banner", "-y",
 			"-i", c.SourcePath,
