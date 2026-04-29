@@ -219,6 +219,25 @@
   }
   .music-row .pick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .music-row .pick-btn.picked   { background: #b5e4ca; color: #14532d; cursor: default; }
+
+  .suggest-header {
+    display: flex; align-items: center; gap: 8px;
+    background: linear-gradient(135deg,#f5f5ff,#fdfdf3);
+    border: 1px solid #c5b9ff; border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 12px;
+    font-size: 13px;
+  }
+  .suggest-target { color: #6b21a8; margin-left: 8px; font-weight: 600; }
+
+  .music-row .reason {
+    margin-top: 4px; font-size: 11px; color: #6b21a8;
+    font-style: italic;
+  }
+  .music-row .score-pill {
+    display: inline-block; padding: 1px 6px; border-radius: 999px;
+    font-size: 10px; font-weight: 700;
+    background: #ede9fe; color: #5b21b6;
+  }
 </style>
 </head>
 <body>
@@ -251,11 +270,15 @@
   </div>
 
   <div class="card" id="music-section">
-    <div style="display:flex;align-items:center;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Music</h2>
+      <button class="btn" id="suggest-music-btn" style="background:linear-gradient(135deg,#4f46e5,#7c3aed)">✨ Suggest tracks</button>
       <button class="btn secondary" id="open-catalog-btn">Browse library</button>
     </div>
-    <p class="sub" style="margin-top:6px">Pick a royalty-free track from the cloud library. Studio will use it as the project's score during render.</p>
+    <p class="sub" style="margin-top:6px">
+      Pick a royalty-free track from the cloud library. <strong>Suggest</strong> ranks the catalog by your project's
+      total trimmed duration and mood; <strong>Browse library</strong> shows everything.
+    </p>
 
     <div id="current-music">
       {{if .P.MusicTrackID}}
@@ -270,6 +293,19 @@
       {{else}}
         <div class="music-empty">No track picked yet. Click <em>Browse library</em>.</div>
       {{end}}
+    </div>
+
+    <div id="music-suggest" class="music-catalog" style="display:none">
+      <div class="suggest-header">
+        <div>
+          <strong>Suggested for this project</strong>
+          <span class="suggest-target"></span>
+        </div>
+        <button class="btn secondary" id="close-suggest-btn" style="margin-left:auto">Close</button>
+      </div>
+      <div id="suggest-list">
+        <div class="empty">Computing project duration + ranking catalog…</div>
+      </div>
     </div>
 
     <div id="music-catalog" class="music-catalog" style="display:none">
@@ -753,6 +789,92 @@ async function clearTrack() {
   } catch (e) {
     setMusicError('Clear failed: ' + e.message);
   }
+}
+
+// =====================================================================
+// Suggest panel: ✨ button → calls /projects/:id/music/suggest with derived duration.
+// =====================================================================
+const suggestBtn      = document.getElementById('suggest-music-btn');
+const suggestPanel    = document.getElementById('music-suggest');
+const suggestListEl   = document.getElementById('suggest-list');
+const suggestTarget   = document.querySelector('.suggest-target');
+const closeSuggestBtn = document.getElementById('close-suggest-btn');
+
+function renderSuggestRows(tracks) {
+  if (!tracks || tracks.length === 0) {
+    suggestListEl.innerHTML = '<div class="empty" style="padding:20px;text-align:center;color:#999">'
+      + 'No tracks in the cloud library yet — ask the owner to upload some first.</div>';
+    return;
+  }
+  let h = '';
+  for (const t of tracks) {
+    const picked = t.id === MUSIC_PICKED_ID;
+    h += '<div class="music-row ' + (picked ? 'picked' : '') + '" data-track-id="' + t.id + '">'
+       + '<div class="info">'
+       +   '<div class="title">' + escMusic(t.title)
+       +       (t.artist ? ' <span style="color:#888">— ' + escMusic(t.artist) + '</span>' : '')
+       +       (t.score ? ' <span class="score-pill">score ' + t.score.toFixed(1) + '</span>' : '')
+       +   '</div>'
+       +   '<div class="meta">'
+       +     '<span class="pill muted">' + fmtMusicDur(t.duration_seconds) + '</span>'
+       +     '<span class="pill muted">' + escMusic(t.license || '') + '</span>'
+       +     (t.mood || []).map(m => '<span class="pill">' + escMusic(m) + '</span>').join('')
+       +   '</div>'
+       +   (t.reason ? '<div class="reason">' + escMusic(t.reason) + '</div>' : '')
+       + '</div>'
+       + '<div>' + (t.preview_url
+            ? '<audio controls preload="none" src="' + escMusic(t.preview_url) + '"></audio>'
+            : '<span class="pill">no preview</span>') + '</div>'
+       + '<div>' + (picked
+            ? '<button class="pick-btn picked" disabled>✓ Picked</button>'
+            : '<button class="pick-btn">Use this track</button>') + '</div>'
+       + '</div>';
+  }
+  suggestListEl.innerHTML = h;
+
+  for (const btn of suggestListEl.querySelectorAll('.pick-btn:not(.picked)')) {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.music-row');
+      const tid = parseInt(row.dataset.trackId, 10);
+      const track = (tracks || []).find(t => t.id === tid);
+      if (track) pickTrack(track, btn);
+    });
+  }
+}
+
+if (suggestBtn) {
+  suggestBtn.addEventListener('click', async () => {
+    clearMusicError();
+    suggestPanel.style.display = 'block';
+    suggestBtn.disabled = true;
+    const orig = suggestBtn.textContent;
+    suggestBtn.textContent = '✨ Ranking…';
+    suggestListEl.innerHTML = '<div class="empty">Computing project duration + ranking catalog…</div>';
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/music/suggest');
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        suggestListEl.innerHTML = '<div class="empty" style="color:#991b1b;padding:20px;text-align:center">'
+          + (b.message || ('HTTP ' + res.status)) + '</div>';
+        return;
+      }
+      const body = await res.json();
+      if (suggestTarget) {
+        suggestTarget.textContent = body.target_duration_seconds
+          ? '· project ' + fmtMusicDur(body.target_duration_seconds)
+          : '· no clips uploaded yet, ranking by mood/main only';
+      }
+      renderSuggestRows(body.tracks);
+    } catch (e) {
+      suggestListEl.innerHTML = '<div class="empty" style="color:#991b1b;padding:20px;text-align:center">' + e.message + '</div>';
+    } finally {
+      suggestBtn.disabled = false;
+      suggestBtn.textContent = orig;
+    }
+  });
+}
+if (closeSuggestBtn) {
+  closeSuggestBtn.addEventListener('click', () => { suggestPanel.style.display = 'none'; });
 }
 
 if (openCatalogBtn) {

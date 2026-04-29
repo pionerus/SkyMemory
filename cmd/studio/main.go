@@ -520,6 +520,58 @@ func main() {
 		writeStudioJSON(w, http.StatusOK, out)
 	})
 
+	// GET music suggest — derives target duration from this project's clips,
+	// then asks cloud for top-3 ranked picks. Studio doesn't cache; suggestions
+	// reflect current trim state every time.
+	r.Get("/projects/{id}/music/suggest", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		if _, err := stateDB.GetProject(req.Context(), id); err != nil {
+			if errors.Is(err, state.ErrNotFound) {
+				writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "Project not in local state.db."})
+				return
+			}
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		total, err := stateDB.SumProjectClipDuration(req.Context(), id)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		// Optional ?mood=epic,fun query string for filter overrides.
+		var moods []string
+		if raw := req.URL.Query().Get("mood"); raw != "" {
+			for _, m := range strings.Split(raw, ",") {
+				m = strings.TrimSpace(m)
+				if m != "" {
+					moods = append(moods, m)
+				}
+			}
+		}
+
+		callCtx, cancel := context.WithTimeout(req.Context(), 8*time.Second)
+		defer cancel()
+		out, err := musicClient.Suggest(callCtx, int(total+0.5), moods, 3)
+		if err != nil {
+			var apiErr *studiomusic.APIError
+			if errors.As(err, &apiErr) {
+				writeStudioJSON(w, apiErr.HTTPStatus, map[string]string{"code": apiErr.Code, "message": apiErr.Message})
+				return
+			}
+			writeStudioJSON(w, http.StatusBadGateway, map[string]string{"code": "CLOUD_UNREACHABLE", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"target_duration_seconds": int(total + 0.5),
+			"mood":                    moods,
+			"tracks":                  out.Tracks,
+		})
+	})
+
 	// PUT music — body {music_track_id, music_title, music_artist, music_duration_s}.
 	// The denormalised title/artist/duration come from the catalog row the operator
 	// just clicked, so we don't need a second round-trip to read them.

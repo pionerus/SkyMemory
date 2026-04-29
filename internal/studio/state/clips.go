@@ -249,6 +249,46 @@ func (db *DB) UpdateClipTrim(ctx context.Context, projectID int64, kind string, 
 	return nil
 }
 
+// SumProjectClipDuration returns the total seconds the final video would
+// take if rendered from the current set of clips: sum of (effective_trim_out -
+// effective_trim_in) for every clip with metadata. Clips lacking a duration
+// are skipped (we can't reason about them without ffprobe). 0 means the
+// caller should treat the project as "duration unknown".
+func (db *DB) SumProjectClipDuration(ctx context.Context, projectID int64) (float64, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT COALESCE(duration_seconds, 0),
+		       COALESCE(trim_in_seconds,  0),
+		       COALESCE(trim_out_seconds, 0)
+		FROM clips
+		WHERE project_id = ?`, projectID)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	total := 0.0
+	for rows.Next() {
+		var dur, in, out float64
+		if err := rows.Scan(&dur, &in, &out); err != nil {
+			return 0, err
+		}
+		if dur <= 0 {
+			continue // unprobed clip — skip rather than treat as 0-length
+		}
+		// trim_out == 0 is the sentinel "use full clip"
+		if out <= 0 || out > dur {
+			out = dur
+		}
+		if in < 0 {
+			in = 0
+		}
+		if out > in {
+			total += out - in
+		}
+	}
+	return total, rows.Err()
+}
+
 // DeleteClip removes a clip row. Caller is responsible for unlinking the underlying
 // file on disk (we don't own the source — operator's path) — but we DO own the copy
 // under ~/.freefall-studio/jobs/<project_id>/, see cmd/studio/main.go for cleanup.

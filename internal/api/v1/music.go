@@ -20,6 +20,12 @@ type MusicTrack struct {
 	// just before pipeline runs. Server mints it on demand via a separate endpoint.
 	// Empty in /music list responses; populated only after operator picks the track.
 	FetchURL string `json:"fetch_url,omitempty"`
+
+	// Score and Reason are populated only by the suggest endpoint, not by the
+	// catalog endpoint. Score is opaque (higher = better); Reason is a human
+	// sentence the UI shows under the track row.
+	Score  float64 `json:"score,omitempty"`
+	Reason string  `json:"reason,omitempty"`
 }
 
 type MusicListResponse struct {

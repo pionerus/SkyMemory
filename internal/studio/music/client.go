@@ -43,6 +43,38 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("cloud %d %s: %s", e.HTTPStatus, e.Code, e.Message)
 }
 
+// Suggest asks the cloud for top-N picks scored against the given target
+// duration (sum of trimmed clip windows) and optional mood preferences.
+// Returns tracks pre-sorted by score; each carries a Reason string.
+func (c *Client) Suggest(ctx context.Context, durationSeconds int, mood []string, limit int) (*v1.MusicSuggestResponse, error) {
+	body, _ := json.Marshal(v1.MusicSuggestRequest{
+		DurationSeconds: durationSeconds,
+		Mood:            mood,
+		Limit:           limit,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v1/music/suggest", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("post suggest: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, parseAPIError(respBody, resp.StatusCode)
+	}
+	var out v1.MusicSuggestResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode suggest: %w", err)
+	}
+	return &out, nil
+}
+
 // Catalog returns the full catalog visible to the studio's tenant (global +
 // tenant-owned). Each track carries a 15-min preview URL for inline playback.
 func (c *Client) Catalog(ctx context.Context) (*v1.MusicListResponse, error) {
