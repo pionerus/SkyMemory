@@ -238,6 +238,27 @@
     font-size: 10px; font-weight: 700;
     background: #ede9fe; color: #5b21b6;
   }
+
+  /* Generate panel */
+  .gen-status { margin-top: 16px; }
+  .gen-row {
+    display: flex; gap: 12px; align-items: center;
+    padding: 6px 0;
+    font-size: 14px;
+  }
+  .gen-label { min-width: 80px; color: #777; font-size: 13px; }
+  .gen-value { font-weight: 600; }
+  .gen-bar {
+    height: 8px; background: #f0f0f0; border-radius: 4px;
+    overflow: hidden; margin: 8px 0 4px;
+  }
+  .gen-bar > div {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg,#22c55e,#16a34a);
+    transition: width 250ms ease-out;
+  }
+  .gen-status .err { padding: 10px 12px; border-radius: 8px; background: #fee2e2; color: #991b1b; font-size: 13px; display: none; }
+  .gen-status .err.show { display: block; }
 </style>
 </head>
 <body>
@@ -406,6 +427,38 @@
         <div class="err"></div>
       </div>
       {{end}}
+    </div>
+  </div>
+
+  <div class="card" id="generate-card">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0">Step 4 — generate</h2>
+      <button class="btn" id="generate-btn" style="background:linear-gradient(135deg,#16a34a,#22c55e)">▶ Generate 1080p</button>
+    </div>
+    <p class="sub" style="margin-top:6px">
+      Trims each clip to its window, concatenates the canonical 7 segments, outputs a single
+      1080p MP4. Music mixing + crossfades land in the next iteration. Output stays under
+      <code>~/.freefall-studio/jobs/{{.P.ID}}/output_1080p.mp4</code> until you push it.
+    </p>
+
+    <div id="gen-status" class="gen-status">
+      <div class="gen-row">
+        <span class="gen-label">Status</span>
+        <span class="gen-value" id="gen-status-val">— no run yet —</span>
+      </div>
+      <div class="gen-bar"><div id="gen-bar-fill"></div></div>
+      <div class="gen-row" id="gen-step-row" style="display:none">
+        <span class="gen-label">Step</span>
+        <span class="gen-value" id="gen-step-val"></span>
+      </div>
+      <div id="gen-error" class="err"></div>
+      <div id="gen-result" style="display:none;margin-top:12px">
+        <video id="gen-output-video" controls style="width:100%;max-height:360px;border-radius:10px;background:black"></video>
+        <div style="margin-top:8px;font-size:13px;color:#666">
+          <span id="gen-output-size"></span>
+          · <a href="" id="gen-output-link" download>Download MP4</a>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -892,6 +945,126 @@ if (clearMusicBtn) {
 if (musicFilter) {
   musicFilter.addEventListener('input', () => renderMusicCatalog(musicFilter.value));
 }
+
+// =====================================================================
+// Generate panel: kick off pipeline + poll status until done/failed.
+// =====================================================================
+const generateBtn   = document.getElementById('generate-btn');
+const genStatusVal  = document.getElementById('gen-status-val');
+const genStepRow    = document.getElementById('gen-step-row');
+const genStepVal    = document.getElementById('gen-step-val');
+const genBarFill    = document.getElementById('gen-bar-fill');
+const genErrEl      = document.getElementById('gen-error');
+const genResultEl   = document.getElementById('gen-result');
+const genOutVideo   = document.getElementById('gen-output-video');
+const genOutSize    = document.getElementById('gen-output-size');
+const genOutLink    = document.getElementById('gen-output-link');
+
+function fmtBytes(n) {
+  if (!n) return '';
+  if (n < 1024) return n + ' B';
+  const u = ['KB','MB','GB']; let i = -1, v = n;
+  do { v /= 1024; i++; } while (v >= 1024 && i < u.length-1);
+  return v.toFixed(1) + ' ' + u[i];
+}
+
+function paintGenState(g) {
+  if (!g) {
+    genStatusVal.textContent = '— no run yet —';
+    genBarFill.style.width = '0%';
+    genStepRow.style.display = 'none';
+    genResultEl.style.display = 'none';
+    genErrEl.classList.remove('show');
+    return;
+  }
+  genStatusVal.textContent = g.status + (g.finished_at ? ' (finished ' + new Date(g.finished_at).toLocaleTimeString() + ')' : '');
+  genBarFill.style.width = (g.progress_pct || 0) + '%';
+  if (g.step_label) {
+    genStepRow.style.display = 'flex';
+    genStepVal.textContent = g.step_label;
+  } else {
+    genStepRow.style.display = 'none';
+  }
+
+  if (g.status === 'failed') {
+    genErrEl.textContent = g.error || 'Pipeline failed without an error message — check studio log.';
+    genErrEl.classList.add('show');
+    genResultEl.style.display = 'none';
+  } else {
+    genErrEl.classList.remove('show');
+  }
+
+  if (g.status === 'done') {
+    const url = '/projects/' + PROJECT_ID + '/output/1080p?t=' + Date.now();
+    genOutVideo.src = url;
+    genOutLink.href = url;
+    genOutSize.textContent = fmtBytes(g.output_size);
+    genResultEl.style.display = 'block';
+  } else if (g.status !== 'failed') {
+    genResultEl.style.display = 'none';
+  }
+}
+
+let pollTimer = null;
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/generations');
+      if (!res.ok) return;
+      const body = await res.json();
+      paintGenState(body.generation);
+      if (body.generation && (body.generation.status === 'done' || body.generation.status === 'failed')) {
+        stopPolling();
+      }
+    } catch (e) { /* ignore transient errors; next tick will retry */ }
+  }, 1500);
+}
+
+if (generateBtn) {
+  generateBtn.addEventListener('click', async () => {
+    genErrEl.classList.remove('show');
+    generateBtn.disabled = true;
+    const orig = generateBtn.textContent;
+    generateBtn.textContent = '▶ Starting…';
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/generate', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 202) {
+        genErrEl.textContent = body.message || ('HTTP ' + res.status);
+        genErrEl.classList.add('show');
+        generateBtn.disabled = false;
+        generateBtn.textContent = orig;
+        return;
+      }
+      // Show queued state immediately, then poll.
+      paintGenState({ status: body.status || 'queued', progress_pct: 0 });
+      startPolling();
+    } catch (e) {
+      genErrEl.textContent = e.message;
+      genErrEl.classList.add('show');
+      generateBtn.disabled = false;
+      generateBtn.textContent = orig;
+      return;
+    }
+    // Re-enable after a short delay; the actual progress is in the bar.
+    setTimeout(() => { generateBtn.disabled = false; generateBtn.textContent = orig; }, 800);
+  });
+}
+
+// On load: fetch latest generation so the panel reflects state across page reloads.
+(async () => {
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/generations');
+    if (!res.ok) return;
+    const body = await res.json();
+    paintGenState(body.generation);
+    if (body.generation && body.generation.status !== 'done' && body.generation.status !== 'failed') {
+      startPolling();
+    }
+  } catch (e) { /* ignore */ }
+})();
 
 document.querySelectorAll('.slot').forEach(slot => {
   const input = slot.querySelector('input[type=file]');

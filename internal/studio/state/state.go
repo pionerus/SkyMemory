@@ -186,4 +186,24 @@ var schemaSteps = map[int]string{
 		ALTER TABLE projects ADD COLUMN music_artist     TEXT;
 		ALTER TABLE projects ADD COLUMN music_duration_s REAL;
 	`,
+
+	5: `
+		-- Each Generate run is one row. We keep history (audit + retry) rather than
+		-- overwriting; the UI shows the latest by created_at. status enum mirrors
+		-- the lifecycle steps the pipeline reports as it progresses.
+		CREATE TABLE generations (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			status       TEXT NOT NULL DEFAULT 'queued',
+				-- queued | trimming | concating | done | failed
+			progress_pct INTEGER NOT NULL DEFAULT 0,
+			step_label   TEXT,                         -- 'trimming intro', 'concat', 'final encode'
+			output_path  TEXT,                         -- filled when status='done'
+			output_size  INTEGER,
+			error        TEXT,                         -- non-null when status='failed'
+			started_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			finished_at  TEXT
+		);
+		CREATE INDEX idx_generations_project ON generations(project_id, started_at DESC);
+	`,
 }

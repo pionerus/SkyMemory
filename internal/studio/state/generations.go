@@ -1,0 +1,130 @@
+package state
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// Generation represents one row in the local `generations` table — the audit
+// of a single Generate-button click. Status lifecycle: queued → trimming →
+// concating → done (or failed at any point).
+type Generation struct {
+	ID          int64
+	ProjectID   int64
+	Status      string // queued | trimming | concating | done | failed
+	ProgressPct int
+	StepLabel   string
+	OutputPath  string
+	OutputSize  int64
+	Error       string
+	StartedAt   time.Time
+	FinishedAt  *time.Time
+}
+
+// Status enum constants — keep in sync with the CHECK in schema v5 (none yet,
+// but the pipeline only ever writes these).
+const (
+	GenStatusQueued    = "queued"
+	GenStatusTrimming  = "trimming"
+	GenStatusConcating = "concating"
+	GenStatusDone      = "done"
+	GenStatusFailed    = "failed"
+)
+
+// CreateGeneration inserts a new pending row, returns its id. Pipeline
+// goroutine then UpdateGeneration's it as it progresses.
+func (db *DB) CreateGeneration(ctx context.Context, projectID int64) (int64, error) {
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO generations (project_id, status) VALUES (?, ?)`,
+		projectID, GenStatusQueued,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateGeneration patches one or more fields on a generation row. Use the
+// helper Patch types so callers can send only what changed.
+type GenerationPatch struct {
+	Status      *string
+	ProgressPct *int
+	StepLabel   *string
+	OutputPath  *string
+	OutputSize  *int64
+	Error       *string
+	Finish      bool // when true, sets finished_at = now()
+}
+
+func (db *DB) UpdateGeneration(ctx context.Context, id int64, p GenerationPatch) error {
+	q := `UPDATE generations SET `
+	args := []any{}
+	first := true
+	add := func(col string, v any) {
+		if !first {
+			q += ", "
+		}
+		q += col + " = ?"
+		args = append(args, v)
+		first = false
+	}
+	if p.Status != nil      { add("status",       *p.Status) }
+	if p.ProgressPct != nil { add("progress_pct", *p.ProgressPct) }
+	if p.StepLabel != nil   { add("step_label",   *p.StepLabel) }
+	if p.OutputPath != nil  { add("output_path",  *p.OutputPath) }
+	if p.OutputSize != nil  { add("output_size",  *p.OutputSize) }
+	if p.Error != nil       { add("error",        *p.Error) }
+	if p.Finish {
+		add("finished_at", time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
+	}
+	if first {
+		return nil // nothing to patch
+	}
+	q += ` WHERE id = ?`
+	args = append(args, id)
+
+	_, err := db.ExecContext(ctx, q, args...)
+	return err
+}
+
+// GetLatestGeneration returns the newest generation row for a project, or
+// (nil, ErrNotFound) if none yet.
+func (db *DB) GetLatestGeneration(ctx context.Context, projectID int64) (*Generation, error) {
+	var g Generation
+	var (
+		stepLabel, outputPath, errStr sql.NullString
+		outputSize                    sql.NullInt64
+		started                       string
+		finished                      sql.NullString
+	)
+	err := db.QueryRowContext(ctx, `
+		SELECT id, project_id, status, progress_pct,
+		       step_label, output_path, output_size, error,
+		       started_at, finished_at
+		FROM generations
+		WHERE project_id = ?
+		ORDER BY started_at DESC, id DESC
+		LIMIT 1`, projectID,
+	).Scan(&g.ID, &g.ProjectID, &g.Status, &g.ProgressPct,
+		&stepLabel, &outputPath, &outputSize, &errStr,
+		&started, &finished,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	g.StepLabel = stepLabel.String
+	g.OutputPath = outputPath.String
+	g.OutputSize = outputSize.Int64
+	g.Error = errStr.String
+	g.StartedAt = parseTime(started)
+	if finished.Valid {
+		t := parseTime(finished.String)
+		g.FinishedAt = &t
+	}
+	return &g, nil
+}

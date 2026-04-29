@@ -25,6 +25,7 @@ import (
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
 	studiomusic "github.com/pionerus/freefall/internal/studio/music"
+	"github.com/pionerus/freefall/internal/studio/pipeline"
 	"github.com/pionerus/freefall/internal/studio/state"
 	"github.com/pionerus/freefall/internal/studio/trim"
 	"github.com/pionerus/freefall/internal/studio/ui"
@@ -67,6 +68,7 @@ func main() {
 
 	jumpClient := jump.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
 	musicClient := studiomusic.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	pipelineRunner := &pipeline.Runner{DB: stateDB, JobsDir: jobsDir}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -627,6 +629,113 @@ func main() {
 			"music_artist":     body.MusicArtist,
 			"music_duration_s": body.MusicDurationS,
 		})
+	})
+
+	// POST /projects/{id}/generate — kick off the FFmpeg pipeline.
+	// Synchronous goroutine; UI polls /generations for status.
+	r.Post("/projects/{id}/generate", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		if _, err := stateDB.GetProject(req.Context(), id); err != nil {
+			if errors.Is(err, state.ErrNotFound) {
+				writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "Project not in local state.db."})
+				return
+			}
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if !ffprobe.IsAvailable() {
+			writeStudioJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"code": "FFMPEG_MISSING", "message": "Pipeline needs ffmpeg on PATH. Install ffmpeg and restart studio.",
+			})
+			return
+		}
+
+		genID, err := stateDB.CreateGeneration(req.Context(), id)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+
+		// Run in background. Use a fresh context detached from the HTTP request so
+		// closing the connection doesn't kill the pipeline mid-render. Cap at 30 min.
+		go func(projectID, generationID int64) {
+			runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			if _, err := pipelineRunner.Run(runCtx, projectID, generationID); err != nil {
+				log.Printf("pipeline run failed (project=%d gen=%d): %v", projectID, generationID, err)
+				return
+			}
+			log.Printf("pipeline run done (project=%d gen=%d)", projectID, generationID)
+		}(id, genID)
+
+		writeStudioJSON(w, http.StatusAccepted, map[string]any{
+			"generation_id": genID,
+			"status":        state.GenStatusQueued,
+		})
+	})
+
+	// GET /projects/{id}/generations — latest run status (UI polling target).
+	r.Get("/projects/{id}/generations", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		g, err := stateDB.GetLatestGeneration(req.Context(), id)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusOK, map[string]any{"generation": nil})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"generation": map[string]any{
+				"id":           g.ID,
+				"status":       g.Status,
+				"progress_pct": g.ProgressPct,
+				"step_label":   g.StepLabel,
+				"output_size":  g.OutputSize,
+				"error":        g.Error,
+				"started_at":   g.StartedAt,
+				"finished_at":  g.FinishedAt,
+			},
+		})
+	})
+
+	// GET /projects/{id}/output/1080p — stream the produced 1080p MP4.
+	// Range-aware (http.ServeFile handles it) so browser can scrub.
+	r.Get("/projects/{id}/output/{kind}", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		// MVP: only 1080p is produced. Future: 4k, vertical, photos.zip.
+		if kind != "1080p" {
+			http.Error(w, "unknown output kind", http.StatusNotFound)
+			return
+		}
+		g, err := stateDB.GetLatestGeneration(req.Context(), id)
+		if errors.Is(err, state.ErrNotFound) || g == nil || g.OutputPath == "" {
+			http.NotFound(w, req)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !strings.HasPrefix(g.OutputPath, jobsDir+string(os.PathSeparator)) {
+			http.Error(w, "output path is outside jobs directory", http.StatusForbidden)
+			return
+		}
+		http.ServeFile(w, req, g.OutputPath)
 	})
 
 	// Stream the raw clip file (for inline <video> preview during trim). Uses
