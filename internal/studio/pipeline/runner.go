@@ -18,10 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pionerus/freefall/internal/studio/state"
@@ -91,7 +93,7 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 
 	// === Stage A: trim+normalise each clip in canonical order ===
 	// ListClips already returns canonical-then-custom order.
-	intermediates := make([]string, 0, len(clips))
+	segments := make([]segmentMeta, 0, len(clips))
 	for i, c := range clips {
 		stepLabel := fmt.Sprintf("trimming %s (%d/%d)", c.Kind, i+1, len(clips))
 		_ = r.DB.UpdateGeneration(ctx, generationID, state.GenerationPatch{
@@ -104,36 +106,21 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		if err := r.trimAndNormalise(ctx, c, out); err != nil {
 			return "", r.fail(ctx, generationID, fmt.Sprintf("trim %s: %v", c.Kind, err))
 		}
-		intermediates = append(intermediates, out)
+		segments = append(segments, segmentMeta{path: out, duration: effectiveDuration(c)})
 	}
 
-	// === Stage B: build concat list, run concat demuxer ===
+	// === Stage B: concatenate with crossfades ===
 	_ = r.DB.UpdateGeneration(ctx, generationID, state.GenerationPatch{
 		Status:      ptr(state.GenStatusConcating),
-		StepLabel:   ptr("concatenating segments"),
+		StepLabel:   ptr("crossfading segments"),
 		ProgressPct: ptr(85),
 	})
 
-	listFile := filepath.Join(intermediatesDir, "concat.txt")
-	if err := writeConcatList(listFile, intermediates); err != nil {
-		return "", r.fail(ctx, generationID, "write concat list: "+err.Error())
-	}
-
 	concatOnly := filepath.Join(intermediatesDir, "concat_only.mp4")
 	_ = os.Remove(concatOnly)
-
-	cmd := exec.CommandContext(ctx, r.FFmpegPath,
-		"-nostats", "-hide_banner",
-		"-y",
-		"-f", "concat",
-		"-safe", "0",
-		"-i", listFile,
-		"-c", "copy", // intermediates are already H.264/AAC at 1080p — concat without re-encode
-		"-movflags", "+faststart",
-		concatOnly,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", r.fail(ctx, generationID, fmt.Sprintf("ffmpeg concat failed: %v\n%s", err, string(out)))
+	concatDur, err := r.concatWithCrossfades(ctx, segments, concatOnly)
+	if err != nil {
+		return "", r.fail(ctx, generationID, "concat: "+err.Error())
 	}
 
 	finalOut := filepath.Join(projectDir, "output_1080p.mp4")
@@ -157,11 +144,9 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 			return "", r.fail(ctx, generationID, "music download: "+err.Error())
 		}
 
-		// Total project duration (sum of trim windows) — used for the music fade-out.
-		// Falls back to "skip fade-out" if zero.
-		totalSec, _ := r.DB.SumProjectClipDuration(ctx, projectID)
-
-		if err := r.mixMusic(ctx, concatOnly, musicPath, totalSec, finalOut); err != nil {
+		// Use the ACTUAL post-crossfade duration so the music fade-out lands on
+		// the real end-of-video, not (N-1)*crossfade seconds past it.
+		if err := r.mixMusic(ctx, concatOnly, musicPath, concatDur, finalOut); err != nil {
 			return "", r.fail(ctx, generationID, "music mix: "+err.Error())
 		}
 	} else {
@@ -343,6 +328,150 @@ func (r *Runner) fail(ctx context.Context, generationID int64, errMsg string) er
 	return errors.New(errMsg)
 }
 
+// segmentMeta pairs an intermediate file with its known trimmed duration —
+// the xfade chain needs durations to compute per-clip offsets, and re-running
+// ffprobe N times to read them is slower than just remembering what we already
+// asked ffmpeg to render.
+type segmentMeta struct {
+	path     string
+	duration float64
+}
+
+// effectiveDuration replicates Clip.EffectiveTrimOut() math but returns the
+// LENGTH (out - in) instead of the absolute end time, since that's what the
+// xfade offset calculator needs.
+func effectiveDuration(c state.Clip) float64 {
+	in := c.TrimInSeconds
+	if in < 0 {
+		in = 0
+	}
+	out := c.TrimOutSeconds
+	if out <= 0 || out > c.DurationSeconds {
+		out = c.DurationSeconds
+	}
+	return out - in
+}
+
+// concatWithCrossfades stitches the trimmed intermediates with a 0.5-second
+// xfade (video) + acrossfade (audio) at every seam. Replaces the previous
+// "concat demuxer + -c copy" path, which produced hard cuts.
+//
+// Returns the actual output duration in seconds. With crossfades the timeline
+// is shorter than sum(d_i) by (N-1) * crossfadeDur — the caller (Stage C)
+// uses this value to schedule the music's afade-out at the real end.
+//
+// Filter chain (3 clips example, durations d0 d1 d2):
+//   [0:v][1:v] xfade=transition=fade:duration=0.5:offset=d0-0.5  [v01]
+//   [v01][2:v] xfade=transition=fade:duration=0.5:offset=d0+d1-1 [v012]
+//   [0:a][1:a] acrossfade=d=0.5                                  [a01]
+//   [a01][2:a] acrossfade=d=0.5                                  [a012]
+//   -map [v012] -map [a012]
+//
+// For very short clips we shrink the crossfade to clip_duration / 3 so the
+// offset stays positive. Single-clip projects skip xfade entirely (copy).
+func (r *Runner) concatWithCrossfades(ctx context.Context, segments []segmentMeta, dstPath string) (float64, error) {
+	if len(segments) == 0 {
+		return 0, errors.New("no segments to concatenate")
+	}
+
+	// Single-clip → just promote the intermediate to the output path.
+	if len(segments) == 1 {
+		if err := copyFileContents(segments[0].path, dstPath); err != nil {
+			return 0, err
+		}
+		return segments[0].duration, nil
+	}
+
+	// Pick a crossfade duration that fits the SHORTEST clip — keeps offsets positive.
+	crossfade := 0.5
+	for _, s := range segments {
+		if s.duration < crossfade*2 {
+			c := s.duration / 3.0
+			if c < crossfade {
+				crossfade = c
+			}
+		}
+	}
+	if crossfade < 0.05 {
+		// Some clip is < 0.15s — operator should fix the trim. Bail.
+		return 0, errors.New("a clip is too short to crossfade (< 0.15s effective duration)")
+	}
+
+	// Build ffmpeg invocation: one -i per segment + a filter_complex chain.
+	args := []string{"-nostats", "-hide_banner", "-y"}
+	for _, s := range segments {
+		args = append(args, "-i", s.path)
+	}
+
+	var fc strings.Builder
+	prevV := "[0:v]"
+	prevA := "[0:a]"
+	cumulativeDur := segments[0].duration
+
+	for i := 1; i < len(segments); i++ {
+		offset := cumulativeDur - crossfade
+		outV := fmt.Sprintf("[v%d]", i)
+		outA := fmt.Sprintf("[a%d]", i)
+
+		fc.WriteString(fmt.Sprintf(
+			"%s[%d:v]xfade=transition=fade:duration=%s:offset=%s%s;",
+			prevV, i, floatStr(crossfade), floatStr(offset), outV,
+		))
+		fc.WriteString(fmt.Sprintf(
+			"%s[%d:a]acrossfade=d=%s%s;",
+			prevA, i, floatStr(crossfade), outA,
+		))
+
+		prevV = outV
+		prevA = outA
+		// xfade overlap means timeline grows by (duration - crossfade), not duration.
+		cumulativeDur += segments[i].duration - crossfade
+	}
+	filterComplex := strings.TrimSuffix(fc.String(), ";")
+
+	args = append(args,
+		"-filter_complex", filterComplex,
+		"-map", prevV,
+		"-map", prevA,
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-crf", "20",
+		"-pix_fmt", "yuv420p",
+		"-c:a", "aac",
+		"-b:a", "192k",
+		"-ar", "48000",
+		"-movflags", "+faststart",
+		dstPath,
+	)
+
+	cmd := exec.CommandContext(ctx, r.FFmpegPath, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return 0, fmt.Errorf("ffmpeg crossfade chain: %v\n%s", err, string(out))
+	}
+	return cumulativeDur, nil
+}
+
+// copyFileContents is a small file-copy shim used by the single-clip fast
+// path. We don't os.Rename across the intermediates dir → projects dir
+// boundary because both might be on different filesystems on some setups.
+func copyFileContents(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
 // =====================================================================
 // helpers
 // =====================================================================
@@ -351,24 +480,6 @@ func ptr[T any](v T) *T { return &v }
 
 func floatStr(v float64) string {
 	return strconv.FormatFloat(v, 'f', 3, 64)
-}
-
-func writeConcatList(path string, segments []string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	for _, s := range segments {
-		// Concat demuxer is picky: paths must be quoted on Windows AND backslashes
-		// either forward-slashed or escaped. We use forward slashes which both
-		// ffmpeg and Windows file APIs accept.
-		fwd := filepath.ToSlash(s)
-		if _, err := fmt.Fprintf(f, "file '%s'\n", fwd); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func sanitizeForFilename(s string) string {
