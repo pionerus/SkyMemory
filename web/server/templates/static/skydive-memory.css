@@ -476,3 +476,55 @@ button { font-family: inherit; cursor: pointer; }
    `a { color: var(--sm-brand-hi) }` — which is dark-amber #876008 in light,
    readable. Provide an explicit underline on hover for affordance. */
 .sm.is-light a:hover { text-decoration: underline; }
+
+/* ============================================================
+   ROLE CHIP — small badge identifying which portal you're in.
+   Lives in the rail header next to the brand mark; renders
+   identically in dark and light (the colours are saturated
+   enough on both surfaces).
+   ============================================================ */
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-family: var(--sm-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  margin-top: 3px;
+}
+.role-chip--super {
+  background: rgba(255, 200, 61, 0.16);
+  color: #E0A800;
+  border-color: rgba(255, 200, 61, 0.45);
+}
+.role-chip--club {
+  background: rgba(255, 138, 61, 0.18);
+  color: #E07033;
+  border-color: rgba(255, 138, 61, 0.45);
+}
+.role-chip--operator {
+  background: rgba(91, 192, 235, 0.18);
+  color: #2E8DBE;
+  border-color: rgba(91, 192, 235, 0.45);
+}
+.role-chip--studio {
+  background: rgba(143, 91, 255, 0.18);
+  color: #6E45D6;
+  border-color: rgba(143, 91, 255, 0.45);
+}
+/* On dark surfaces we want slightly lighter ink so the chip pops. */
+.sm:not(.is-light) .role-chip--super    { color: #FFD96B; }
+.sm:not(.is-light) .role-chip--club     { color: #FFB169; }
+.sm:not(.is-light) .role-chip--operator { color: #7AD3F0; }
+.sm:not(.is-light) .role-chip--studio   { color: #B696FF; }
+/* Bare body without the .sm class (most existing pages) — same dark-surface treatment */
+body:not(.is-light) .role-chip--super    { color: #FFD96B; }
+body:not(.is-light) .role-chip--club     { color: #FFB169; }
+body:not(.is-light) .role-chip--operator { color: #7AD3F0; }
+body:not(.is-light) .role-chip--studio   { color: #B696FF; }
