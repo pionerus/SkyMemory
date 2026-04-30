@@ -482,6 +482,59 @@ button { font-family: inherit; cursor: pointer; }
 .sm.is-light a:hover { text-decoration: underline; }
 
 /* ============================================================
+   SUPER-ADMIN RAIL — used by all /platform/* pages.
+   Defined globally so platform_dashboard / platform_clubs /
+   platform_club_detail / platform_stub render the same rail
+   verbatim and clicking between sections doesn't reshape the
+   menu. Each page sets `.is-active` on whichever .nav-item
+   matches the current section.
+   ============================================================ */
+.super-rail {
+  width: 232px;
+  border-right: 1px solid var(--sm-border);
+  background: var(--sm-surface);
+  display: flex; flex-direction: column;
+}
+.super-rail .head {
+  padding: 20px 18px 18px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; align-items: center; gap: 10px;
+}
+.super-rail .head .sm-mark { width: 22px; height: 22px; color: var(--sm-text); }
+.super-rail .head .name {
+  font-family: var(--sm-display);
+  font-size: 14px; font-weight: 600; line-height: 1.1;
+}
+.super-rail nav {
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1;
+}
+.super-rail .nav-item {
+  display: flex; align-items: center; gap: 10px;
+  height: 36px; padding: 0 12px;
+  border-radius: 8px;
+  color: var(--sm-text-muted);
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.super-rail .nav-item:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.super-rail .nav-item.is-active {
+  background: var(--sm-brand-soft);
+  color: var(--sm-text);
+  position: relative;
+}
+.super-rail .nav-item.is-active::before {
+  content: "";
+  position: absolute; left: -16px; top: 50%;
+  width: 3px; height: 16px;
+  background: var(--sm-brand);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+/* ============================================================
    ROLE CHIP — small badge identifying which portal you're in.
    Lives in the rail header next to the brand mark; renders
    identically in dark and light (the colours are saturated

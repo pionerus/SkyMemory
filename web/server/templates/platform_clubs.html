@@ -260,23 +260,31 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   margin-bottom: 4px;
 }
 
-.plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.plan-card {
-  padding: 12px 14px;
-  border: 1px solid var(--sm-border);
-  border-radius: 10px;
-  cursor: pointer;
-  background: transparent;
-  transition: border-color 80ms, background 80ms;
+/* Per-jump rate inputs — replaces the abstract "plan tier" picker.
+   Two numeric inputs side-by-side, each with a € prefix glyph. */
+.rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rate-input-wrap {
+  position: relative;
+  display: flex; align-items: center;
 }
-.plan-card:hover { border-color: var(--sm-border-strong); }
-.plan-card.is-active {
-  border-color: var(--sm-brand);
-  background: var(--sm-brand-soft);
+.rate-input-wrap .currency {
+  position: absolute; left: 12px;
+  font-family: var(--sm-mono);
+  font-size: 13px;
+  color: var(--sm-text-muted);
+  pointer-events: none;
 }
-.plan-card .k { font-size: 13px; font-weight: 500; }
-.plan-card .p { font-size: 12px; color: var(--sm-text); margin-top: 2px; }
-.plan-card .s { font-size: 11px; color: var(--sm-text-muted); margin-top: 4px; }
+.rate-input-wrap .sm-input {
+  padding-left: 28px;
+  font-family: var(--sm-mono);
+}
+.rate-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  line-height: 1.4;
+}
+.rate-hint .em { color: var(--sm-text); }
 
 .err-box, .ok-box { padding: 10px 14px; border-radius: 10px; font-size: 12px; display: none; margin-top: 10px; }
 .err-box { background: rgba(255,107,122,.10); color: var(--sm-danger); border: 1px solid rgba(255,107,122,.28); }
@@ -297,23 +305,31 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
       </div>
     </div>
     <nav>
+      <a class="nav-item" href="/platform/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
       <a class="nav-item is-active" href="/platform/clubs">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><path d="M9 9h2v3H9zm4 0h2v3h-2zM9 14h2v3H9zm4 0h2v3h-2z"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/></svg>
         Clubs
       </a>
-      <a class="nav-item" href="/platform/" title="Reports — coming soon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        Reports
+      <a class="nav-item" href="/platform/operators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Operators
       </a>
-      <a class="nav-item" href="/platform/" title="Activity — coming soon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Activity
+      <a class="nav-item" href="/platform/jumps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Jumps
       </a>
-      <a class="nav-item" href="/platform/" title="Billing — coming soon">
+      <a class="nav-item" href="/platform/watch-links">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Watch links
+      </a>
+      <a class="nav-item" href="/platform/billing">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         Billing
       </a>
-      <a class="nav-item" href="/platform/" title="Settings — coming soon">
+      <a class="nav-item" href="/platform/settings">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
       </a>
@@ -481,27 +497,29 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
           </div>
         </div>
 
-        <div>
-          <label class="sm-label">Plan</label>
-          <div class="plan-grid">
-            <label class="plan-card" data-plan="starter">
-              <input type="radio" name="plan" value="starter" style="display:none">
-              <div class="k">Starter</div>
-              <div class="p">Free</div>
-              <div class="s">20 vids/mo · 2 ops</div>
-            </label>
-            <label class="plan-card is-active" data-plan="pro">
-              <input type="radio" name="plan" value="pro" checked style="display:none">
-              <div class="k">Pro</div>
-              <div class="p">$89/mo</div>
-              <div class="s">100 vids/mo · 6 ops</div>
-            </label>
-            <label class="plan-card" data-plan="enterprise">
-              <input type="radio" name="plan" value="enterprise" style="display:none">
-              <div class="k">Enterprise</div>
-              <div class="p">Custom</div>
-              <div class="s">Unlimited</div>
-            </label>
+        <div class="divider"></div>
+        <div class="divider-label">Pricing — what we charge the club</div>
+
+        <div class="rate-grid">
+          <div>
+            <label class="sm-label">Per-video rate</label>
+            <div class="rate-input-wrap">
+              <span class="currency">€</span>
+              <input class="sm-input" name="video_rate_euros" type="number" min="0" max="100" step="1" value="5">
+            </div>
+            <div class="rate-hint">
+              Charged for each <span class="em">delivered video</span>. Operator's per-jump pay (e.g. €33) is set by the club separately.
+            </div>
+          </div>
+          <div>
+            <label class="sm-label">Per-photo-pack rate</label>
+            <div class="rate-input-wrap">
+              <span class="currency">€</span>
+              <input class="sm-input" name="photo_rate_euros" type="number" min="0" max="100" step="1" value="5">
+            </div>
+            <div class="rate-hint">
+              Charged for each <span class="em">photo pack sold</span> to a jumper. The B2C photo pack price (€15 default) is set by the club.
+            </div>
           </div>
         </div>
 

@@ -412,15 +412,21 @@ func (h *Handlers) Settings(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 
 // CreateClubRequest is the body of the create-club form.
+//
+// VideoRateCents = what we charge the club for each delivered video.
+// PhotoRateCents = what we charge the club for each photo-pack sold to a
+// client. Both stored in cents on the `tenants` table; the form collects
+// them as whole euros (and `0` is a valid free-of-charge value).
 type CreateClubRequest struct {
-	Name          string `json:"name"`
-	Slug          string `json:"slug"`
-	City          string `json:"city"`
-	CountryCode   string `json:"country_code"`
-	Plan          string `json:"plan"`
-	OwnerName     string `json:"owner_name"`
-	OwnerEmail    string `json:"owner_email"`
-	OwnerPassword string `json:"owner_password"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	City           string `json:"city"`
+	CountryCode    string `json:"country_code"`
+	OwnerName      string `json:"owner_name"`
+	OwnerEmail     string `json:"owner_email"`
+	OwnerPassword  string `json:"owner_password"`
+	VideoRateCents int    `json:"video_rate_cents"`
+	PhotoRateCents int    `json:"photo_rate_cents"`
 }
 
 // CreateClubResponse is what the form's JS expects on success.
@@ -467,15 +473,23 @@ func (h *Handlers) CreateClub(w http.ResponseWriter, r *http.Request) {
 		writeJSONErr(w, http.StatusBadRequest, "COUNTRY", "Country code must be a 2-letter ISO code.")
 		return
 	}
-	plan := strings.ToLower(req.Plan)
-	if plan == "" {
-		plan = "starter"
-	}
-	switch plan {
-	case "starter", "pro", "enterprise":
-	default:
-		writeJSONErr(w, http.StatusBadRequest, "PLAN", "Plan must be one of: starter, pro, enterprise.")
+	// Cap the per-jump rates at €100 / €100 — runaway typo guard. 0 is a
+	// legitimate "no fee" arrangement (e.g. partner clubs). The schema
+	// defaults are 500 / 500 (= €5 each) so we fall back to those when
+	// the form is left blank.
+	if req.VideoRateCents < 0 || req.VideoRateCents > 10000 {
+		writeJSONErr(w, http.StatusBadRequest, "VIDEO_RATE", "Per-video rate must be 0..€100.")
 		return
+	}
+	if req.PhotoRateCents < 0 || req.PhotoRateCents > 10000 {
+		writeJSONErr(w, http.StatusBadRequest, "PHOTO_RATE", "Per-photo-pack rate must be 0..€100.")
+		return
+	}
+	if req.VideoRateCents == 0 {
+		req.VideoRateCents = 500
+	}
+	if req.PhotoRateCents == 0 {
+		req.PhotoRateCents = 500
 	}
 
 	hash, herr := auth.HashPassword(req.OwnerPassword)
@@ -495,10 +509,15 @@ func (h *Handlers) CreateClub(w http.ResponseWriter, r *http.Request) {
 
 	var tenantID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO tenants (name, slug, plan, status, country_code, city)
-		VALUES ($1, $2, $3, 'active', NULLIF($4,''), NULLIF($5,''))
+		INSERT INTO tenants
+		  (name, slug, status, country_code, city,
+		   video_price_cents, photo_pack_price_cents)
+		VALUES
+		  ($1, $2, 'active', NULLIF($3,''), NULLIF($4,''),
+		   $5, $6)
 		RETURNING id`,
-		req.Name, req.Slug, plan, req.CountryCode, req.City,
+		req.Name, req.Slug, req.CountryCode, req.City,
+		req.VideoRateCents, req.PhotoRateCents,
 	).Scan(&tenantID)
 	if err != nil {
 		// Cleanest UX surface for a slug collision: explicit 409.
