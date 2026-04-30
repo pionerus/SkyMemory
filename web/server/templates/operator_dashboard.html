@@ -55,9 +55,14 @@
     <div style="padding:14px;border-top:1px solid var(--sm-border)">
       <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.OperatorEmail}}</div>
       <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}} · {{.OperatorRole}}</div>
-      <form method="POST" action="/auth/logout" style="margin-top:10px">
-        <button type="submit" class="sm-btn is-sm is-block">Sign out</button>
-      </form>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button type="button" data-theme-toggle class="sm-btn is-sm" title="Toggle theme" aria-label="Toggle theme" style="flex:0 0 auto;padding:0 10px">
+          <span data-theme-icon></span>
+        </button>
+        <form method="POST" action="/auth/logout" style="margin:0;flex:1">
+          <button type="submit" class="sm-btn is-sm is-block">Sign out</button>
+        </form>
+      </div>
     </div>
   </aside>
 
@@ -89,5 +94,6 @@
     </div>
   </main>
 </div>
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

@@ -403,6 +403,11 @@ html, body {
     <div class="wt-hero-meta">
       {{if .TenantName}}<span>{{.TenantName}}</span><div class="sep"></div>{{end}}
       <span class="mono">{{.AccessCode}}</span>
+      <div class="sep"></div>
+      <button type="button" data-theme-toggle aria-label="Toggle theme"
+              style="background:transparent;border:none;color:inherit;opacity:.85;cursor:pointer;padding:4px;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
     </div>
   </div>
 
@@ -577,5 +582,6 @@ setTimeout(() => location.reload(), 60_000);
 
 {{end}}{{/* end NotFound branch */}}
 
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

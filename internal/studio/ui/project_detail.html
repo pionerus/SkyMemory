@@ -2605,5 +2605,12 @@ function tlOnEnded() {
   v.addEventListener('ended', tlOnEnded);
 })();
 </script>
+
+<!-- Theme toggle (sticky top-right) — uses /static/theme-toggle.js -->
+<button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+        style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.45);border:1px solid var(--sm-border);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">
+  <span data-theme-icon></span>
+</button>
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

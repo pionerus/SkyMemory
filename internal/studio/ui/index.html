@@ -141,9 +141,15 @@
       <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.OperatorEmail}}</div>
       <div style="font-size:11px;color:var(--sm-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.TenantName}}</div>
       {{end}}
-      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
         <span class="mono">Studio v{{.Version}}</span>
-        <a href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false" style="color:var(--sm-text-muted)">Settings</a>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+                  style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:0;display:flex;align-items:center">
+            <span data-theme-icon></span>
+          </button>
+          <a href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false" style="color:var(--sm-text-muted)">Settings</a>
+        </div>
       </div>
     </div>
   </aside>
@@ -337,5 +343,6 @@
   }
 })();
 </script>
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

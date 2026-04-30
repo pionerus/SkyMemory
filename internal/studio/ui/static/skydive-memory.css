@@ -310,32 +310,42 @@ button { font-family: inherit; cursor: pointer; }
   --sm-text: #1F2330;
   --sm-text-muted: #5A6275;
   --sm-text-dim: #8C93A4;
-  --sm-brand: #F6C544;
-  --sm-brand-hi: #FFD96B;
-  --sm-brand-soft: rgba(246, 197, 68, 0.18);
+  --sm-brand: #C49600;          /* Darker than dark theme — yellow text on cream needs contrast */
+  --sm-brand-hi: #876008;       /* Dark amber — replaces #FFD96B which is invisible on the sky bg */
+  --sm-brand-soft: rgba(246, 197, 68, 0.22);
   --sm-accent: #F08A6E;
   --sm-accent-hi: #FF9F86;
-  --sm-success: #4FB58A;
-  --sm-warning: #E8A53D;
-  --sm-danger: #E26A75;
+  --sm-success: #2E8B66;
+  --sm-warning: #B8801F;
+  --sm-danger: #B84853;
   --sm-gradient-hero: linear-gradient(135deg, #F08A6E 0%, #F6C544 100%);
   --sm-gradient-hero-soft: linear-gradient(135deg, rgba(240,138,110,.20) 0%, rgba(246,197,68,.20) 100%);
   --sm-shadow-elev: 0 12px 32px rgba(60, 50, 40, 0.18);
-  background: var(--sm-bg);
   color: var(--sm-text);
+  /* No `background:` here on purpose — that would beat .sm-sky's gradient
+     stack on specificity (.sm.is-light is 0,2,0 vs .sm-sky 0,1,0). The
+     token `--sm-bg` cascades to `body { background: var(--sm-bg) }` from
+     the base rule (specificity 0,0,1) which .sm-sky still wins against. */
 }
 
+/* Sky background container — applied to <body>. The gradients live as
+   `background-image` rather than the `background:` shorthand so this rule
+   doesn't clobber whatever background-color a higher-specificity rule
+   (e.g. `.sm.is-light`) sets. NO `overflow:hidden` here — applying it to
+   <body> would freeze page scrolling. The plane silhouette in `::after`
+   uses `position: fixed` so it stays anchored to the viewport rather than
+   drifting halfway down a scrolled page. */
 .sm-sky {
   position: relative;
-  background:
+  background-image:
     radial-gradient(60% 50% at 78% 78%, rgba(255, 220, 160, 0.85) 0%, rgba(255, 200, 130, 0) 65%),
     radial-gradient(120% 70% at 50% 110%, rgba(255, 180, 140, 0.55) 0%, rgba(255, 180, 140, 0) 55%),
     linear-gradient(170deg, #BFD4E8 0%, #D6E0EA 35%, #ECE3D6 60%, #F4D6BE 80%, #F1C29B 100%);
-  overflow: hidden;
-  isolation: isolate;
+  background-attachment: fixed;
+  background-size: cover;
 }
 .sm-sky::before {
-  content: ""; position: absolute; inset: 0;
+  content: ""; position: fixed; inset: 0;
   background:
     radial-gradient(30% 12% at 22% 32%, rgba(255,255,255,0.45) 0%, transparent 70%),
     radial-gradient(40% 14% at 70% 24%, rgba(255,255,255,0.32) 0%, transparent 70%),
@@ -344,12 +354,12 @@ button { font-family: inherit; cursor: pointer; }
   z-index: 0;
 }
 .sm-sky::after {
-  content: ""; position: absolute; top: 22%; right: 14%;
+  content: ""; position: fixed; top: 12%; right: 8%;
   width: 280px; height: 60px;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 280 60' fill='none'><path d='M2 38 Q 100 36 180 34 Q 215 33 240 32' stroke='rgba(255,255,255,0.45)' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='2 5'/><path d='M240 32 l 6 -3 l 16 0 l 4 -2 l 4 2 l -4 2 l -4 1 l 8 5 l -2 1 l -10 -3 l -8 0 l -4 4 l -2 0 l 1 -4 l -3 -1 l -2 -2 z' fill='rgba(40,46,60,0.85)'/></svg>");
   background-repeat: no-repeat;
   background-size: contain;
-  opacity: .85;
+  opacity: .55;
   pointer-events: none;
   z-index: 0;
 }
@@ -456,3 +466,13 @@ button { font-family: inherit; cursor: pointer; }
   background: white;
   box-shadow: 0 0 0 2px var(--sm-accent), 0 2px 6px rgba(60,50,40,.18);
 }
+
+/* Defensive overrides: any legacy template hard-codes `color: var(--sm-text-dim)`
+   for body copy. On the cream/peach sky, --sm-text-dim is #8C93A4 — borderline
+   readable. Bump it to muted within is-light. */
+.sm.is-light .mono { color: inherit; }
+
+/* Anchor tags that don't get a class typically use the global rule
+   `a { color: var(--sm-brand-hi) }` — which is dark-amber #876008 in light,
+   readable. Provide an explicit underline on hover for affordance. */
+.sm.is-light a:hover { text-decoration: underline; }

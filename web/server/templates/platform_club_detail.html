@@ -268,6 +268,9 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
           Back to clubs
         </a>
+        <button type="button" class="sm-btn is-ghost" data-theme-toggle title="Toggle theme" aria-label="Toggle theme">
+          <span data-theme-icon></span>
+        </button>
         <a class="sm-btn" href="mailto:{{.OwnerEmail}}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
           Contact owner
@@ -411,5 +414,6 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   </main>
 </div>
 
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>
