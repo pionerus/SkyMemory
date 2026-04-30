@@ -88,7 +88,11 @@ button { font-family: inherit; cursor: pointer; }
 }
 .sm-tile .sm-mark {
   width: 48px;
-  color: var(--sm-bg);
+  /* Always dark navy on the yellow tile — the tile is brand-yellow in
+     both themes, so the silhouette must stay the contrast colour. Don't
+     use `var(--sm-bg)` here: in light mode it resolves to `transparent`
+     and the squirrel disappears. */
+  color: #0B0E14;
 }
 
 /* Pills */
