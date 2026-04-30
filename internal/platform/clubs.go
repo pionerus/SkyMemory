@@ -334,6 +334,80 @@ func (h *Handlers) ClubDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // =====================================================================
+// Stubs for the rail items that don't have real implementations yet —
+// /platform/operators, /platform/jumps, /platform/watch-links,
+// /platform/billing, /platform/settings. Each renders the same
+// platform_stub.html with different copy so the rail is fully
+// navigable and these don't 404. Real impls land in Phase 10.3..10.7.
+// =====================================================================
+
+// StubData is the shape platform_stub.html expects.
+type StubData struct {
+	Active   string // matches the rail's data-key (operators / jumps / watch / billing / settings)
+	Title    string
+	Sub      string
+	Body     string
+	PhaseTag string
+}
+
+func (h *Handlers) renderStub(w http.ResponseWriter, d StubData) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.Templates.ExecuteTemplate(w, "platform_stub.html", d); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// Operators — Phase 10.3.
+func (h *Handlers) Operators(w http.ResponseWriter, r *http.Request) {
+	h.renderStub(w, StubData{
+		Active: "operators", Title: "Operators",
+		Sub:      "Cross-tenant camera-operator roster",
+		Body:     "Will list every operator across every club, with their tenant, role, last-login time, and a sign-in-as button. Filter by club, role, or activity.",
+		PhaseTag: "Phase 10.3",
+	})
+}
+
+// Jumps — Phase 10.4.
+func (h *Handlers) Jumps(w http.ResponseWriter, r *http.Request) {
+	h.renderStub(w, StubData{
+		Active: "jumps", Title: "Jumps",
+		Sub:      "All jumps across all clubs",
+		Body:     "Will list every jump platform-wide with status (draft / encoding / ready / sent / delivered) and per-tenant filters. Click-through opens the operator's project view.",
+		PhaseTag: "Phase 10.4",
+	})
+}
+
+// WatchLinks — Phase 10.5 (analytics from the watch_events table).
+func (h *Handlers) WatchLinks(w http.ResponseWriter, r *http.Request) {
+	h.renderStub(w, StubData{
+		Active: "watch", Title: "Watch links",
+		Sub:      "Client analytics — which jumps got opened",
+		Body:     "Will surface watch_events: clicks per club, time-to-first-watch, repeat-views, photo-pack conversion. Powers the dashboard's \"Watch link clicks\" KPI tile.",
+		PhaseTag: "Phase 10.5",
+	})
+}
+
+// Billing — Phase 10.6 (aggregated monthly stats — depends on Phase 12).
+func (h *Handlers) Billing(w http.ResponseWriter, r *http.Request) {
+	h.renderStub(w, StubData{
+		Active: "billing", Title: "Billing",
+		Sub:      "Aggregated MRR + per-club invoices",
+		Body:     "Cross-tenant billing roll-up: MRR by plan, monthly_invoices status, photo-pack revenue split per club. Lights up after the Stripe + Flowtark wiring lands.",
+		PhaseTag: "Phase 10.6 · depends on Phase 12",
+	})
+}
+
+// Settings — Phase 10.7 (app_settings editor).
+func (h *Handlers) Settings(w http.ResponseWriter, r *http.Request) {
+	h.renderStub(w, StubData{
+		Active: "settings", Title: "Platform settings",
+		Sub:      "Stripe keys, Sentry DSN, Flowtark API token",
+		Body:     "Editor for the app_settings key/value table. Owns Stripe / Montonio / Flowtark / Resend credentials and the Sentry DSN. Encrypted at rest.",
+		PhaseTag: "Phase 10.7",
+	})
+}
+
+// =====================================================================
 // E3 — Create club (POST /platform/clubs)
 // =====================================================================
 

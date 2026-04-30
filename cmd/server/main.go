@@ -242,6 +242,11 @@ func main() {
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs", platformH.ClubsList)
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs/{id}", platformH.ClubDetail)
 	r.With(sessions.RequirePlatformAdmin).Post("/platform/clubs", platformH.CreateClub)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/operators", platformH.Operators)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/jumps", platformH.Jumps)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/watch-links", platformH.WatchLinks)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/billing", platformH.Billing)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/settings", platformH.Settings)
 
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/", func(w http.ResponseWriter, req *http.Request) {
 		s := auth.MustFromContext(req.Context())

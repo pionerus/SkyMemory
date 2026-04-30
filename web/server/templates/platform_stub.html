@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}} · Skydive Memory · Platform admin</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+html, body { margin: 0; background: var(--sm-bg); color: var(--sm-text); font-family: var(--sm-body); }
+.shell { display: flex; min-height: 100vh; }
+
+/* Reuse the platform rail markup verbatim from platform_clubs.html */
+.super-rail { width: 232px; border-right: 1px solid var(--sm-border); background: var(--sm-surface); display: flex; flex-direction: column; }
+.super-rail .head { padding: 20px 18px 18px; border-bottom: 1px solid var(--sm-border); display: flex; align-items: center; gap: 10px; }
+.super-rail .head .sm-mark { width: 22px; height: 22px; color: var(--sm-text); }
+.super-rail .head .name { font-family: var(--sm-display); font-size: 14px; font-weight: 600; line-height: 1.1; }
+.super-rail nav { padding: 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.super-rail .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; color: var(--sm-text-muted); font-size: 13px; text-decoration: none; }
+.super-rail .nav-item:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.super-rail .nav-item.is-active { background: var(--sm-brand-soft); color: var(--sm-text); position: relative; }
+.super-rail .nav-item.is-active::before { content: ""; position: absolute; left: -16px; top: 50%; width: 3px; height: 16px; background: var(--sm-brand); border-radius: 2px; transform: translateY(-50%); }
+
+main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { height: 64px; border-bottom: 1px solid var(--sm-border); display: flex; align-items: center; padding: 0 28px; gap: 12px; }
+.topbar h1 { font-size: 20px; font-weight: 500; margin: 0; }
+.topbar .sub { font-size: 12px; color: var(--sm-text-muted); margin-top: 2px; }
+
+.body-pad { flex: 1; display: flex; align-items: center; justify-content: center; padding: 60px 28px; }
+.empty-card {
+  max-width: 520px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 18px;
+  padding: 48px 36px;
+  text-align: center;
+}
+.empty-card .ico {
+  width: 64px; height: 64px; border-radius: 16px;
+  background: var(--sm-gradient-hero-soft);
+  border: 1px solid var(--sm-border);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--sm-brand-hi);
+  margin-bottom: 22px;
+}
+.empty-card h2 { font-size: 22px; font-weight: 500; font-family: var(--sm-display); margin-bottom: 10px; }
+.empty-card p { font-size: 13px; color: var(--sm-text-muted); line-height: 1.5; margin-bottom: 6px; }
+.empty-card .phase {
+  display: inline-block;
+  margin-top: 18px;
+  font-size: 11px;
+  font-family: var(--sm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sm-text-dim);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--sm-border);
+}
+.empty-card a {
+  display: inline-block;
+  margin-top: 22px;
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="super-rail">
+    <div class="head">
+      <span class="sm-mark"></span>
+      <div>
+        <div class="name">Skydive Memory</div>
+        <span class="role-chip role-chip--super">Super admin</span>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item{{if eq .Active "dash"}} is-active{{end}}" href="/platform/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item{{if eq .Active "clubs"}} is-active{{end}}" href="/platform/clubs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/></svg>
+        Clubs
+      </a>
+      <a class="nav-item{{if eq .Active "operators"}} is-active{{end}}" href="/platform/operators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Operators
+      </a>
+      <a class="nav-item{{if eq .Active "jumps"}} is-active{{end}}" href="/platform/jumps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Jumps
+      </a>
+      <a class="nav-item{{if eq .Active "watch"}} is-active{{end}}" href="/platform/watch-links">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Watch links
+      </a>
+      <a class="nav-item{{if eq .Active "billing"}} is-active{{end}}" href="/platform/billing">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Billing
+      </a>
+      <a class="nav-item{{if eq .Active "settings"}} is-active{{end}}" href="/platform/settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:8px;align-items:center">
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:6px 8px;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
+      <form method="post" action="/platform/logout" style="margin:0;flex:1">
+        <button class="sm-btn is-ghost is-block" style="font-size:11px" title="Sign out">Sign out</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="col">
+    <header class="topbar">
+      <div style="flex:1">
+        <h1>{{.Title}}</h1>
+        <div class="sub">{{.Sub}}</div>
+      </div>
+    </header>
+
+    <div class="body-pad">
+      <div class="empty-card">
+        <div class="ico">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h2>{{.Title}} — coming soon</h2>
+        <p>{{.Body}}</p>
+        <div class="phase">{{.PhaseTag}}</div>
+        <div>
+          <a class="sm-btn" href="/platform/">← Back to dashboard</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>
