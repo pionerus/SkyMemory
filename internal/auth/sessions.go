@@ -14,6 +14,8 @@ const (
 	keyTenantID       = "tenant_id"
 	keyOperatorRole   = "operator_role"
 	keyOperatorEmail  = "operator_email"
+	keyPlatformAdmin  = "platform_admin_id"
+	keyPlatformName   = "platform_admin_name"
 )
 
 // Manager wraps a sessions.Store with helpers for the operator session.
@@ -36,32 +38,40 @@ func NewManager(secretKey string, productionMode bool) *Manager {
 	return &Manager{store: store, prod: productionMode}
 }
 
-// SessionData is the typed view of a session.
+// SessionData is the typed view of a session. Either an operator
+// (OperatorID + TenantID set) OR a platform admin (PlatformAdminID set) —
+// never both at the same time. Login of one clears the other.
 type SessionData struct {
-	OperatorID    int64
-	TenantID      int64
-	OperatorRole  string
-	OperatorEmail string
+	OperatorID        int64
+	TenantID          int64
+	OperatorRole      string
+	OperatorEmail     string
+	PlatformAdminID   int64
+	PlatformAdminName string
 }
 
-func (s SessionData) IsAuthenticated() bool { return s.OperatorID > 0 && s.TenantID > 0 }
-func (s SessionData) IsOwner() bool         { return s.OperatorRole == "owner" }
+func (s SessionData) IsAuthenticated() bool   { return s.OperatorID > 0 && s.TenantID > 0 }
+func (s SessionData) IsOwner() bool           { return s.OperatorRole == "owner" }
+func (s SessionData) IsPlatformAdmin() bool   { return s.PlatformAdminID > 0 }
 
-// Read returns the typed session for a request. Always non-nil; check IsAuthenticated.
+// Read returns the typed session for a request. Always non-nil; check IsAuthenticated / IsPlatformAdmin.
 func (m *Manager) Read(r *http.Request) SessionData {
 	sess, err := m.store.Get(r, sessionName)
 	if err != nil || sess == nil {
 		return SessionData{}
 	}
 	return SessionData{
-		OperatorID:    int64Of(sess.Values[keyOperatorID]),
-		TenantID:      int64Of(sess.Values[keyTenantID]),
-		OperatorRole:  stringOf(sess.Values[keyOperatorRole]),
-		OperatorEmail: stringOf(sess.Values[keyOperatorEmail]),
+		OperatorID:        int64Of(sess.Values[keyOperatorID]),
+		TenantID:          int64Of(sess.Values[keyTenantID]),
+		OperatorRole:      stringOf(sess.Values[keyOperatorRole]),
+		OperatorEmail:     stringOf(sess.Values[keyOperatorEmail]),
+		PlatformAdminID:   int64Of(sess.Values[keyPlatformAdmin]),
+		PlatformAdminName: stringOf(sess.Values[keyPlatformName]),
 	}
 }
 
 // Set writes the operator's identity into the session and saves the cookie.
+// Clears any platform-admin keys to keep the two identities mutually exclusive.
 func (m *Manager) Set(w http.ResponseWriter, r *http.Request, d SessionData) error {
 	sess, err := m.store.Get(r, sessionName)
 	if err != nil {
@@ -71,6 +81,24 @@ func (m *Manager) Set(w http.ResponseWriter, r *http.Request, d SessionData) err
 	sess.Values[keyTenantID] = d.TenantID
 	sess.Values[keyOperatorRole] = d.OperatorRole
 	sess.Values[keyOperatorEmail] = d.OperatorEmail
+	delete(sess.Values, keyPlatformAdmin)
+	delete(sess.Values, keyPlatformName)
+	return sess.Save(r, w)
+}
+
+// SetPlatformAdmin starts a platform-admin session, clearing any prior
+// operator identity. Platform admins are cross-tenant.
+func (m *Manager) SetPlatformAdmin(w http.ResponseWriter, r *http.Request, id int64, name, email string) error {
+	sess, err := m.store.Get(r, sessionName)
+	if err != nil {
+		return err
+	}
+	sess.Values[keyPlatformAdmin] = id
+	sess.Values[keyPlatformName] = name
+	sess.Values[keyOperatorEmail] = email // we reuse this slot for "who's signed in"
+	delete(sess.Values, keyOperatorID)
+	delete(sess.Values, keyTenantID)
+	delete(sess.Values, keyOperatorRole)
 	return sess.Save(r, w)
 }
 

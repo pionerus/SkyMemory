@@ -3,204 +3,339 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Freefall Studio</title>
+<title>Skydive Memory Studio</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
-  :root {
-    --ink: #0a0a14;
-    --paper: #fbfaf7;
-    --peach: #ffd6b3;
-    --mint:  #b5e4ca;
-    --sky:   #c5deff;
-    --lavender: #e0d4ff;
-    --rose: #ffd1d6;
-    --brand: #4f46e5;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-    background: var(--paper);
-    color: var(--ink);
-  }
-  header {
-    padding: 24px 32px;
-    border-bottom: 1px solid #eee;
+  /* Page-specific tweaks */
+  .proj-card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 80ms, transform 80ms;
+    text-decoration: none;
+    color: inherit;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+  }
+  .proj-card:hover { border-color: var(--sm-border-strong); }
+  .proj-thumb {
+    aspect-ratio: 16/9;
+    background-color: #0F1420;
+    background-image:
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 12px),
+      radial-gradient(120% 80% at 30% 20%, rgba(79,142,255,.10), transparent 60%),
+      radial-gradient(140% 90% at 80% 90%, rgba(255,177,105,.08), transparent 60%);
+    border-bottom: 1px solid var(--sm-border);
+    display:flex; align-items:center; justify-content:center;
+    color: var(--sm-text-dim);
+    font-family: var(--sm-mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    position: relative;
+  }
+  .proj-body { padding: 14px 16px; display:flex; flex-direction:column; gap:8px; }
+  .proj-name { font-weight: 600; font-size: 14px; }
+  .proj-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color: var(--sm-text-muted); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
-    flex-wrap: wrap;
   }
-  header .mark {
-    width: 40px; height: 40px; border-radius: 12px;
-    background: linear-gradient(135deg, var(--peach), var(--lavender));
-    display: grid; place-items: center; font-size: 20px;
+  .empty {
+    border: 1px dashed var(--sm-border-strong);
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--sm-text-muted);
   }
-  header h1 { font-size: 18px; margin: 0; }
-  header .meta { color: #777; font-size: 13px; }
-  main { max-width: 960px; margin: 32px auto; padding: 0 24px; }
-  .card {
-    background: white;
-    border: 1px solid #eee;
+  .rail-foot {
+    margin-top: auto;
+    padding: 16px;
+    border-top: 1px solid var(--sm-border);
+    font-size: 12px;
+    color: var(--sm-text-muted);
+  }
+  .rail-foot .row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .license-banner {
+    background: var(--sm-surface);
+    border: 1px solid rgba(255,107,122,.25);
     border-radius: 16px;
     padding: 24px;
-    margin-bottom: 16px;
+    margin-bottom: 24px;
   }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  .pill {
-    padding: 4px 10px; border-radius: 999px;
-    font-size: 12px; font-weight: 600;
-    background: var(--mint);
+  .license-banner h2 { font-size: 18px; margin-bottom: 8px; color: var(--sm-danger); }
+  .license-banner p { color: var(--sm-text-muted); font-size: 13px; margin-bottom: 8px; }
+  .license-banner code {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-family: var(--sm-mono);
+    font-size: 12px;
+    color: var(--sm-text);
   }
-  .pill.warn  { background: var(--peach); }
-  .pill.error { background: var(--rose); }
-  .pill.muted { background: #eee; color: #555; }
-  code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-  .btn {
-    display: inline-block;
-    padding: 10px 18px;
-    border-radius: 10px;
-    background: var(--brand);
-    color: white;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 14px;
-    border: none;
-    cursor: pointer;
-  }
-  .btn[disabled], .btn.disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
-  .btn.secondary {
-    background: white;
-    color: var(--ink);
-    border: 1px solid #ddd;
-  }
-  ul.checklist { list-style: none; padding: 0; margin: 0; }
-  ul.checklist li { padding: 6px 0; }
-  ul.checklist li::before { content: "○ "; color: #aaa; }
-  ul.checklist li.done::before { content: "✓ "; color: #16a34a; }
-  ul.checklist li.fail::before { content: "✕ "; color: #dc2626; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  table td { padding: 6px 0; vertical-align: top; }
-  table td:first-child { width: 200px; color: #777; }
+  /* Checklist (small diagnostics panel) */
+  .check-list { list-style: none; padding: 0; margin: 0; }
+  .check-list li { padding: 6px 0; font-size: 13px; color: var(--sm-text-muted); display:flex; align-items:center; gap:8px; }
+  .check-list li.done { color: var(--sm-text); }
+  .check-list li.done::before { content: "✓"; color: var(--sm-success); }
+  .check-list li.fail::before { content: "✕"; color: var(--sm-danger); }
+  .check-list li:not(.done):not(.fail)::before { content: "○"; color: var(--sm-text-dim); }
 </style>
 </head>
 <body>
-<header>
-  <div class="mark">🪂</div>
-  <div>
-    <h1>Freefall Studio</h1>
-    <div class="meta">v{{.Version}} · {{.Platform}} · listening on {{.Addr}}</div>
-  </div>
-  <div style="margin-left:auto" class="row">
-    {{if .License.Valid}}
-      <span class="pill">License OK</span>
-    {{else if .License.Err}}
-      <span class="pill warn">License unverified (offline?)</span>
-    {{else if not .TokenConfigured}}
-      <span class="pill error">No license token</span>
-    {{else}}
-      <span class="pill error">License invalid</span>
-    {{end}}
-    {{if .CloudReachable}}
-      <span class="pill">Cloud connected</span>
-    {{else}}
-      <span class="pill error">Cloud unreachable</span>
-    {{end}}
-  </div>
-</header>
 
-<main>
-  {{if .License.Valid}}
-  <div class="card">
-    <div style="display:flex;align-items:center;gap:12px">
-      <h2 style="margin:0">My projects</h2>
-      <span class="pill muted">{{len .Projects}}</span>
-      <a href="/projects/new" class="btn" style="margin-left:auto">+ New project</a>
+<div class="sm-page">
+  <aside class="sm-rail" style="width:240px">
+    <div style="padding: 20px 18px 14px; border-bottom: 1px solid var(--sm-border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none">
+          <span class="sm-mark" style="width:22px"></span>
+        </span>
+        <div style="min-width:0">
+          <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
+          <div style="font-size:10px;color:var(--sm-text-dim);font-family:var(--sm-mono);letter-spacing:.06em;text-transform:uppercase">Studio · localhost:{{.Port}}</div>
+        </div>
+      </div>
     </div>
-    {{if .Projects}}
-      <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px">
-        <thead>
-          <tr style="text-align:left;color:#777;font-size:12px;text-transform:uppercase">
-            <th style="padding:8px 4px;border-bottom:1px solid #eee">Client</th>
-            <th style="padding:8px 4px;border-bottom:1px solid #eee">Outputs</th>
-            <th style="padding:8px 4px;border-bottom:1px solid #eee">Code</th>
-            <th style="padding:8px 4px;border-bottom:1px solid #eee">Status</th>
-            <th style="padding:8px 4px;border-bottom:1px solid #eee">Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{range .Projects}}
-          <tr style="cursor:pointer" onclick="location.href='/projects/{{.ID}}'">
-            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5">
-              <strong>{{.ClientName}}</strong>
-              {{if .ClientEmail}}<div style="color:#999;font-size:12px">{{.ClientEmail}}</div>{{end}}
-            </td>
-            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;font-size:12px">
-              {{if .Output1080p}}<span class="pill" style="margin-right:4px">1080p</span>{{end}}
-              {{if .Output4K}}<span class="pill" style="margin-right:4px">4K</span>{{end}}
-              {{if .OutputVertical}}<span class="pill" style="margin-right:4px">vert</span>{{end}}
-              {{if .OutputPhotos}}<span class="pill" style="margin-right:4px">photo</span>{{end}}
-            </td>
-            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px">{{.AccessCode}}</td>
-            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5"><span class="pill muted">{{.Status}}</span></td>
-            <td style="padding:10px 4px;border-bottom:1px solid #f5f5f5;color:#999;font-size:12px">{{.CreatedAt.Format "Jan 2, 15:04"}}</td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
-    {{else}}
-      <p style="color:#888;margin-top:16px">No projects yet. Click <em>+ New project</em> to create your first one.</p>
-    {{end}}
-  </div>
-  {{else}}
-  <div class="card" style="background:#fff7ed; border-color:#fed7aa">
-    <h2 style="margin-top:0">License required</h2>
-    {{if not .TokenConfigured}}
-      <p>Set <code>STUDIO_LICENSE_TOKEN</code> in <code>.env</code>, then restart this app.</p>
-      <p style="color:#666;font-size:13px">Get a token from your club owner — they issue it in the cloud admin at
-      <code>POST /admin/license-tokens</code>.</p>
-    {{else if .License.Err}}
-      <p>Token couldn't be verified — cloud server is unreachable.</p>
-      <p style="color:#666;font-size:13px">Error: <code>{{.License.Err}}</code></p>
-    {{else}}
-      <p>Token rejected by cloud. Reason: <code>{{.License.Reason}}</code></p>
-      <p style="color:#666;font-size:13px">Possible causes: token revoked in admin, tenant deleted, or the token in your <code>.env</code> doesn't match anything on the server.</p>
-    {{end}}
-    <form method="POST" action="/license/refresh" style="margin-top:16px">
-      <button class="btn secondary" type="submit">Re-check now</button>
-    </form>
-  </div>
-  {{end}}
 
-  {{if .License.Valid}}
-  <div class="card">
-    <h2 style="margin-top:0">Session</h2>
-    <table>
-      <tr><td>Tenant</td><td>{{.License.TenantName}} <code>(id={{.License.TenantID}})</code></td></tr>
-      <tr><td>Operator</td><td>{{.License.OperatorEmail}} <code>(id={{.License.OperatorID}})</code></td></tr>
-      <tr><td>Trusted until</td><td>{{.License.ValidUntil.Format "2006-01-02 15:04 MST"}}</td></tr>
-      {{if not .LicenseCheckedAt.IsZero}}
-      <tr><td>Last check</td><td>{{.LicenseCheckedAt.Format "15:04:05"}}</td></tr>
+    <div style="padding:14px">
+      <a href="/projects/new" class="sm-btn is-hero is-block is-lg" {{if not .License.Valid}}style="opacity:.5;pointer-events:none"{{end}}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New project
+      </a>
+    </div>
+
+    <div style="padding:0 14px 12px;position:relative">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:26px;top:13px;color:var(--sm-text-muted);pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="proj-search" class="sm-input" placeholder="Search projects…" style="padding-left:34px;height:36px;font-size:13px">
+    </div>
+
+    <div style="padding:0 14px 14px;display:flex;flex-wrap:wrap;gap:6px">
+      <span class="sm-pill is-brand filter-chip" data-filter="all" style="cursor:pointer">All</span>
+      <span class="sm-pill filter-chip" data-filter="in_progress" style="cursor:pointer">In progress</span>
+      <span class="sm-pill filter-chip" data-filter="done" style="cursor:pointer">Done</span>
+      <span class="sm-pill filter-chip" data-filter="failed" style="cursor:pointer">Failed</span>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div style="padding:14px;border-top:1px solid var(--sm-border)">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:4px">
+        {{if .License.Valid}}
+          <span class="sm-dot" style="color:var(--sm-success)"></span>
+          <span>License OK</span>
+        {{else if .License.Err}}
+          <span class="sm-dot" style="color:var(--sm-warning)"></span>
+          <span>License unverified</span>
+        {{else if not .TokenConfigured}}
+          <span class="sm-dot" style="color:var(--sm-danger)"></span>
+          <span>No license token</span>
+        {{else}}
+          <span class="sm-dot" style="color:var(--sm-danger)"></span>
+          <span>License invalid</span>
+        {{end}}
+      </div>
+      {{if .License.Valid}}
+      <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.OperatorEmail}}</div>
+      <div style="font-size:11px;color:var(--sm-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.TenantName}}</div>
       {{end}}
-    </table>
-  </div>
-  {{end}}
+      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
+        <span class="mono">Studio v{{.Version}}</span>
+        <a href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false" style="color:var(--sm-text-muted)">Settings</a>
+      </div>
+    </div>
+  </aside>
 
-  <div class="card">
-    <h2 style="margin-top:0">Setup checklist</h2>
-    <ul class="checklist">
-      <li class="done">Studio binary running on <code>{{.Addr}}</code></li>
-      <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <code>{{.CloudBaseURL}}</code></li>
-      <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">License token configured (<code>STUDIO_LICENSE_TOKEN</code>)</li>
-      <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted the license token</li>
-      <li>FFmpeg pipeline (in development)</li>
-      <li>Storage adapter (in development)</li>
-    </ul>
-  </div>
+  <div class="sm-main">
+    <div class="sm-page-header">
+      <div>
+        <h1>Projects</h1>
+        <p style="color:var(--sm-text-muted);margin-top:6px;font-size:13px">
+          {{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}}
+          {{if .License.Valid}}· listening on <span class="mono">{{.Addr}}</span>{{end}}
+        </p>
+      </div>
+      {{if .License.Valid}}
+      <a href="/projects/new" class="sm-btn is-hero is-lg">+ New project</a>
+      {{end}}
+    </div>
 
-  <div class="card" style="background:#fff7ed; border-color:#fed7aa">
-    <h2 style="margin-top:0">Diagnostics</h2>
-    <p>Health: <a href="/healthz">/healthz</a> · State DB: <code>{{.StatePath}}</code></p>
+    {{if not .License.Valid}}
+    <div class="license-banner">
+      <h2>License required</h2>
+      {{if not .TokenConfigured}}
+        <p>Set <code>STUDIO_LICENSE_TOKEN</code> in <code>.env</code>, then restart this app.</p>
+        <p>Get a token from your club owner — they issue it in the cloud admin under <code>/admin/tokens</code>.</p>
+      {{else if .License.Err}}
+        <p>Token couldn't be verified — cloud server is unreachable.</p>
+        <p>Error: <code>{{.License.Err}}</code></p>
+      {{else}}
+        <p>Token rejected by cloud. Reason: <code>{{.License.Reason}}</code></p>
+        <p>Possible causes: token revoked in admin, tenant deleted, or the token in your <code>.env</code> doesn't match anything on the server.</p>
+      {{end}}
+      <form method="POST" action="/license/refresh" style="margin-top:16px">
+        <button class="sm-btn" type="submit">Re-check now</button>
+      </form>
+    </div>
+    {{end}}
+
+    {{if .License.Valid}}
+      {{if .Projects}}
+      <div class="grid" id="proj-grid">
+        {{range .Projects}}
+        <a class="proj-card"
+           href="/projects/{{.ID}}/clips"
+           data-name="{{.ClientName}}"
+           data-code="{{.AccessCode}}"
+           data-status="{{if eq .Status "done"}}done{{else if eq .Status "failed"}}failed{{else}}in_progress{{end}}">
+          <div class="proj-thumb">
+            <span>FREEFALL · {{.AccessCode}}</span>
+          </div>
+          <div class="proj-body">
+            <div class="proj-name">{{.ClientName}}</div>
+            {{if .ClientEmail}}
+            <div style="font-size:12px;color:var(--sm-text-muted)">{{.ClientEmail}}</div>
+            {{end}}
+            <div class="proj-meta">
+              <span class="sm-pill is-mono">{{.AccessCode}}</span>
+              <span class="sm-pill {{if eq .Status "done"}}is-success{{else if eq .Status "failed"}}is-danger{{else}}is-brand{{end}}">{{.Status}}</span>
+            </div>
+            <div class="proj-meta">
+              {{if .Output1080p}}<span class="sm-pill">1080p</span>{{end}}
+              {{if .Output4K}}<span class="sm-pill">4K</span>{{end}}
+              {{if .OutputVertical}}<span class="sm-pill">vertical</span>{{end}}
+              {{if .OutputPhotos}}<span class="sm-pill">photos</span>{{end}}
+            </div>
+            <div style="font-size:11px;color:var(--sm-text-dim);margin-top:auto">
+              Created {{.CreatedAt.Format "Jan 2, 15:04"}}
+            </div>
+          </div>
+        </a>
+        {{end}}
+      </div>
+      <div id="proj-empty-filter" class="empty" style="display:none">
+        No projects match the current filter.
+      </div>
+      {{else}}
+      <div class="empty">
+        <p style="font-size:14px;margin-bottom:14px">No projects yet.</p>
+        <a href="/projects/new" class="sm-btn is-primary">+ Create your first project</a>
+      </div>
+      {{end}}
+    {{end}}
+
+    <div class="sm-card" style="padding:24px;margin-top:24px">
+      <h2 style="font-size:16px;margin-bottom:14px">Setup checklist</h2>
+      <ul class="check-list">
+        <li class="done">Studio binary running on <span class="mono">{{.Addr}}</span></li>
+        <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <span class="mono">{{.CloudBaseURL}}</span></li>
+        <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">License token configured (<span class="mono">STUDIO_LICENSE_TOKEN</span>)</li>
+        <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted the license token</li>
+      </ul>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--sm-border);font-size:12px;color:var(--sm-text-muted)">
+        State DB: <span class="mono">{{.StatePath}}</span> ·
+        Health: <a href="/healthz">/healthz</a>
+      </div>
+    </div>
   </div>
-</main>
+</div>
+
+<!-- Settings modal (also reachable from project_detail.html) -->
+<div id="settings-modal" class="sm-modal-backdrop" style="position:fixed;inset:0;z-index:50;background:rgba(11,14,20,.75);display:none;align-items:center;justify-content:center;padding:24px"
+     onclick="if(event.target===this)this.classList.remove('show')">
+  <style>#settings-modal.show{display:flex}</style>
+  <div style="width:520px;max-width:100%;background:var(--sm-surface);border:1px solid var(--sm-border);border-radius:16px;overflow:hidden;box-shadow:var(--sm-shadow-elev)">
+    <header style="padding:18px 22px;border-bottom:1px solid var(--sm-border);display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:16px">Studio settings</h2>
+      <button onclick="document.getElementById('settings-modal').classList.remove('show')" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </header>
+    <div style="padding:22px" id="settings-body">
+      <div style="color:var(--sm-text-muted);font-size:13px">Loading…</div>
+    </div>
+    <footer style="padding:14px 22px;border-top:1px solid var(--sm-border);display:flex;justify-content:flex-end;gap:8px">
+      <button class="sm-btn" onclick="document.getElementById('settings-modal').classList.remove('show')">Close</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+// Search + filter for project grid
+(function() {
+  const grid = document.getElementById('proj-grid');
+  if (!grid) return;
+  const search = document.getElementById('proj-search');
+  const empty  = document.getElementById('proj-empty-filter');
+  let curFilter = 'all';
+  function apply() {
+    const q = (search?.value || '').toLowerCase().trim();
+    let shown = 0;
+    for (const card of grid.querySelectorAll('.proj-card')) {
+      const name = (card.dataset.name || '').toLowerCase();
+      const code = (card.dataset.code || '').toLowerCase();
+      const stat = card.dataset.status || '';
+      const matchQ = !q || name.includes(q) || code.includes(q);
+      const matchF = curFilter === 'all' || stat === curFilter;
+      const visible = matchQ && matchF;
+      card.style.display = visible ? '' : 'none';
+      if (visible) shown++;
+    }
+    if (empty) empty.style.display = shown === 0 ? 'block' : 'none';
+  }
+  search?.addEventListener('input', apply);
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      curFilter = chip.dataset.filter;
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('is-brand', c === chip));
+      apply();
+    });
+  });
+})();
+
+// Settings modal — load on first open
+(function() {
+  const modal = document.getElementById('settings-modal');
+  const body  = document.getElementById('settings-body');
+  let loaded = false;
+  const observer = new MutationObserver(async () => {
+    if (modal.classList.contains('show') && !loaded) {
+      loaded = true;
+      try {
+        const res = await fetch('/settings.json', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const s = await res.json();
+        body.innerHTML = renderSettings(s);
+      } catch (e) {
+        body.innerHTML = '<div style="color:var(--sm-danger);font-size:13px">Failed to load: ' + e.message + '</div>';
+        loaded = false;
+      }
+    }
+  });
+  observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+  function renderSettings(s) {
+    const row = (label, value, action) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--sm-border)">
+        <div>
+          <div class="sm-label" style="margin-bottom:4px">${label}</div>
+          <div style="font-size:13px">${value}</div>
+        </div>
+        ${action || ''}
+      </div>`;
+    const encColor = s.encoder === 'QSV' ? 'var(--sm-success)' : 'var(--sm-warning)';
+    return [
+      row('Encoder', `<span style="color:${encColor}">${s.encoder}</span>${s.encoder_detail ? ' · ' + s.encoder_detail : ''}`),
+      row('Jobs directory', `<span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.jobs_dir}</span>`),
+      row('License token', `<span class="mono" style="color:var(--sm-text-muted)">${s.token_masked}</span>`,
+          `<button class="sm-btn is-sm" disabled title="Restart studio with a new STUDIO_LICENSE_TOKEN in .env">Rotate</button>`),
+      row('Studio version', `<span class="mono">v${s.version}</span> · ${s.platform}`),
+      row('Cloud', `<span style="color:${s.cloud_reachable ? 'var(--sm-success)' : 'var(--sm-danger)'}">${s.cloud_reachable ? '● reachable' : '✕ unreachable'}</span> · <span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.cloud_url}</span>`)
+    ].join('');
+  }
+})();
+</script>
 </body>
 </html>

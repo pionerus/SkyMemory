@@ -3,126 +3,125 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Project created · Freefall Studio</title>
+<title>Project created · Skydive Memory Studio</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
-  body {
-    margin: 0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-    background: linear-gradient(135deg, #fbfaf7, #b5e4ca);
-    min-height: 100vh;
-    color: #0a0a14;
-  }
-  header {
+  .topbar {
+    display:flex; align-items:center; gap:14px;
     padding: 18px 32px;
-    border-bottom: 1px solid rgba(0,0,0,0.05);
-    display: flex; align-items: center; gap: 16px;
-    background: rgba(255,255,255,0.6);
-    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--sm-border);
+    background: var(--sm-surface);
   }
-  header .mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg,#ffd6b3,#e0d4ff); display: grid; place-items: center; font-size: 18px; }
-  header h1 { font-size: 16px; margin: 0; }
-  header .meta { color: #555; font-size: 13px; }
-  header .nav { margin-left: auto; }
-  header .nav a { color: #4f46e5; font-size: 14px; text-decoration: none; }
-  main { max-width: 720px; margin: 32px auto; padding: 0 24px; }
-  .card { background: white; border: 1px solid #eee; border-radius: 16px; padding: 28px; margin-bottom: 16px; }
+  .topbar h1 { font-size: 16px; }
+  .topbar .meta { color: var(--sm-text-muted); font-size: 12px; }
+  .topbar .right { margin-left: auto; }
   .check {
     width: 56px; height: 56px; border-radius: 50%;
-    background: #b5e4ca; color: #14532d;
+    background: rgba(91,210,160,.15); color: var(--sm-success);
     display: grid; place-items: center;
-    font-size: 28px; margin: 0 auto 16px;
+    font-size: 26px; margin: 0 auto 16px;
+    border: 1px solid rgba(91,210,160,.35);
   }
-  h2 { margin: 0 0 6px; font-size: 22px; text-align: center; }
-  .sub { color: #777; font-size: 14px; margin: 0 0 24px; text-align: center; }
   .code-box {
-    background: #f5f5ff; border: 2px solid #c5b9ff; border-radius: 14px;
-    padding: 20px; text-align: center; margin: 24px 0;
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border-strong);
+    border-radius: 14px;
+    padding: 22px;
+    text-align: center;
+    margin: 22px 0;
   }
-  .code-box .label { font-size: 12px; color: #555; margin-bottom: 8px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .code-box .label {
+    font-size: 11px; color: var(--sm-text-muted);
+    margin-bottom: 10px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    font-family: var(--sm-mono);
+  }
   .code-box .code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 32px; font-weight: 700; letter-spacing: 4px;
-    color: #4f46e5;
+    font-family: var(--sm-mono);
+    font-size: 32px; font-weight: 600;
+    letter-spacing: 4px;
+    color: var(--sm-brand);
   }
-  .code-box .copy { margin-top: 12px; }
-  .meta-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-  .meta-row:last-child { border-bottom: none; }
-  .meta-row .k { color: #777; }
-  .meta-row .v { font-weight: 600; }
-  .actions {
-    display: flex; gap: 12px; flex-wrap: wrap;
-    margin-top: 24px;
+  .meta-row {
+    display: flex; justify-content: space-between; gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--sm-border);
+    font-size: 13px;
   }
-  .btn {
-    display: inline-block; padding: 12px 22px;
-    border-radius: 10px; background: #4f46e5; color: white;
-    text-decoration: none; font-weight: 600; font-size: 14px;
-    border: none; cursor: pointer;
-  }
-  .btn.secondary {
-    background: white; color: #0a0a14; border: 1px solid #ddd;
-  }
-  .btn.secondary:hover { background: #f9f9f9; }
+  .meta-row:last-of-type { border-bottom: none; }
+  .meta-row .k { color: var(--sm-text-muted); }
+  .meta-row .v { font-weight: 500; }
   .next-up {
-    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px;
-    padding: 16px 20px; margin-top: 16px; font-size: 13px; color: #92400e;
+    background: var(--sm-surface-2);
+    border: 1px solid rgba(255,209,102,.25);
+    border-radius: 12px;
+    padding: 14px 16px; margin-top: 16px;
+    font-size: 13px; color: var(--sm-text-muted);
   }
-  .next-up b { color: #7c2d12; }
-  pill {
-    display: inline-block; padding: 3px 9px; border-radius: 999px;
-    font-size: 11px; font-weight: 600; background: #b5e4ca; margin-right: 4px;
-  }
+  .next-up b { color: var(--sm-warning); }
 </style>
 </head>
 <body>
-<header>
-  <div class="mark">🪂</div>
+
+<div class="topbar">
+  <span class="sm-tile" style="width:36px;height:36px;border-radius:10px;box-shadow:none">
+    <span class="sm-mark" style="width:24px"></span>
+  </span>
   <div>
-    <h1>Freefall Studio</h1>
+    <h1>Skydive Memory Studio</h1>
     <div class="meta">{{.License.TenantName}} · {{.License.OperatorEmail}}</div>
   </div>
-  <div class="nav"><a href="/">← Home</a></div>
-</header>
+  <div class="right"><a href="/" class="sm-btn is-ghost is-sm">← Home</a></div>
+</div>
 
-<main>
-  <div class="card">
+<main style="max-width:760px;margin:32px auto;padding:0 24px">
+  <div class="sm-card" style="padding:28px">
     <div class="check">✓</div>
-    <h2>Project registered in the cloud</h2>
-    <p class="sub">jump_id <code>#{{.JumpID}}</code> · client_id <code>#{{.ClientID}}</code></p>
+    <h2 style="font-size:24px;text-align:center;margin-bottom:6px">Project registered in the cloud</h2>
+    <p style="color:var(--sm-text-muted);font-size:13px;text-align:center">
+      jump_id <span class="mono">#{{.JumpID}}</span> · client_id <span class="mono">#{{.ClientID}}</span>
+    </p>
 
     <div class="code-box">
       <div class="label">Client access code</div>
       <div class="code" id="code">{{.AccessCode}}</div>
-      <button class="btn secondary copy" onclick="copyCode()">Copy code</button>
+      <button class="sm-btn is-sm" style="margin-top:14px" onclick="copyCode(event)">Copy code</button>
     </div>
 
     <div class="meta-row"><span class="k">Client</span><span class="v">{{.ClientName}}</span></div>
     {{if .ClientEmail}}<div class="meta-row"><span class="k">Email</span><span class="v">{{.ClientEmail}}</span></div>{{end}}
     {{if .ClientPhone}}<div class="meta-row"><span class="k">Phone</span><span class="v">{{.ClientPhone}}</span></div>{{end}}
-    <div class="meta-row"><span class="k">Outputs</span><span class="v">
-      {{if .Output1080p}}<pill>1080p</pill>{{end}}
-      {{if .Output4K}}<pill>4K</pill>{{end}}
-      {{if .OutputVertical}}<pill>vertical</pill>{{end}}
-      {{if .OutputPhotos}}<pill>{{if .HasOperatorUploadedPhotos}}DSLR photos{{else}}auto photos{{end}}</pill>{{end}}
+    <div class="meta-row"><span class="k">Outputs</span><span class="v" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+      {{if .Output1080p}}<span class="sm-pill is-brand">1080p</span>{{end}}
+      {{if .Output4K}}<span class="sm-pill is-brand">4K</span>{{end}}
+      {{if .OutputVertical}}<span class="sm-pill is-brand">vertical</span>{{end}}
+      {{if .OutputPhotos}}<span class="sm-pill is-brand">{{if .HasOperatorUploadedPhotos}}DSLR photos{{else}}auto photos{{end}}</span>{{end}}
     </span></div>
 
     <div class="next-up">
-      <b>Next up (not yet built):</b> upload the 7 segments (intro, interview, walk, plane, freefall, landing, closing), pick music, generate. For now this access code is reserved and the cloud is waiting for the first artifact.
+      <b>Next up:</b> upload the 7 segments (intro, interview, walk, plane, freefall, landing, closing), pick music, generate. The cloud is waiting for the first artifact.
     </div>
 
-    <div class="actions">
-      <a href="/projects/new" class="btn">+ Another project</a>
-      <a href="/" class="btn secondary">Back to dashboard</a>
-      <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank" class="btn secondary">Preview client portal →</a>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;justify-content:center">
+      {{if .LocalID}}
+      <a href="/projects/{{.LocalID}}/clips" class="sm-btn is-hero is-lg" style="height:46px;padding:0 22px">
+        Add clips & music →
+      </a>
+      {{end}}
+      <a href="/projects/new" class="sm-btn">+ Another project</a>
+      <a href="/" class="sm-btn">All projects</a>
+    </div>
+    <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--sm-text-dim)">
+      <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank">Preview the client watch link →</a>
     </div>
   </div>
 </main>
 
 <script>
-function copyCode() {
+function copyCode(e) {
   const code = document.getElementById('code').textContent.trim();
   navigator.clipboard.writeText(code).then(() => {
-    const btn = event.target;
+    const btn = e.target;
     const orig = btn.textContent;
     btn.textContent = '✓ Copied';
     setTimeout(() => btn.textContent = orig, 1500);

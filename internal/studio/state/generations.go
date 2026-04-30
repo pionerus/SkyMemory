@@ -89,6 +89,26 @@ func (db *DB) UpdateGeneration(ctx context.Context, id int64, p GenerationPatch)
 	return err
 }
 
+// MarkStaleGenerationsFailed flips any generations still in an in-progress
+// status (queued / trimming / concating) into failed with a "studio
+// restarted" error. Called once on studio boot so a previous crash or kill
+// doesn't leave rows that confuse the UI ("running" forever).
+func (db *DB) MarkStaleGenerationsFailed(ctx context.Context) (int64, error) {
+	res, err := db.ExecContext(ctx, `
+		UPDATE generations
+		SET status = ?, error = ?, finished_at = ?
+		WHERE status IN (?, ?, ?)`,
+		GenStatusFailed,
+		"studio restarted while this generation was running",
+		time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		GenStatusQueued, GenStatusTrimming, GenStatusConcating,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // GetLatestGeneration returns the newest generation row for a project, or
 // (nil, ErrNotFound) if none yet.
 func (db *DB) GetLatestGeneration(ctx context.Context, projectID int64) (*Generation, error) {

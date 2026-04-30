@@ -206,4 +206,27 @@ var schemaSteps = map[int]string{
 		);
 		CREATE INDEX idx_generations_project ON generations(project_id, started_at DESC);
 	`,
+
+	6: `
+		-- Cut / exclude zones inside a clip's trim window. Operator paints over
+		-- moments that should be removed from the final render (operator walked
+		-- into frame, jumper sneezed, etc). Pipeline turns N cut zones into
+		-- N+1 trim segments + concat in the filter graph.
+		--
+		-- start_seconds and end_seconds are in source-clip seconds, same scale
+		-- as clips.trim_in_seconds. They MUST sit inside the trim window, but
+		-- this is enforced application-side, not by CHECK (so AI-suggested
+		-- cuts can sit outside while we tune them).
+		CREATE TABLE clip_cuts (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			clip_id        INTEGER NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+			start_seconds  REAL NOT NULL,
+			end_seconds    REAL NOT NULL,
+			reason         TEXT,                       -- 'operator-in-frame', 'silence', 'manual', etc
+			auto_suggested INTEGER NOT NULL DEFAULT 0, -- 1 when added by silence-detect / motion-magnitude
+			created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			UNIQUE(clip_id, start_seconds)
+		);
+		CREATE INDEX idx_clip_cuts_clip ON clip_cuts(clip_id, start_seconds);
+	`,
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -21,6 +23,8 @@ import (
 
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 	"github.com/pionerus/freefall/internal/config"
+	studiobranding "github.com/pionerus/freefall/internal/studio/branding"
+	"github.com/pionerus/freefall/internal/studio/delivery"
 	"github.com/pionerus/freefall/internal/studio/ffprobe"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
@@ -77,15 +81,44 @@ func main() {
 	}
 	log.Printf("music cache: %s", musicCacheDir)
 
+	// Branding cache (Phase 6.5) — same disk-cache pattern as music. Each
+	// render fetches the tenant's bundle and re-downloads only when the
+	// cloud-reported ETag has changed.
+	brandingClient := studiobranding.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	brandingCacheDir := filepath.Join(filepath.Dir(cfg.StatePath), "branding-cache")
+	brandingCache, err := studiobranding.NewCache(brandingCacheDir, brandingClient)
+	if err != nil {
+		log.Fatalf("branding cache: %v", err)
+	}
+	log.Printf("branding cache: %s", brandingCacheDir)
+
 	pipelineRunner := &pipeline.Runner{
-		DB:         stateDB,
-		JobsDir:    jobsDir,
-		MusicCache: musicCache,
+		DB:               stateDB,
+		JobsDir:          jobsDir,
+		MusicCache:       musicCache,
+		BrandingProvider: &brandingProvider{cache: brandingCache, license: licenseMgr},
+	}
+
+	// Delivery client (Phase 7.1) — uploads rendered MP4s to cloud after each
+	// successful Run() so the watch page has something to play.
+	deliveryClient := delivery.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	runRegistry := &pipeline.RunRegistry{}
+
+	// Recover from a previous crash / kill: any generation row left in an
+	// in-progress status is bogus now (studio just restarted, no ffmpeg
+	// running). Mark them failed so the UI doesn't spin forever.
+	if n, err := stateDB.MarkStaleGenerationsFailed(context.Background()); err != nil {
+		log.Printf("startup: mark stale generations: %v", err)
+	} else if n > 0 {
+		log.Printf("startup: marked %d stale generation(s) as failed", n)
 	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Skydive Memory design assets — CSS + brand mark — embedded into the binary.
+	r.Handle("/static/*", http.StripPrefix("/static/", ui.StaticHandler()))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		res, _ := licenseMgr.Snapshot()
@@ -112,6 +145,7 @@ func main() {
 			Version:          version,
 			Platform:         runtime.GOOS + "/" + runtime.GOARCH,
 			Addr:             cfg.HTTPAddr,
+			Port:             portFromAddr(cfg.HTTPAddr),
 			CloudBaseURL:     cfg.CloudBaseURL,
 			StatePath:        cfg.StatePath,
 			TokenConfigured:  cfg.LicenseToken != "",
@@ -132,6 +166,26 @@ func main() {
 	r.Post("/license/refresh", func(w http.ResponseWriter, r *http.Request) {
 		licenseMgr.Start(r.Context()) // re-trigger immediate validation; idempotent
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
+
+	// Settings dialog backing data — keyed off this so the studio modal can
+	// fetch fresh state without a page reload.
+	r.Get("/settings.json", func(w http.ResponseWriter, req *http.Request) {
+		encoder := pipelineRunner.EncoderName(req.Context())
+		encoderDetail := "Intel iGPU"
+		if encoder == "CPU" {
+			encoderDetail = "libx264 fallback"
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"encoder":         encoder,
+			"encoder_detail":  encoderDetail,
+			"jobs_dir":        jobsDir,
+			"token_masked":    maskToken(cfg.LicenseToken),
+			"version":         version,
+			"platform":        runtime.GOOS + "/" + runtime.GOARCH,
+			"cloud_url":       cfg.CloudBaseURL,
+			"cloud_reachable": pingCloud(cfg.CloudBaseURL),
+		})
 	})
 
 	// New project flow. GET renders the form, POST sends it through to the cloud
@@ -224,8 +278,9 @@ func main() {
 		})
 	})
 
-	// Detail page for one local project. Shows real clip slots driven by state.db.
-	r.Get("/projects/{id}", func(w http.ResponseWriter, req *http.Request) {
+	// Wizard step 2: clips + trim + music. Operator lands here right after
+	// creating a project; "Continue to generate" leads to step 3.
+	clipsHandler := func(w http.ResponseWriter, req *http.Request) {
 		id, err := parseInt64URLParam(req, "id")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -245,11 +300,18 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Build a {kind -> *Clip} map for template-side lookup per slot.
 		clipByKind := map[string]*state.Clip{}
 		for i := range clips {
 			c := clips[i]
 			clipByKind[c.Kind] = &c
+		}
+
+		// Fetch all cut zones for this project's clips so the template can
+		// render them as red striped overlays inside each trim slider.
+		cutsByClipID, _ := stateDB.ListCutsForProject(req.Context(), id)
+		cutsByKind := map[string][]state.Cut{}
+		for kind, c := range clipByKind {
+			cutsByKind[kind] = cutsByClipID[c.ID]
 		}
 
 		licRes, _ := licenseMgr.Snapshot()
@@ -261,7 +323,46 @@ func main() {
 			"AccessCodeCanonical": strings.ReplaceAll(p.AccessCode, "-", ""),
 			"CanonicalKinds":      state.CanonicalKinds(),
 			"ClipByKind":          clipByKind,
+			"CutsByKind":          cutsByKind,
 			"FFprobeAvailable":    ffprobe.IsAvailable(),
+		})
+	}
+	// Canonical wizard URL.
+	r.Get("/projects/{id}/clips", clipsHandler)
+	// Backwards-compat: bare /projects/{id} redirects to /clips.
+	r.Get("/projects/{id}", func(w http.ResponseWriter, req *http.Request) {
+		id := chi.URLParam(req, "id")
+		http.Redirect(w, req, "/projects/"+id+"/clips", http.StatusFound)
+	})
+
+	// Wizard step 3: final generate. Renders the generate panel only — no
+	// clip board, no music picker. Operator clicks one big button, ffmpeg
+	// runs, output is shown, email goes out (Phase 13). Failures send the
+	// operator back to /clips to fix things.
+	r.Get("/projects/{id}/generate", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		p, err := stateDB.GetProject(req.Context(), id)
+		if errors.Is(err, state.ErrNotFound) {
+			http.NotFound(w, req)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		clips, _ := stateDB.ListClips(req.Context(), id)
+		licRes, _ := licenseMgr.Snapshot()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = ui.Templates.ExecuteTemplate(w, "project_generate.html", map[string]any{
+			"License":             licRes,
+			"CloudBaseURL":        cfg.CloudBaseURL,
+			"P":                   p,
+			"AccessCodeCanonical": strings.ReplaceAll(p.AccessCode, "-", ""),
+			"ClipCount":           len(clips),
 		})
 	})
 
@@ -467,6 +568,121 @@ func main() {
 		})
 	})
 
+	// === Cut zones (Phase 3.3) ===
+	// Operator paints exclusion bands inside the trim window — pipeline drops
+	// those sub-ranges via split + concat in the filter graph.
+
+	// GET cuts for a clip slot. Used after a save to refresh the UI without a
+	// full page reload.
+	r.Get("/projects/{id}/clips/{kind}/cuts", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		cuts, err := stateDB.ListCuts(req.Context(), clip.ID)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"cuts": cuts})
+	})
+
+	// POST a new cut. Body: {start, end, reason?}. Validation enforces
+	// non-degenerate range and that the zone sits inside the trim window.
+	r.Post("/projects/{id}/clips/{kind}/cuts", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		var body struct {
+			Start  float64 `json:"start"`
+			End    float64 `json:"end"`
+			Reason string  `json:"reason"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		// Trim window bounds (effective trim_out = trim_out or duration).
+		tIn := clip.TrimInSeconds
+		if tIn < 0 {
+			tIn = 0
+		}
+		tOut := clip.TrimOutSeconds
+		if tOut <= 0 || tOut > clip.DurationSeconds {
+			tOut = clip.DurationSeconds
+		}
+		if body.End <= body.Start {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_RANGE", "message": "end must be > start"})
+			return
+		}
+		if body.Start < tIn-0.05 || body.End > tOut+0.05 {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{
+				"code":    "OUT_OF_TRIM",
+				"message": fmt.Sprintf("cut zone must sit inside the trim window [%.2f, %.2f]", tIn, tOut),
+			})
+			return
+		}
+		cutID, err := stateDB.CreateCut(req.Context(), clip.ID, body.Start, body.End, body.Reason, false)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"id":     cutID,
+			"start":  body.Start,
+			"end":    body.End,
+			"reason": body.Reason,
+		})
+	})
+
+	// DELETE a cut by id. We resolve project + clip via JOIN so the response
+	// can be useful for the UI even after the row is gone.
+	r.Delete("/cuts/{id}", func(w http.ResponseWriter, req *http.Request) {
+		cutID, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		// Validate the cut exists. (Empty result = already deleted = treat as 404.)
+		_, _, err = stateDB.GetCutClip(req.Context(), cutID)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "Cut not found."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if err := stateDB.DeleteCut(req.Context(), cutID); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	})
+
 	// POST .../trim/auto — runs the per-kind heuristic (silencedetect for audio
 	// kinds, positional rules for motion kinds) and returns a suggested
 	// (trim_in, trim_out) without persisting. UI populates the sliders and shows
@@ -667,28 +883,114 @@ func main() {
 			return
 		}
 
+		// QSV iGPU has one encoder engine — running two pipelines at once
+		// dead-locks the driver. Reject early with a clear 409 instead.
+		if runRegistry.IsBusy() {
+			writeStudioJSON(w, http.StatusConflict, map[string]string{
+				"code":    "ANOTHER_RUNNING",
+				"message": "Another generation is already running. Wait for it to finish or click Stop on the running project.",
+			})
+			return
+		}
+
 		genID, err := stateDB.CreateGeneration(req.Context(), id)
 		if err != nil {
 			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
 
-		// Run in background. Use a fresh context detached from the HTTP request so
-		// closing the connection doesn't kill the pipeline mid-render. Cap at 30 min.
+		// Run in background. Use a fresh context detached from the HTTP request
+		// so closing the connection doesn't kill the pipeline mid-render. Cap
+		// at 30 min. Begin claims the registry slot (cancellable from /cancel).
+		runCtx, runCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		regCtx, err := runRegistry.Begin(runCtx, genID)
+		if err != nil {
+			// Lost a race between IsBusy and Begin — mark the just-created row
+			// failed so it doesn't sit forever in "queued".
+			runCancel()
+			failed := state.GenStatusFailed
+			msg := err.Error()
+			_ = stateDB.UpdateGeneration(req.Context(), genID, state.GenerationPatch{
+				Status: &failed,
+				Error:  &msg,
+				Finish: true,
+			})
+			writeStudioJSON(w, http.StatusConflict, map[string]string{
+				"code":    "ANOTHER_RUNNING",
+				"message": "Another generation is already running.",
+			})
+			return
+		}
+
 		go func(projectID, generationID int64) {
-			runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-			defer cancel()
-			if _, err := pipelineRunner.Run(runCtx, projectID, generationID); err != nil {
+			defer runCancel()
+			defer runRegistry.End(generationID)
+			outputPath, err := pipelineRunner.Run(regCtx, projectID, generationID)
+			if err != nil {
 				log.Printf("pipeline run failed (project=%d gen=%d): %v", projectID, generationID, err)
 				return
 			}
 			log.Printf("pipeline run done (project=%d gen=%d)", projectID, generationID)
+
+			// Phase 7.1 — upload to cloud so the watch page has something to play.
+			// Failures here are NOT pipeline failures — local render is fine, we
+			// just couldn't ship it. Log + carry on; operator can retry by
+			// re-running the generate.
+			uploadCtx, uploadCancel := context.WithTimeout(context.Background(), 35*time.Minute)
+			defer uploadCancel()
+			p, perr := stateDB.GetProject(uploadCtx, projectID)
+			if perr != nil {
+				log.Printf("WARN: post-render upload skipped (project lookup project=%d): %v", projectID, perr)
+				return
+			}
+			if p.RemoteJumpID <= 0 {
+				log.Printf("WARN: post-render upload skipped (project=%d has no remote_jump_id)", projectID)
+				return
+			}
+			artID, jumpStatus, uerr := deliveryClient.UploadAndRegister(
+				uploadCtx, p.RemoteJumpID, "horizontal_1080p", outputPath, 1920, 1080,
+			)
+			if uerr != nil {
+				log.Printf("WARN: post-render upload failed (project=%d jump=%d): %v", projectID, p.RemoteJumpID, uerr)
+				return
+			}
+			log.Printf("post-render upload OK (project=%d jump=%d artifact=%d jump_status=%s)",
+				projectID, p.RemoteJumpID, artID, jumpStatus)
 		}(id, genID)
 
 		writeStudioJSON(w, http.StatusAccepted, map[string]any{
 			"generation_id": genID,
 			"status":        state.GenStatusQueued,
 		})
+	})
+
+	// POST /generations/{id}/cancel — stop a running pipeline. ffmpeg dies
+	// when the registered context is cancelled; the run goroutine then writes
+	// status='failed' with error="cancelled by user".
+	r.Post("/generations/{id}/cancel", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		if !runRegistry.Cancel(id) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{
+				"code":    "NOT_RUNNING",
+				"message": "That generation isn't currently running.",
+			})
+			return
+		}
+		// Best-effort row update — runner goroutine may also write the same
+		// fields when ffmpeg exits, but doing it here makes the UI flip to
+		// "failed" instantly without waiting for ffmpeg's death-rattle.
+		failed := state.GenStatusFailed
+		msg := "cancelled by user"
+		_ = stateDB.UpdateGeneration(req.Context(), id, state.GenerationPatch{
+			Status: &failed,
+			Error:  &msg,
+			Finish: true,
+		})
+		writeStudioJSON(w, http.StatusOK, map[string]string{"status": "cancelling"})
 	})
 
 	// GET /projects/{id}/generations — latest run status (UI polling target).
@@ -804,10 +1106,43 @@ func main() {
 }
 
 // homeData is the template context for the studio home page.
+// portFromAddr extracts the port from an HTTP listen addr string like ":8080"
+// or "127.0.0.1:8080". The studio sidebar shows it as part of the "Studio ·
+// localhost:8080" caption — purely cosmetic, falls back to the raw addr.
+func portFromAddr(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	i := -1
+	for k := len(addr) - 1; k >= 0; k-- {
+		if addr[k] == ':' {
+			i = k
+			break
+		}
+	}
+	if i < 0 {
+		return addr
+	}
+	return addr[i+1:]
+}
+
+// maskToken replaces the middle of a license token with bullets, leaving the
+// 4-char prefix + suffix visible for identification.
+func maskToken(t string) string {
+	if t == "" {
+		return "(not configured)"
+	}
+	if len(t) <= 12 {
+		return "••••••••"
+	}
+	return t[:4] + "••••••••" + t[len(t)-4:]
+}
+
 type homeData struct {
 	Version          string
 	Platform         string
 	Addr             string
+	Port             string
 	CloudBaseURL     string
 	StatePath        string
 	TokenConfigured  bool
@@ -879,4 +1214,23 @@ func pingCloud(base string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode < 500
+}
+
+// brandingProvider adapts the studio branding cache to the
+// pipeline.BrandingProviderLike interface. The pipeline doesn't know our
+// tenant ID — it gets baked in here from the license manager's snapshot at
+// render time. Returns an empty bundle (= no overlay) if the license isn't
+// currently valid, so a stale-license render still produces an unbranded
+// MP4 rather than failing outright.
+type brandingProvider struct {
+	cache   *studiobranding.Cache
+	license *license.Manager
+}
+
+func (p *brandingProvider) EnsureForRun(ctx context.Context) (studiobranding.Bundle, error) {
+	snap, _ := p.license.Snapshot()
+	if !snap.Valid || snap.TenantID <= 0 {
+		return studiobranding.Bundle{}, nil
+	}
+	return p.cache.Ensure(ctx, snap.TenantID)
 }

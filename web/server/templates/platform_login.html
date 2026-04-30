@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · Skydive Memory</title>
+<title>Platform admin · Skydive Memory</title>
 <link rel="stylesheet" href="/static/skydive-memory.css">
 </head>
 <body>
@@ -13,19 +13,17 @@
       <span class="sm-tile" aria-label="Skydive Memory"><span class="sm-mark"></span></span>
     </div>
     <div class="sm-card" style="padding:32px">
-      <h2 style="font-size:26px;text-align:center;margin-bottom:6px">Welcome back</h2>
-      <p style="color:var(--sm-text-muted);text-align:center;font-size:13px;margin-bottom:28px">Sign in to your dropzone.</p>
+      <div style="font-size:11px;color:var(--sm-text-muted);text-transform:uppercase;letter-spacing:.08em;text-align:center;margin-bottom:8px;font-family:var(--sm-mono)">Platform admin</div>
+      <h2 style="font-size:24px;text-align:center;margin-bottom:6px">Cross-tenant control</h2>
+      <p style="color:var(--sm-text-muted);text-align:center;font-size:13px;margin-bottom:24px">For the Skydive Memory team only.</p>
 
       <form id="f" novalidate>
-        <div style="margin-bottom:16px">
+        <div style="margin-bottom:14px">
           <label class="sm-label">Email</label>
-          <input class="sm-input" name="email" type="email" required autofocus placeholder="you@dropzone.com">
+          <input class="sm-input" name="email" type="email" required autofocus placeholder="ops@skydivememory.app">
         </div>
         <div style="margin-bottom:8px">
-          <label class="sm-label" style="display:flex;justify-content:space-between">
-            <span>Password</span>
-            <a href="#" style="font-size:12px">Forgot?</a>
-          </label>
+          <label class="sm-label">Password</label>
           <div style="position:relative">
             <input id="pw" class="sm-input" name="password" type="password" required style="padding-right:42px">
             <button type="button" id="pw-toggle" aria-label="Toggle password visibility"
@@ -35,27 +33,22 @@
             </button>
           </div>
         </div>
-        <div style="margin-bottom:8px">
-          <label class="sm-label">Tenant slug <span style="color:var(--sm-text-dim);font-weight:400">(optional, only if your email is in multiple clubs)</span></label>
-          <input class="sm-input" name="tenant_slug" placeholder="aeroclubural">
-        </div>
 
-        <button type="submit" class="sm-btn is-primary is-block is-lg" style="margin-top:20px">Sign in</button>
+        <button type="submit" class="sm-btn is-hero is-block is-lg" style="margin-top:20px">Sign in</button>
         <div id="err" class="sm-pill is-danger" style="display:none;width:100%;justify-content:center;margin-top:16px;height:auto;padding:10px 14px;white-space:normal"></div>
       </form>
     </div>
-    <p style="text-align:center;margin-top:22px;font-size:13px;color:var(--sm-text-muted)">
-      No account yet? <a href="/signup" style="font-weight:500">Create a dropzone</a>
+    <p style="text-align:center;margin-top:22px;font-size:12px;color:var(--sm-text-dim)">
+      Bootstrapped via <span class="mono">server.exe platform-admin add &lt;email&gt; &lt;name&gt;</span>
     </p>
   </div>
   <div class="sm-auth-footer">
-    <span>Skydive Memory · Studio + Admin</span>
-    <span>The 4 minutes you'll never forget.</span>
+    <span>Skydive Memory · Platform</span>
+    <span>Cross-tenant operations</span>
   </div>
 </div>
 
 <script>
-// Password visibility toggle
 const pwInput = document.getElementById('pw');
 const pwToggle = document.getElementById('pw-toggle');
 const eyeOn = document.getElementById('pw-eye-on');
@@ -70,13 +63,12 @@ pwToggle.addEventListener('click', () => {
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
-  if (!data.tenant_slug) delete data.tenant_slug;
   const errEl = document.getElementById('err');
   errEl.style.display = 'none';
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
-    const res = await fetch('/auth/login', {
+    const res = await fetch('/platform/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(data)
@@ -88,8 +80,7 @@ document.getElementById('f').addEventListener('submit', async (e) => {
       btn.disabled = false;
       return;
     }
-    // Route by role: owners → club admin (/), operators → operator portal.
-    location.href = body.role === 'owner' ? '/' : '/operator/';
+    location.href = '/platform/';
   } catch (err) {
     errEl.textContent = err.message;
     errEl.style.display = 'flex';

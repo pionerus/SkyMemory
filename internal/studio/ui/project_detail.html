@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{.P.ClientName}} · Freefall Studio</title>
+<title>{{.P.ClientName}} · Skydive Memory Studio</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
   body {
     margin: 0;
@@ -259,60 +260,918 @@
   }
   .gen-status .err { padding: 10px 12px; border-radius: 8px; background: #fee2e2; color: #991b1b; font-size: 13px; display: none; }
   .gen-status .err.show { display: block; }
+
+  /* === Skydive Memory dark-theme overrides === */
+  body { background: var(--sm-bg); color: var(--sm-text); font-family: var(--sm-body); }
+  header {
+    background: var(--sm-surface);
+    border-bottom: 1px solid var(--sm-border);
+  }
+  header .mark {
+    background: var(--sm-brand);
+    box-shadow: 0 6px 18px rgba(255,200,61,.20);
+  }
+  header h1 { color: var(--sm-text); font-family: var(--sm-display); }
+  header .meta { color: var(--sm-text-muted); }
+  header .meta code {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text);
+    padding: 1px 6px; border-radius: 4px;
+    font-family: var(--sm-mono); font-size: 11px;
+  }
+  header .nav a { color: var(--sm-brand-hi); }
+
+  .card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+  }
+  h2 { color: var(--sm-text); font-family: var(--sm-display); }
+  .sub { color: var(--sm-text-muted); }
+
+  .pill {
+    background: var(--sm-surface-2);
+    color: var(--sm-text-muted);
+    border: 1px solid var(--sm-border);
+    font-weight: 500;
+  }
+  .pill.muted { background: var(--sm-surface-2); color: var(--sm-text-muted); border-color: var(--sm-border); }
+  .pill.warn  { background: rgba(255,209,102,.10); color: var(--sm-warning); border-color: rgba(255,209,102,.25); }
+  .pill.error { background: rgba(255,107,122,.10); color: var(--sm-danger); border-color: rgba(255,107,122,.25); }
+
+  .meta-row { border-bottom: 1px solid var(--sm-border); }
+  .meta-row .k { color: var(--sm-text-muted); }
+  .meta-row .v { color: var(--sm-text); font-weight: 500; }
+  .code { color: var(--sm-brand); font-family: var(--sm-mono); }
+
+  /* Slot grid */
+  .slot {
+    background: var(--sm-surface-2);
+    border: 2px dashed var(--sm-border-strong);
+    color: var(--sm-text-muted);
+  }
+  .slot.has-file {
+    background: var(--sm-surface);
+    border-color: var(--sm-border);
+    color: var(--sm-text);
+  }
+  .slot.dropping, .slot.uploading {
+    border-color: var(--sm-brand);
+    background: var(--sm-brand-soft);
+  }
+  .slot .name { color: var(--sm-text); }
+  .slot.has-file .name { color: var(--sm-brand); }
+  .slot .hint { color: var(--sm-text-dim); }
+  .slot .filename { color: var(--sm-text-muted); }
+  .slot .actions button {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text);
+  }
+  .slot .actions button:hover { background: var(--sm-surface-3); }
+  .slot .actions button.danger {
+    background: rgba(255,107,122,.10);
+    color: var(--sm-danger);
+    border-color: rgba(255,107,122,.28);
+  }
+  .slot .progress { background: var(--sm-surface-3); }
+  .slot .progress > div { background: var(--sm-brand); }
+  .slot .err {
+    background: rgba(255,107,122,.10);
+    color: var(--sm-danger);
+    border: 1px solid rgba(255,107,122,.28);
+  }
+
+  /* Trim panel */
+  .trim-panel { border-top: 1px dashed var(--sm-border); }
+  .trim-panel video { background: black; border: 1px solid var(--sm-border); }
+  .trim-row label { color: var(--sm-text-muted); }
+  .trim-row .val { color: var(--sm-brand); font-family: var(--sm-mono); }
+  .trim-row input[type=range] {
+    accent-color: var(--sm-brand);
+  }
+  .trim-summary {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text-muted);
+  }
+  .trim-summary .keep { color: var(--sm-brand); }
+  .pill.trimmed { background: var(--sm-brand-soft); color: var(--sm-brand-hi); border-color: rgba(255,200,61,.32); }
+
+  /* Auto-suggest */
+  .auto-suggest-row {
+    background: var(--sm-surface-2);
+    border: 1px solid rgba(255,209,102,.25);
+  }
+  .auto-suggest-row .ai-reason { color: var(--sm-text); }
+  .auto-suggest-row .ai-reason.empty { color: var(--sm-text-muted); }
+  .auto-suggest-btn {
+    background: var(--sm-gradient-hero);
+    color: var(--sm-bg);
+    font-weight: 700;
+    border: none;
+  }
+
+  /* Buttons */
+  .btn {
+    background: var(--sm-brand);
+    color: var(--sm-bg);
+    border: 1px solid transparent;
+    font-weight: 600;
+    border-radius: 10px;
+  }
+  .btn:hover { background: var(--sm-brand-hi); }
+  .btn.secondary {
+    background: var(--sm-surface-2);
+    color: var(--sm-text);
+    border: 1px solid var(--sm-border);
+  }
+  .btn.secondary:hover { background: var(--sm-surface-3); }
+
+  .ffprobe-warn {
+    background: var(--sm-surface-2);
+    border: 1px solid rgba(255,209,102,.25);
+    color: var(--sm-warning);
+  }
+
+  /* Music */
+  .music-current {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-brand-soft);
+  }
+  .music-current .music-title { color: var(--sm-text); }
+  .music-current .music-artist { color: var(--sm-text-muted); }
+  .music-empty {
+    background: var(--sm-surface-2);
+    border: 1px dashed var(--sm-border-strong);
+    color: var(--sm-text-muted);
+  }
+  .music-catalog-header input[type=search] {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text);
+    border-radius: 10px;
+  }
+  .music-catalog-header input[type=search]:focus {
+    outline: none;
+    border-color: var(--sm-brand);
+  }
+  .music-row {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+  }
+  .music-row.picked {
+    background: var(--sm-brand-soft);
+    border-color: rgba(255,200,61,.32);
+  }
+  .music-row .title { color: var(--sm-text); }
+  .music-row .meta  { color: var(--sm-text-muted); }
+  .music-row .pick-btn {
+    background: var(--sm-brand);
+    color: var(--sm-bg);
+    font-weight: 600;
+    border-radius: 8px;
+  }
+  .music-row .pick-btn.picked {
+    background: rgba(91,210,160,.15);
+    color: var(--sm-success);
+    border: 1px solid rgba(91,210,160,.35);
+  }
+  .suggest-header {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text);
+  }
+  .suggest-target { color: var(--sm-brand); }
+  .music-row .reason { color: var(--sm-text-muted); font-style: italic; }
+  .music-row .score-pill {
+    background: var(--sm-brand-soft);
+    color: var(--sm-brand-hi);
+    border: 1px solid rgba(255,200,61,.32);
+    font-weight: 600;
+  }
+
+  /* Generate panel */
+  .gen-label { color: var(--sm-text-muted); }
+  .gen-value { color: var(--sm-text); }
+  .gen-bar { background: var(--sm-surface-3); }
+  .gen-bar > div { background: var(--sm-gradient-hero); }
+  .gen-status .err {
+    background: rgba(255,107,122,.10);
+    color: var(--sm-danger);
+    border: 1px solid rgba(255,107,122,.28);
+  }
+  #generate-btn {
+    background: var(--sm-gradient-hero) !important;
+    color: var(--sm-bg) !important;
+    font-weight: 700;
+  }
+  #cancel-btn {
+    background: rgba(255,107,122,.12) !important;
+    color: var(--sm-danger) !important;
+    border: 1px solid rgba(255,107,122,.28) !important;
+  }
+
+  /* Output video & download row */
+  #gen-output-video { background: black !important; border: 1px solid var(--sm-border); }
+  #gen-output-link { color: var(--sm-brand-hi); }
+
+  /* Step heading style */
+  body code {
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    color: var(--sm-text);
+    padding: 1px 6px; border-radius: 4px;
+    font-family: var(--sm-mono); font-size: 12px;
+  }
+
+  /* === Phase 3 redesign: sticky topbar + clip board layout === */
+
+  /* Hide legacy header — replaced by sticky topbar below. */
+  body > header { display: none; }
+
+  .sticky-topbar {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--sm-surface);
+    border-bottom: 1px solid var(--sm-border);
+    padding: 14px 32px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .sticky-topbar .back-btn {
+    background: transparent; border: none; color: var(--sm-text-muted);
+    cursor: pointer; padding: 6px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sticky-topbar .back-btn:hover { color: var(--sm-text); background: var(--sm-surface-2); }
+  .sticky-topbar h1 {
+    font-size: 17px; font-weight: 500;
+    font-family: var(--sm-display);
+    margin: 0;
+  }
+  .sticky-topbar .topbar-meta {
+    font-size: 12px; color: var(--sm-text-muted); margin-top: 2px;
+  }
+  .topbar-chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+
+  .step-rail {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 32px;
+    background: var(--sm-surface);
+    border-bottom: 1px solid var(--sm-border);
+    font-size: 12px;
+  }
+  .step-rail .step { display: flex; align-items: center; gap: 8px; color: var(--sm-text-muted); }
+  .step-rail .step .dot {
+    width: 22px; height: 22px; border-radius: 999px;
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--sm-mono); font-size: 11px;
+  }
+  .step-rail .step.is-done .dot {
+    background: rgba(91,210,160,.15);
+    border-color: rgba(91,210,160,.35);
+    color: var(--sm-success);
+  }
+  .step-rail .step.is-current .dot {
+    background: var(--sm-brand); border-color: var(--sm-brand);
+    color: var(--sm-bg); font-weight: 600;
+  }
+  .step-rail .step.is-current { color: var(--sm-text); }
+  .step-rail .arrow { color: var(--sm-text-dim); }
+
+  /* main content: drop the auto-margin so the topbar stretches full width */
+  body > main { max-width: none; padding: 28px; margin: 0 auto; }
+
+  /* Section header */
+  .section-h {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 14px;
+  }
+  .section-h .step-num {
+    font-family: var(--sm-mono);
+    font-size: 11px;
+    color: var(--sm-text-dim);
+    letter-spacing: .15em;
+  }
+  .section-h h2 {
+    font-size: 18px; font-weight: 500;
+    font-family: var(--sm-display);
+    margin: 0;
+  }
+  .section-sub {
+    font-size: 12px; color: var(--sm-text-muted); margin-top: 2px;
+  }
+
+  /* === Clip board: 4-column grid per row === */
+  .clip-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .slot {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 18px;
+    display: grid;
+    grid-template-columns: 220px 320px 1fr 200px;
+    gap: 18px;
+    align-items: center;
+    color: var(--sm-text);
+    text-align: left;
+    min-height: 130px;
+    position: relative;
+  }
+  /* Empty (drop-zone) state: collapse to single column, dashed border */
+  .slot:not(.has-file) {
+    grid-template-columns: 1fr;
+    border-style: dashed;
+    border-color: var(--sm-border-strong);
+    background: var(--sm-surface-2);
+    color: var(--sm-text-muted);
+    text-align: center;
+    cursor: pointer;
+    align-items: center;
+    justify-items: center;
+    padding: 28px;
+  }
+  .slot.dropping, .slot.uploading {
+    border-color: var(--sm-brand);
+    background: var(--sm-brand-soft);
+  }
+
+  /* Hide legacy children inside has-file slot — we use new layout. The
+     old `.name`, `.filename`, `.stats`, `.actions` fields stay around so
+     server-side template still produces them, but visually we hide them.
+     New columns below pull values via CSS attr() / sibling selectors won't
+     work, so we re-introduce them in template markup as new explicit
+     elements. */
+  .slot.has-file > .name,
+  .slot.has-file > .filename,
+  .slot.has-file > .stats,
+  .slot.has-file > .actions {
+    display: none;
+  }
+  /* Hint inside empty slot is the only visible label */
+  .slot:not(.has-file) > .hint {
+    font-size: 13px; color: var(--sm-text-muted); margin-top: 6px;
+  }
+  .slot:not(.has-file) > .name {
+    font-family: var(--sm-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    color: var(--sm-text-muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  /* Left column: kind + duration + AI badge + status row */
+  .clip-meta { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .clip-meta .kind-label {
+    font-family: var(--sm-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    color: var(--sm-text-muted);
+    text-transform: uppercase;
+  }
+  .clip-meta .kind-row { display: flex; align-items: baseline; gap: 8px; }
+  .clip-meta .kind-dur {
+    font-size: 22px;
+    font-family: var(--sm-display);
+    font-weight: 500;
+    line-height: 1;
+  }
+  .clip-meta .kind-sub {
+    font-size: 11px;
+    color: var(--sm-text-muted);
+  }
+
+  /* Center column: video preview */
+  .slot.has-file > video {
+    width: 320px; max-width: 100%;
+    height: 180px;
+    border-radius: 10px;
+    background: black;
+    border: 1px solid var(--sm-border);
+    display: block;
+  }
+
+  /* Trim panel: now display:contents so its children sit directly in the
+     slot grid. We pin them to column 3 and stack vertically. */
+  .slot.has-file > .trim-panel {
+    display: flex; flex-direction: column; gap: 6px;
+    min-width: 0;
+    border-top: none !important;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  .slot.has-file > .trim-panel > video { display: none !important; } /* video is sibling now */
+  .trim-controls { margin-top: 0 !important; }
+
+  /* Dual-handle visual: stack two range inputs in same row */
+  .trim-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 11px; font-family: var(--sm-mono);
+    margin: 0 !important;
+  }
+  .trim-row label {
+    min-width: 30px !important;
+    color: var(--sm-text-muted) !important;
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .trim-row input[type=range] {
+    flex: 1; accent-color: var(--sm-brand);
+  }
+  .trim-row .val {
+    min-width: 50px; text-align: right;
+    color: var(--sm-brand) !important;
+    font-family: var(--sm-mono);
+    font-size: 11px !important;
+  }
+  .trim-summary {
+    background: var(--sm-surface-2) !important;
+    border: 1px solid var(--sm-border) !important;
+    color: var(--sm-text-muted) !important;
+    font-size: 11px !important;
+    padding: 6px 10px !important;
+    margin-top: 4px !important;
+  }
+  .trim-summary .keep { color: var(--sm-brand) !important; }
+
+  .auto-suggest-row {
+    background: var(--sm-surface-2) !important;
+    border: 1px solid rgba(255,209,102,.20) !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    margin: 6px 0 0 !important;
+    border-radius: 8px;
+  }
+  .auto-suggest-btn {
+    background: var(--sm-gradient-hero) !important;
+    color: var(--sm-bg) !important;
+    font-weight: 700;
+    border: none;
+    padding: 4px 10px !important;
+    font-size: 11px !important;
+    border-radius: 6px !important;
+  }
+  .ai-reason { font-size: 11px !important; }
+
+  .trim-actions {
+    display: flex !important; gap: 6px !important;
+    margin-top: 6px !important;
+    flex-wrap: wrap;
+  }
+  .trim-actions button {
+    background: var(--sm-surface-2);
+    color: var(--sm-text);
+    border: 1px solid var(--sm-border);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .trim-actions button:hover { background: var(--sm-surface-3); }
+  .trim-actions .save-trim-btn {
+    background: var(--sm-brand);
+    color: var(--sm-bg);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .trim-actions .save-trim-btn:hover { background: var(--sm-brand-hi); }
+  .trim-actions .close-trim-btn { display: none; } /* always-open mode, no close */
+
+  /* Right column: status icons + small action buttons */
+  .clip-right {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  }
+  .status-icons {
+    display: flex; gap: 8px; align-items: center;
+    color: var(--sm-text-muted);
+    font-size: 14px;
+  }
+  .status-icons .ok { color: var(--sm-success); }
+  .status-icons .warn { color: var(--sm-warning); }
+  .status-icons .ai { color: var(--sm-brand-hi); }
+  .clip-right .actions {
+    display: flex !important;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .clip-right .actions button {
+    background: var(--sm-surface-2);
+    color: var(--sm-text);
+    border: 1px solid var(--sm-border);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .clip-right .actions button:hover { background: var(--sm-surface-3); }
+  .clip-right .actions button.danger {
+    background: rgba(255,107,122,.10);
+    color: var(--sm-danger);
+    border-color: rgba(255,107,122,.28);
+  }
+
+  /* Upload progress + error: span all columns at the bottom of slot */
+  .slot > input[type="file"] { display: none; }
+  .slot > .progress { grid-column: 1 / -1; height: 4px !important; }
+  .slot > .err { grid-column: 1 / -1; }
+
+  /* === Music card refresh === */
+  .music-card-new {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex; gap: 18px; align-items: center;
+  }
+  .music-cover {
+    width: 110px; height: 110px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #FFB169, #C44A6E);
+    position: relative; overflow: hidden;
+    display: flex; align-items: flex-end; padding: 10px;
+  }
+  .music-cover.empty { background: var(--sm-surface-2); border: 1px dashed var(--sm-border-strong); }
+  .music-cover::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(60% 50% at 30% 25%, rgba(255,255,255,.25), transparent 70%);
+  }
+  .music-cover .mood {
+    position: relative; z-index: 1;
+    font-size: 10px; font-family: var(--sm-mono);
+    letter-spacing: .15em; color: white; opacity: .8;
+    text-transform: uppercase;
+  }
+  .music-info { flex: 1; min-width: 0; }
+  .music-info .eyebrow {
+    font-size: 11px; color: var(--sm-text-muted);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .music-info .title-new {
+    font-size: 22px; font-family: var(--sm-display);
+    font-weight: 500; margin-top: 2px;
+    letter-spacing: -0.01em;
+    color: var(--sm-text);
+  }
+  .music-info .meta-line {
+    color: var(--sm-text-muted); font-size: 13px;
+  }
+  .music-info .tag-row {
+    margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .music-actions {
+    display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+  }
+
+  /* === CUT zones (Phase 3.3): clickable bar inside trim panel === */
+  .cut-bar {
+    position: relative;
+    height: 14px;
+    background: var(--sm-surface-3);
+    border-radius: 4px;
+    margin-top: 6px;
+    cursor: crosshair;
+    overflow: visible;
+    border: 1px solid var(--sm-border);
+  }
+  .cut-bar::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: var(--sm-brand-soft);
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .cut-zone {
+    position: absolute;
+    top: 0; bottom: 0;
+    background-color: rgba(255, 107, 122, .45);
+    background-image: repeating-linear-gradient(45deg,
+      rgba(255,107,122,.55) 0 4px,
+      rgba(255,107,122,.25) 4px 8px);
+    border-left: 1px solid var(--sm-danger);
+    border-right: 1px solid var(--sm-danger);
+    cursor: pointer;
+    z-index: 1;
+    min-width: 4px;
+  }
+  .cut-zone:hover { background-color: rgba(255, 107, 122, .65); }
+  .cut-zone .cut-remove {
+    display: none;
+    position: absolute;
+    top: -7px; right: -7px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--sm-danger);
+    color: white;
+    border: 1px solid var(--sm-bg);
+    font-size: 10px; line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    z-index: 2;
+  }
+  .cut-zone:hover .cut-remove { display: flex; align-items: center; justify-content: center; }
+  .cut-summary {
+    font-size: 11px;
+    color: var(--sm-text-muted);
+    margin-top: 6px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .cut-summary .sm-pill {
+    height: 18px; font-size: 10px; padding: 0 8px;
+  }
+
+  /* + Add custom clip button */
+  .add-custom-clip {
+    background: transparent;
+    border: 2px dashed var(--sm-border-strong);
+    color: var(--sm-text-muted);
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 80ms;
+    width: 100%;
+  }
+  .add-custom-clip:hover { border-color: var(--sm-brand); color: var(--sm-text); }
+
+  /* ===== Phase 4: Timeline preview — Skydive Memory v2 design pack =====
+     Layout matches screens/studio.jsx → <TimelineStrip>:
+       1. .tl-card  : panel container
+       2. .tl-strip : 64px-tall flex row of gradient blocks separated by
+                      striped 18px crossfade bands. Diamond playhead overlay.
+       3. .tl-axis  : timestamps under the strip.
+       4. .tl-wave  : 56px audio-bed card with sidechain-ducked bars.
+       5. .tl-player: <video> + transport controls.
+  */
+  .tl-card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .tl-stats {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    color: var(--sm-text-muted);
+    font-size: 13px;
+    margin-bottom: 14px;
+    align-items: baseline;
+  }
+  .tl-stats strong { color: var(--sm-text); font-weight: 600; }
+  .tl-stat-sub { color: var(--sm-text-dim); font-size: 11px; margin-left: 4px; }
+  .tl-stat-cf { margin-left: auto; }
+
+  /* Strip — flex row of clip blocks with overlap-style crossfade bands */
+  .tl-strip-wrap { position: relative; }
+  .tl-strip {
+    display: flex;
+    height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--sm-border);
+    background: var(--sm-bg);
+    position: relative;
+  }
+  .tl-block {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: filter 100ms;
+  }
+  .tl-block:hover { filter: brightness(1.12); }
+  .tl-block-label {
+    font-family: var(--sm-mono, monospace);
+    font-size: 9.5px;
+    color: rgba(255, 255, 255, 0.92);
+    letter-spacing: 0.12em;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tl-cf-band {
+    width: 18px;
+    margin-left: -9px;
+    margin-right: -9px;
+    z-index: 2;
+    background-image: repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, 0.18) 0 3px,
+      transparent 3px 7px);
+    background-color: rgba(11, 14, 20, 0.4);
+    pointer-events: none;
+  }
+  /* Diamond playhead — vertical line + 12px rotated square at top */
+  .tl-playhead {
+    position: absolute;
+    top: -6px; bottom: -6px;
+    width: 2px;
+    background: var(--sm-text);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    z-index: 3;
+    pointer-events: none;
+    transition: left 80ms linear;
+  }
+  .tl-playhead::before {
+    content: "";
+    position: absolute;
+    top: -6px; left: -5px;
+    width: 12px; height: 12px;
+    border-radius: 2px;
+    background: var(--sm-text);
+    transform: rotate(45deg);
+  }
+
+  .tl-axis {
+    margin-top: 6px;
+    height: 18px;
+    color: var(--sm-text-dim);
+    font-size: 10px;
+    font-family: var(--sm-mono, monospace);
+    position: relative;
+  }
+  .tl-axis-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  /* Audio waveform card — 200 bars, ducked under interview kinds */
+  .tl-wave {
+    margin-top: 8px;
+    height: 56px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--sm-border);
+    background: var(--sm-bg);
+    position: relative;
+  }
+  .tl-wave-svg { display: block; width: 100%; height: 40px; }
+  .tl-wave-playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: var(--sm-text);
+    opacity: 0.8;
+    pointer-events: none;
+    transition: left 80ms linear;
+  }
+  .tl-wave-label {
+    position: absolute;
+    right: 10px; top: 6px;
+    font-size: 10px;
+    font-family: var(--sm-mono, monospace);
+    color: var(--sm-text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+
+  .tl-player {
+    margin-top: 18px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #tl-video {
+    width: 100%; max-height: 360px;
+    background: black; border-radius: 8px;
+    display: none;
+  }
+  .tl-player-controls {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  #tl-play-time { color: var(--sm-text-muted); font-size: 12px; font-family: var(--sm-mono, monospace); }
+  #tl-play-kind { color: var(--sm-brand-hi); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tl-player-empty {
+    color: var(--sm-text-dim);
+    font-size: 13px;
+    padding: 14px;
+    text-align: center;
+    background: var(--sm-surface-2);
+    border-radius: 8px;
+    border: 1px dashed var(--sm-border);
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="mark">🪂</div>
-  <div>
-    <h1>{{.P.ClientName}}</h1>
-    <div class="meta">project #{{.P.ID}} · status <code>{{.P.Status}}</code></div>
+
+<!-- Sticky topbar — replaces old header -->
+<div class="sticky-topbar">
+  <a href="/" class="back-btn" title="All projects">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+  </a>
+  <div style="flex:1;min-width:0">
+    <h1>{{.P.ClientName}} · {{.P.CreatedAt.Format "January 2, 2006"}}</h1>
+    <div class="topbar-chips">
+      <span class="sm-pill is-mono" onclick="copyAccessCode(event)" style="cursor:pointer" title="Click to copy">
+        {{.P.AccessCode}}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-left:2px"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </span>
+      <span class="sm-pill {{if eq .P.Status "done"}}is-success{{else if eq .P.Status "failed"}}is-danger{{else}}is-warn{{end}}">
+        <span class="sm-dot"></span> {{.P.Status}}
+      </span>
+      {{if .P.Output1080p}}<span class="sm-pill">1080p</span>{{end}}
+      {{if .P.Output4K}}<span class="sm-pill">4K</span>{{end}}
+      {{if .P.OutputVertical}}<span class="sm-pill">vertical</span>{{end}}
+      {{if .P.OutputPhotos}}<span class="sm-pill">{{if .P.HasOperatorPhotos}}DSLR photos{{else}}auto photos{{end}}</span>{{end}}
+    </div>
   </div>
-  <div class="nav"><a href="/">← All projects</a></div>
-</header>
+  <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank" class="sm-btn is-sm">
+    Preview watch link →
+  </a>
+  <a href="/projects/{{.P.ID}}/generate" class="sm-btn is-hero">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    Generate &amp; send
+  </a>
+</div>
+
+<!-- Step rail -->
+<div class="step-rail">
+  <div class="step is-done">
+    <div class="dot">✓</div>
+    <span>1 · Create</span>
+  </div>
+  <span class="arrow">→</span>
+  <div class="step is-current">
+    <div class="dot">2</div>
+    <span>2 · Clips &amp; music</span>
+  </div>
+  <span class="arrow">→</span>
+  <div class="step">
+    <div class="dot">3</div>
+    <span>3 · Generate &amp; send</span>
+  </div>
+</div>
 
 <main>
-  <div class="card">
-    <div class="meta-row"><span class="k">Access code</span><span class="v"><span class="code">{{.P.AccessCode}}</span></span></div>
-    <div class="meta-row"><span class="k">Cloud jump_id</span><span class="v">#{{.P.RemoteJumpID}}</span></div>
-    {{if .P.ClientEmail}}<div class="meta-row"><span class="k">Email</span><span class="v">{{.P.ClientEmail}}</span></div>{{end}}
-    {{if .P.ClientPhone}}<div class="meta-row"><span class="k">Phone</span><span class="v">{{.P.ClientPhone}}</span></div>{{end}}
-    <div class="meta-row"><span class="k">Outputs</span><span class="v">
-      {{if .P.Output1080p}}<span class="pill">1080p</span>{{end}}
-      {{if .P.Output4K}}<span class="pill">4K</span>{{end}}
-      {{if .P.OutputVertical}}<span class="pill">vertical</span>{{end}}
-      {{if .P.OutputPhotos}}<span class="pill">{{if .P.HasOperatorPhotos}}DSLR photos{{else}}auto photos{{end}}</span>{{end}}
-    </span></div>
-    <div class="meta-row"><span class="k">Created</span><span class="v">{{.P.CreatedAt.Format "Mon, Jan 2 2006 at 15:04"}}</span></div>
 
-    <div class="actions" style="margin-top:16px">
-      <a href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank" class="btn secondary">Preview client portal →</a>
+  <section style="margin-bottom:28px" id="music-section">
+    <div class="section-h">
+      <span class="step-num">02</span>
+      <div>
+        <h2>Music</h2>
+        <p class="section-sub">Picked track will sidechain-duck under voice in interview clips.</p>
+      </div>
     </div>
-  </div>
-
-  <div class="card" id="music-section">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Music</h2>
-      <button class="btn" id="suggest-music-btn" style="background:linear-gradient(135deg,#4f46e5,#7c3aed)">✨ Suggest tracks</button>
-      <button class="btn secondary" id="open-catalog-btn">Browse library</button>
-    </div>
-    <p class="sub" style="margin-top:6px">
-      Pick a royalty-free track from the cloud library. <strong>Suggest</strong> ranks the catalog by your project's
-      total trimmed duration and mood; <strong>Browse library</strong> shows everything.
-    </p>
 
     <div id="current-music">
       {{if .P.MusicTrackID}}
-        <div class="music-current">
-          <div class="music-title">🎵 {{.P.MusicTitle}}{{if .P.MusicArtist}} <span class="music-artist">— {{.P.MusicArtist}}</span>{{end}}</div>
-          <div class="music-meta">
-            <span class="pill muted">{{durationHuman .P.MusicDurationS}}</span>
-            <span class="pill muted">cloud track #{{.P.MusicTrackID}}</span>
+        <div class="music-card-new">
+          <div class="music-cover">
+            <span class="mood">SUNSET</span>
           </div>
-          <button class="btn secondary" id="clear-music-btn" style="margin-top:8px">Remove track</button>
+          <div class="music-info">
+            <div class="eyebrow">Picked track</div>
+            <div class="title-new">{{.P.MusicTitle}}</div>
+            <div class="meta-line">
+              {{if .P.MusicArtist}}{{.P.MusicArtist}} · {{end}}<span class="mono">{{durationHuman .P.MusicDurationS}}</span>
+            </div>
+            <div class="tag-row">
+              <span class="sm-pill is-mono">cloud #{{.P.MusicTrackID}}</span>
+            </div>
+          </div>
+          <div class="music-actions">
+            <button class="sm-btn" id="open-catalog-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              Browse library
+            </button>
+            <button class="sm-btn is-primary" id="suggest-music-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Suggest for me
+            </button>
+            <button class="sm-btn is-ghost is-sm" id="clear-music-btn" style="margin-top:4px;color:var(--sm-text-muted)">Remove track</button>
+          </div>
         </div>
       {{else}}
-        <div class="music-empty">No track picked yet. Click <em>Browse library</em>.</div>
+        <div class="music-card-new">
+          <div class="music-cover empty">
+            <span class="mood" style="color:var(--sm-text-muted)">NONE</span>
+          </div>
+          <div class="music-info">
+            <div class="eyebrow">No track picked yet</div>
+            <div class="title-new" style="color:var(--sm-text-muted);font-style:italic">Silence under action segments</div>
+            <div class="meta-line">Pick a track to add background music with auto-ducking under speech.</div>
+          </div>
+          <div class="music-actions">
+            <button class="sm-btn" id="open-catalog-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              Browse library
+            </button>
+            <button class="sm-btn is-primary" id="suggest-music-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Suggest for me
+            </button>
+          </div>
+        </div>
       {{end}}
     </div>
 
@@ -342,57 +1201,68 @@
     <div id="music-err" class="err"></div>
   </div>
 
-  <div class="card">
-    <h2>Step 1 — clip uploads</h2>
-    <p class="sub">Drag-and-drop a video into each slot, or click a slot to choose a file. Each clip is validated with ffprobe (codec, duration, fps, resolution) and copied into <code>~/.freefall-studio/jobs/{{.P.ID}}/</code>.</p>
+  <section style="margin-bottom:28px">
+    <div class="section-h">
+      <span class="step-num">01</span>
+      <div>
+        <h2>Clip board</h2>
+        <p class="section-sub">Every kind visible at once. Trim, replace, or auto-trim with AI.</p>
+      </div>
+    </div>
 
     {{if not .FFprobeAvailable}}
-    <div class="ffprobe-warn">
+    <div class="ffprobe-warn" style="margin-bottom:14px">
       ⚠ <strong>ffprobe not on PATH.</strong> Uploads will be accepted but metadata extraction is skipped. Install ffmpeg and restart studio to fix.
     </div>
     {{end}}
 
-    <div class="step-grid" id="grid">
+    <div class="clip-list" id="grid">
       {{range $kind := .CanonicalKinds}}
       {{$clip := index $.ClipByKind $kind}}
       <div class="slot {{if $clip}}has-file{{end}}" data-kind="{{$kind}}"
            {{if $clip}}data-duration="{{printf "%.3f" $clip.DurationSeconds}}"
                        data-trim-in="{{printf "%.3f" $clip.TrimInSeconds}}"
                        data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"{{end}}>
-        <div class="name">{{humanKindLabel $kind}}</div>
+
         {{if $clip}}
-          <div class="filename" title="{{$clip.SourcePath}}">{{$clip.SourceFilename}}</div>
-          <div class="stats">
-            {{if $clip.DurationSeconds}}<span class="pill">{{durationHuman $clip.DurationSeconds}}</span>{{end}}
-            {{if $clip.Width}}<span class="pill">{{$clip.Width}}×{{$clip.Height}}</span>{{end}}
-            {{if $clip.FPS}}<span class="pill">{{printf "%.0f" $clip.FPS}}fps</span>{{end}}
-            {{if $clip.Codec}}<span class="pill muted">{{$clip.Codec}}</span>{{end}}
-            {{if $clip.HasAudio}}<span class="pill muted">audio: {{$clip.AudioCodec}}</span>{{else}}<span class="pill warn">no audio</span>{{end}}
-            <span class="pill muted">{{bytesHuman $clip.SourceSizeBytes}}</span>
-            {{if $clip.HasTrim}}<span class="pill trimmed">trimmed: {{durationHuman $clip.TrimInSeconds}}–{{durationHuman $clip.EffectiveTrimOut}}</span>{{end}}
-          </div>
-          <div class="actions">
-            {{if $clip.DurationSeconds}}<button class="trim-btn" data-kind="{{$kind}}">Trim</button>{{end}}
-            <button class="replace-btn" data-kind="{{$kind}}">Replace</button>
-            <button class="danger remove-btn" data-kind="{{$kind}}">Remove</button>
+          <!-- Left: kind label + duration + status sub-line -->
+          <div class="clip-meta">
+            <div class="kind-label">{{humanKindLabel $kind}}</div>
+            <div class="kind-row">
+              <span class="kind-dur">{{if $clip.DurationSeconds}}{{durationHuman $clip.DurationSeconds}}{{else}}—{{end}}</span>
+              {{if $clip.TrimAutoSuggested}}<span class="sm-pill is-brand" style="font-size:10px">✨ AI</span>{{end}}
+            </div>
+            <div class="kind-sub">
+              {{if $clip.HasTrim}}Trimmed: {{trimTime $clip.TrimInSeconds}}–{{trimTime $clip.EffectiveTrimOut}}{{else}}Full clip · {{$clip.SourceFilename}}{{end}}
+            </div>
+            <div class="kind-sub" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+              {{if $clip.Width}}<span style="color:var(--sm-text-dim)">{{$clip.Width}}×{{$clip.Height}}{{if $clip.FPS}} · {{printf "%.0f" $clip.FPS}}fps{{end}}</span>{{end}}
+            </div>
           </div>
 
-          <!-- Inline trim panel; toggled visible by .is-open on .slot -->
+          <!-- Center: video preview (ALWAYS visible when has-file) -->
+          {{if $clip.DurationSeconds}}
+          <video preload="metadata" controls
+                 src="/projects/{{$.P.ID}}/clips/{{$kind}}/file"></video>
+          {{else}}
+          <div style="width:320px;height:180px;background:var(--sm-surface-2);border:1px solid var(--sm-border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--sm-text-muted);font-size:12px">
+            ffprobe missing — preview unavailable
+          </div>
+          {{end}}
+
+          <!-- Trim panel: now placed in column 3 of slot grid, always visible -->
           {{if $clip.DurationSeconds}}
           <div class="trim-panel">
-            <video preload="metadata" controls
-                   src="/projects/{{$.P.ID}}/clips/{{$kind}}/file"></video>
-
             <div class="trim-controls">
               <div class="trim-row">
-                <label>Start</label>
+                <label>IN</label>
                 <input type="range" class="trim-in"
                        min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
                        value="{{printf "%.3f" $clip.TrimInSeconds}}">
                 <span class="val trim-in-val">{{trimTime $clip.TrimInSeconds}}</span>
               </div>
               <div class="trim-row">
-                <label>End</label>
+                <label>OUT</label>
                 <input type="range" class="trim-out"
                        min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
                        value="{{printf "%.3f" $clip.EffectiveTrimOut}}">
@@ -400,45 +1270,138 @@
               </div>
 
               <div class="trim-summary">
-                Will keep <span class="keep trim-window-disp">{{trimTime $clip.TrimInSeconds}}–{{trimTime $clip.EffectiveTrimOut}}</span>
-                of the {{durationHuman $clip.DurationSeconds}} clip.
+                Keep <span class="keep trim-window-disp">{{trimTime $clip.TrimInSeconds}}–{{trimTime $clip.EffectiveTrimOut}}</span>
+                of {{durationHuman $clip.DurationSeconds}}
               </div>
 
+              <!-- Cut zones (Phase 3.3): click track to add, hover zone for × -->
+              <div class="cut-bar"
+                   data-clip-id="{{$clip.ID}}"
+                   data-trim-in="{{printf "%.3f" $clip.TrimInSeconds}}"
+                   data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"></div>
+              <script type="application/json" class="cut-data">[
+                {{- range $i, $cut := index $.CutsByKind $kind -}}
+                {{- if $i -}},{{- end -}}
+                {"id":{{$cut.ID}},"start":{{printf "%.3f" $cut.StartSeconds}},"end":{{printf "%.3f" $cut.EndSeconds}}}
+                {{- end -}}
+              ]</script>
+              <div class="cut-summary"></div>
+
               <div class="auto-suggest-row">
-                <button class="auto-suggest-btn">✨ Auto-suggest</button>
+                <button class="auto-suggest-btn">✨ Auto-trim</button>
                 <span class="ai-reason"></span>
-                {{if $clip.TrimAutoSuggested}}<span class="pill trimmed" style="margin-left:auto">AI suggested</span>{{end}}
               </div>
 
               <div class="trim-actions">
-                <button class="preview-btn">▶ Preview window</button>
-                <button class="save-trim-btn">Save trim</button>
-                <button class="reset-trim-btn">Use full clip</button>
+                <button class="preview-btn">▶ Preview</button>
+                <button class="save-trim-btn">Save</button>
+                <button class="reset-trim-btn">Use full</button>
                 <button class="close-trim-btn">Cancel</button>
               </div>
             </div>
           </div>
+          {{else}}
+          <div class="trim-panel" style="color:var(--sm-text-dim);font-size:12px;text-align:center;padding:20px">
+            Trim available after ffprobe metadata is read
+          </div>
           {{end}}
+
+          <!-- Right: status icons + actions -->
+          <div class="clip-right">
+            <div class="status-icons">
+              <span class="ok" title="Uploaded">✓</span>
+              {{if not $clip.HasAudio}}<span class="warn" title="No audio in source">🔇</span>{{end}}
+              {{if $clip.TrimAutoSuggested}}<span class="ai" title="AI suggested trim">✨</span>{{end}}
+            </div>
+            <div class="actions">
+              <button class="replace-btn" data-kind="{{$kind}}">Replace</button>
+              <button class="danger remove-btn" data-kind="{{$kind}}">Remove</button>
+            </div>
+          </div>
+
+          <!-- Legacy children (hidden via CSS, still produced for JS compat) -->
+          <div class="name">{{humanKindLabel $kind}}</div>
+          <div class="filename" title="{{$clip.SourcePath}}">{{$clip.SourceFilename}}</div>
+          <div class="stats">
+            {{if $clip.HasAudio}}<span class="pill muted">audio: {{$clip.AudioCodec}}</span>{{end}}
+            <span class="pill muted">{{bytesHuman $clip.SourceSizeBytes}}</span>
+          </div>
         {{else}}
-          <div class="hint">drag a video here<br>or click to choose</div>
+          <!-- Empty drop-zone state -->
+          <div class="name">{{humanKindLabel $kind}}</div>
+          <div class="hint">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <br>Drop {{humanKindLabel $kind}} clip here, or click to upload
+          </div>
         {{end}}
         <input type="file" accept="video/*">
         <div class="progress"><div></div></div>
         <div class="err"></div>
       </div>
       {{end}}
+
+      <button class="add-custom-clip" disabled title="Custom clip slots — Phase 16 polish">
+        + Add custom clip slot
+      </button>
     </div>
-  </div>
+  </section>
+
+  <!-- ===== Phase 4: Timeline preview ===== -->
+  <section style="margin-bottom:28px" id="timeline-section">
+    <div class="section-h">
+      <span class="step-num">03</span>
+      <div>
+        <h2>Timeline preview</h2>
+        <p class="section-sub">How clips will play in order — block widths reflect effective duration after trim &amp; cuts. Press ▶ to walk through before generating.</p>
+      </div>
+    </div>
+
+    <div class="tl-card">
+      <div class="tl-stats">
+        <span><strong id="tl-total">—</strong> total<span class="tl-stat-sub">after crossfades</span></span>
+        <span><strong id="tl-clip-count">0</strong> clips</span>
+        <span class="tl-stat-cf">crossfade <strong>0.5s</strong> between clips</span>
+      </div>
+
+      <div class="tl-strip-wrap">
+        <div class="tl-strip" id="tl-strip"></div>
+        <div class="tl-axis" id="tl-axis"></div>
+      </div>
+
+      <div class="tl-wave" id="tl-wave-card" style="display:none">
+        <svg class="tl-wave-svg" id="tl-wave-svg" viewBox="0 0 1000 40" preserveAspectRatio="none"></svg>
+        <div class="tl-wave-playhead" id="tl-wave-playhead" style="left:-10px"></div>
+        <div class="tl-wave-label" id="tl-wave-label"></div>
+      </div>
+
+      <div class="tl-player" id="tl-player">
+        <video id="tl-video" preload="metadata" playsinline></video>
+        <div class="tl-player-controls">
+          <button class="sm-btn is-primary" id="tl-play-btn" disabled>▶ Play timeline</button>
+          <button class="sm-btn is-ghost" id="tl-stop-btn" style="display:none">■ Stop</button>
+          <span id="tl-play-time">0:00 / 0:00</span>
+          <span id="tl-play-kind"></span>
+        </div>
+        <div class="tl-player-empty" id="tl-player-empty">
+          Add at least one clip to enable preview.
+        </div>
+      </div>
+    </div>
+  </section>
 
   <div class="card" id="generate-card">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Step 4 — generate</h2>
-      <button class="btn" id="generate-btn" style="background:linear-gradient(135deg,#16a34a,#22c55e)">▶ Generate 1080p</button>
+      <h2 style="margin:0">Step 4 — review &amp; generate</h2>
+      <a class="btn" href="/projects/{{.P.ID}}/generate" style="background:var(--sm-gradient-hero);color:var(--sm-bg);font-weight:700;text-decoration:none">
+        Continue to generate →
+      </a>
+      <button class="btn" id="generate-btn" style="background:linear-gradient(135deg,#16a34a,#22c55e);display:none">▶ Generate 1080p</button>
+      <button class="btn" id="cancel-btn" style="display:none;background:linear-gradient(135deg,#dc2626,#ef4444)">■ Stop</button>
     </div>
     <p class="sub" style="margin-top:6px">
-      Trims each clip to its window, concatenates the canonical 7 segments, outputs a single
-      1080p MP4. Music mixing + crossfades land in the next iteration. Output stays under
-      <code>~/.freefall-studio/jobs/{{.P.ID}}/output_1080p.mp4</code> until you push it.
+      The dedicated generate screen runs ffmpeg, shows progress, and (Phase 13) auto-emails the watch link to
+      {{if .P.ClientEmail}}<span class="mono" style="color:var(--sm-brand-hi)">{{.P.ClientEmail}}</span>{{else}}the client (no email captured for this project){{end}}.
+      Output lands under <code>~/.freefall-studio/jobs/{{.P.ID}}/output_1080p.mp4</code>.
     </p>
 
     <div id="gen-status" class="gen-status">
@@ -552,7 +1515,8 @@ function fmt(t) {
 function wireTrim(slot) {
   const panel  = slot.querySelector('.trim-panel');
   if (!panel) return;
-  const video  = panel.querySelector('video');
+  // Visible <video> is now a SIBLING of .trim-panel (not a child) — query slot.
+  const video  = slot.querySelector('video');
   const inEl   = panel.querySelector('.trim-in');
   const outEl  = panel.querySelector('.trim-out');
   const inVal  = panel.querySelector('.trim-in-val');
@@ -696,6 +1660,8 @@ function wireTrim(slot) {
 // Music section: browse cloud catalog, pick a track, clear.
 // =====================================================================
 const MUSIC_PICKED_ID = {{if .P.MusicTrackID}}{{.P.MusicTrackID}}{{else}}0{{end}};
+const MUSIC_PICKED_TITLE  = "{{.P.MusicTitle}}";
+const MUSIC_PICKED_ARTIST = "{{.P.MusicArtist}}";
 const musicErr = document.getElementById('music-err');
 const openCatalogBtn  = document.getElementById('open-catalog-btn');
 const closeCatalogBtn = document.getElementById('close-catalog-btn');
@@ -950,6 +1916,7 @@ if (musicFilter) {
 // Generate panel: kick off pipeline + poll status until done/failed.
 // =====================================================================
 const generateBtn   = document.getElementById('generate-btn');
+const cancelBtn     = document.getElementById('cancel-btn');
 const genStatusVal  = document.getElementById('gen-status-val');
 const genStepRow    = document.getElementById('gen-step-row');
 const genStepVal    = document.getElementById('gen-step-val');
@@ -968,6 +1935,14 @@ function fmtBytes(n) {
   return v.toFixed(1) + ' ' + u[i];
 }
 
+// Track the currently displayed generation id so the Stop button knows what
+// to cancel. null = nothing actionable.
+let activeGenID = null;
+
+function isInFlight(status) {
+  return status === 'queued' || status === 'trimming' || status === 'concating';
+}
+
 function paintGenState(g) {
   if (!g) {
     genStatusVal.textContent = '— no run yet —';
@@ -975,8 +1950,11 @@ function paintGenState(g) {
     genStepRow.style.display = 'none';
     genResultEl.style.display = 'none';
     genErrEl.classList.remove('show');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    activeGenID = null;
     return;
   }
+  activeGenID = g.id || null;
   genStatusVal.textContent = g.status + (g.finished_at ? ' (finished ' + new Date(g.finished_at).toLocaleTimeString() + ')' : '');
   genBarFill.style.width = (g.progress_pct || 0) + '%';
   if (g.step_label) {
@@ -1002,6 +1980,13 @@ function paintGenState(g) {
     genResultEl.style.display = 'block';
   } else if (g.status !== 'failed') {
     genResultEl.style.display = 'none';
+  }
+
+  // Stop button only useful while ffmpeg is in flight on this project.
+  if (cancelBtn) {
+    cancelBtn.style.display = isInFlight(g.status) ? '' : 'none';
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = '■ Stop';
   }
 }
 
@@ -1053,6 +2038,32 @@ if (generateBtn) {
   });
 }
 
+if (cancelBtn) {
+  cancelBtn.addEventListener('click', async () => {
+    if (!activeGenID) return;
+    if (!confirm('Stop the running generation? The current ffmpeg process will be killed.')) return;
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = '■ Stopping…';
+    try {
+      const res = await fetch('/generations/' + activeGenID + '/cancel', { method: 'POST' });
+      if (!res.ok && res.status !== 404) {
+        const body = await res.json().catch(() => ({}));
+        genErrEl.textContent = body.message || ('Cancel failed: HTTP ' + res.status);
+        genErrEl.classList.add('show');
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = '■ Stop';
+        return;
+      }
+      // Server has flipped the row to failed; the next poll tick will paint it.
+    } catch (e) {
+      genErrEl.textContent = 'Cancel failed: ' + e.message;
+      genErrEl.classList.add('show');
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = '■ Stop';
+    }
+  });
+}
+
 // On load: fetch latest generation so the panel reflects state across page reloads.
 (async () => {
   try {
@@ -1066,15 +2077,28 @@ if (generateBtn) {
   } catch (e) { /* ignore */ }
 })();
 
+// Click-to-copy for the access code chip in the topbar.
+function copyAccessCode(e) {
+  const chip = e.currentTarget;
+  const text = chip.textContent.trim().split(/\s+/)[0];
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = chip.innerHTML;
+    chip.innerHTML = '✓ Copied';
+    setTimeout(() => chip.innerHTML = orig, 1500);
+  });
+}
+
 document.querySelectorAll('.slot').forEach(slot => {
   const input = slot.querySelector('input[type=file]');
 
-  // Click on slot body (not buttons/sliders/video/range) opens the file picker.
+  // Click on slot opens the file picker — but ONLY for empty slots.
+  // Filled slots have always-open trim panels + dedicated Replace button.
   slot.addEventListener('click', (e) => {
+    if (slot.classList.contains('has-file')) return;
     const t = e.target;
     const tag = (t.tagName || '').toUpperCase();
     if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'VIDEO' || tag === 'LABEL') return;
-    if (t.closest('.trim-panel')) return; // ignore clicks inside the trim panel
+    if (t.closest('.trim-panel')) return;
     input.click();
   });
   input.addEventListener('change', () => {
@@ -1114,7 +2138,472 @@ document.querySelectorAll('.slot').forEach(slot => {
 
   // Wire trim controls if the panel is present.
   wireTrim(slot);
+
+  // Wire CUT zones (Phase 3.3) — clickable bar inside trim-panel that lets
+  // the operator paint exclusion ranges. Renders existing cuts from the
+  // <script type=application/json class=cut-data> blob.
+  const cutBar = slot.querySelector('.cut-bar');
+  if (cutBar) wireCuts(slot, cutBar);
 });
+
+// =====================================================================
+// CUT zones — clickable painter inside the trim panel.
+// =====================================================================
+function wireCuts(slot, cutBar) {
+  const clipId = parseInt(cutBar.dataset.clipId, 10);
+  const trimIn = parseFloat(cutBar.dataset.trimIn);
+  const trimOut = parseFloat(cutBar.dataset.trimOut);
+  const trimDur = trimOut - trimIn;
+  if (!clipId || trimDur <= 0) return;
+
+  // Initial cuts come from the embedded JSON blob.
+  let cuts = [];
+  const dataEl = slot.querySelector('script.cut-data');
+  if (dataEl) {
+    try { cuts = JSON.parse(dataEl.textContent.trim() || '[]'); } catch (e) { cuts = []; }
+  }
+
+  const summaryEl = slot.querySelector('.cut-summary');
+
+  function fmtSec(t) {
+    t = Math.max(0, t);
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function renderZones() {
+    cutBar.querySelectorAll('.cut-zone').forEach(z => z.remove());
+    cuts.forEach(c => {
+      const zone = document.createElement('div');
+      zone.className = 'cut-zone';
+      zone.dataset.cutId = c.id;
+      const leftPct = ((c.start - trimIn) / trimDur) * 100;
+      const widPct  = ((c.end - c.start) / trimDur) * 100;
+      zone.style.left  = leftPct + '%';
+      zone.style.width = widPct  + '%';
+      zone.title = `Cut ${fmtSec(c.start)} → ${fmtSec(c.end)} (${(c.end - c.start).toFixed(1)}s)`;
+
+      const x = document.createElement('button');
+      x.className = 'cut-remove';
+      x.textContent = '×';
+      x.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const res = await fetch('/cuts/' + c.id, { method: 'DELETE' });
+          if (!res.ok) return;
+          cuts = cuts.filter(cc => cc.id !== c.id);
+          renderZones();
+          updateSummary();
+        } catch (err) { /* ignore */ }
+      });
+      zone.appendChild(x);
+      cutBar.appendChild(zone);
+    });
+  }
+
+  function updateSummary() {
+    if (!summaryEl) return;
+    if (cuts.length === 0) {
+      summaryEl.innerHTML = '<span style="color:var(--sm-text-dim)">Click track to mark a piece as cut (1.5s default)</span>';
+      return;
+    }
+    const totalCut = cuts.reduce((s, c) => s + (c.end - c.start), 0);
+    summaryEl.innerHTML =
+      '<span class="sm-pill is-danger">−' + cuts.length + ' cut' +
+      (cuts.length === 1 ? '' : 's') + ' · ' + totalCut.toFixed(1) + 's removed</span>' +
+      '<span style="color:var(--sm-text-dim)">Click empty area to add another</span>';
+  }
+
+  // Click on the bar (but not on a zone) → add cut zone.
+  cutBar.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('cut-remove')) return;
+    if (e.target.classList.contains('cut-zone')) return;
+
+    const rect = cutBar.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const fraction = Math.max(0, Math.min(1, x / rect.width));
+    const center = trimIn + fraction * trimDur;
+    const wantWidth = Math.min(1.5, trimDur * 0.15);
+
+    let start = Math.max(trimIn, center - wantWidth / 2);
+    let end   = Math.min(trimOut, start + wantWidth);
+    start = Math.max(trimIn, end - wantWidth);   // re-clamp if we hit the right edge
+
+    if (end - start < 0.2) return;
+
+    // Reject if the new zone overlaps an existing one.
+    for (const c of cuts) {
+      const overlaps = !(end <= c.start || start >= c.end);
+      if (overlaps) return;
+    }
+
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/cuts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start: start, end: end, reason: 'manual' }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        console.warn('add cut failed:', body.message || res.status);
+        return;
+      }
+      cuts.push({ id: body.id, start: body.start, end: body.end });
+      cuts.sort((a, b) => a.start - b.start);
+      renderZones();
+      updateSummary();
+    } catch (err) { /* ignore */ }
+  });
+
+  renderZones();
+  updateSummary();
+}
+
+// ===== Phase 4: Timeline preview + walk-through player =====
+// Per-kind gradients — pulled verbatim from the v2 design pack
+// (screens/studio.jsx → TimelineStrip).
+const TL_KIND_GRADIENT = {
+  intro:           'linear-gradient(135deg,#4F8EFF,#2E5BD0)',
+  interview_pre:   'linear-gradient(135deg,#5BD2A0,#2E8E6E)',
+  walk:            'linear-gradient(135deg,#FFB169,#C44A6E)',
+  interview_plane: 'linear-gradient(135deg,#5BD2A0,#2E8E6E)',
+  freefall:        'linear-gradient(135deg,#FF7A59,#C44A6E)',
+  landing:         'linear-gradient(135deg,#FFB169,#FF7A59)',
+  closing:         'linear-gradient(135deg,#8E5BFF,#4F8EFF)',
+};
+const TL_KIND_LABEL = {
+  intro: 'INTRO',
+  interview_pre: 'INTERVIEW PRE',
+  walk: 'WALK',
+  interview_plane: 'INTERVIEW PLANE',
+  freefall: 'FREEFALL',
+  landing: 'LANDING',
+  closing: 'CLOSING',
+};
+const TL_INTERVIEW_KINDS = new Set(['interview_pre', 'interview_plane']);
+const TL_CROSSFADE = 0.5;
+
+const TL_STATE = {
+  clips: [],         // [{kind, src, srcDur, segs:[[in,out],...], effDur}]
+  cfPerSeam: TL_CROSSFADE,
+  totalEff: 0,
+  totalForLayout: 0,
+  // playback
+  playing: false,
+  clipIdx: 0,
+  segIdx: 0,
+  elapsedBefore: 0,  // total effective seconds played in prior clips
+};
+
+function tlFormatTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function tlReadClips() {
+  const out = [];
+  document.querySelectorAll('.slot[data-duration]').forEach(slot => {
+    const kind = slot.dataset.kind;
+    const dur = parseFloat(slot.dataset.duration);
+    const tIn = parseFloat(slot.dataset.trimIn);
+    const tOut = parseFloat(slot.dataset.trimOut);
+    if (!isFinite(dur) || dur <= 0) return;
+    if (!isFinite(tIn) || !isFinite(tOut) || tOut <= tIn) return;
+
+    let cuts = [];
+    const cutEl = slot.querySelector('script.cut-data');
+    if (cutEl) {
+      try { cuts = JSON.parse(cutEl.textContent || '[]'); } catch (_) { cuts = []; }
+    }
+    cuts.sort((a, b) => a.start - b.start);
+
+    // Reduce trim window minus cuts to keep-segments inside the source timeline.
+    const segs = [];
+    let cursor = tIn;
+    for (const c of cuts) {
+      const cs = Math.max(c.start, tIn);
+      const ce = Math.min(c.end, tOut);
+      if (ce <= cs) continue;
+      if (cs > cursor) segs.push([cursor, cs]);
+      if (ce > cursor) cursor = ce;
+    }
+    if (cursor < tOut) segs.push([cursor, tOut]);
+    if (segs.length === 0) return; // entirely cut out
+
+    const effDur = segs.reduce((s, [a, b]) => s + (b - a), 0);
+    out.push({
+      kind, srcDur: dur, segs, effDur,
+      src: '/projects/' + PROJECT_ID + '/clips/' + encodeURIComponent(kind) + '/file',
+    });
+  });
+  return out;
+}
+
+function tlRender() {
+  const strip = document.getElementById('tl-strip');
+  const axis = document.getElementById('tl-axis');
+  const waveCard = document.getElementById('tl-wave-card');
+  const waveSvg = document.getElementById('tl-wave-svg');
+  const waveLabel = document.getElementById('tl-wave-label');
+  const totalEl = document.getElementById('tl-total');
+  const countEl = document.getElementById('tl-clip-count');
+  const playerEmpty = document.getElementById('tl-player-empty');
+  const playBtn = document.getElementById('tl-play-btn');
+
+  const clips = tlReadClips();
+  TL_STATE.clips = clips;
+
+  if (clips.length === 0) {
+    strip.innerHTML = '';
+    axis.innerHTML = '';
+    waveCard.style.display = 'none';
+    waveSvg.innerHTML = '';
+    totalEl.textContent = '—';
+    countEl.textContent = '0';
+    playerEmpty.style.display = '';
+    playBtn.disabled = true;
+    return;
+  }
+  playerEmpty.style.display = 'none';
+  playBtn.disabled = false;
+
+  // Crossfade duration shrinks to clipDur/3 if a clip is too short —
+  // matches pipeline.runner.go renderSinglePass logic.
+  let cfPerSeam = TL_CROSSFADE;
+  for (const c of clips) {
+    if (c.effDur < cfPerSeam * 2) {
+      const sm = c.effDur / 3;
+      if (sm < cfPerSeam) cfPerSeam = sm;
+    }
+  }
+  const seams = Math.max(0, clips.length - 1);
+  const totalForLayout = clips.reduce((s, c) => s + c.effDur, 0);
+  const totalEff = totalForLayout - seams * cfPerSeam;
+
+  TL_STATE.cfPerSeam = cfPerSeam;
+  TL_STATE.totalEff = totalEff;
+  TL_STATE.totalForLayout = totalForLayout;
+
+  totalEl.textContent = tlFormatTime(totalEff);
+  countEl.textContent = String(clips.length);
+
+  // ----- Strip: flex blocks + striped crossfade bands + diamond playhead -----
+  const stripFrag = document.createDocumentFragment();
+  clips.forEach((c, i) => {
+    const block = document.createElement('div');
+    block.className = 'tl-block';
+    block.dataset.clipIdx = String(i);
+    block.style.flex = c.effDur.toFixed(3);
+    block.style.background = TL_KIND_GRADIENT[c.kind] || 'linear-gradient(135deg,#9CA3AF,#6B7280)';
+    block.title = (TL_KIND_LABEL[c.kind] || c.kind) + ' · ' + tlFormatTime(c.effDur) +
+                  (c.segs.length > 1 ? ' (' + c.segs.length + ' segs)' : '');
+    block.addEventListener('click', () => {
+      const slot = document.querySelector('.slot[data-kind="' + c.kind + '"]');
+      if (slot) slot.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+
+    const lbl = document.createElement('span');
+    lbl.className = 'tl-block-label';
+    lbl.textContent = TL_KIND_LABEL[c.kind] || c.kind.toUpperCase();
+    block.appendChild(lbl);
+    stripFrag.appendChild(block);
+
+    if (i < clips.length - 1) {
+      const band = document.createElement('div');
+      band.className = 'tl-cf-band';
+      stripFrag.appendChild(band);
+    }
+  });
+  // Diamond playhead overlay (absolute positioned, moved by tlOnTimeUpdate).
+  const playhead = document.createElement('div');
+  playhead.className = 'tl-playhead';
+  playhead.id = 'tl-playhead';
+  playhead.style.left = '-10px';
+  stripFrag.appendChild(playhead);
+
+  strip.innerHTML = '';
+  strip.appendChild(stripFrag);
+
+  // ----- Time axis: ticks proportional to layout duration -----
+  const tickEvery = totalEff > 240 ? 60 : (totalEff > 60 ? 30 : (totalEff > 20 ? 10 : 5));
+  const axisParts = [];
+  for (let t = 0; t <= totalEff + 0.001; t += tickEvery) {
+    const xPct = (t / totalEff) * 100;
+    axisParts.push('<span class="tl-axis-tick" style="left:' + xPct.toFixed(2) + '%">' + tlFormatTime(t) + '</span>');
+  }
+  axis.innerHTML = axisParts.join('');
+
+  // ----- Waveform card: 200 bars, ducked under interview kinds -----
+  // Bars reflect what the music will sound like AFTER sidechain ducking:
+  // full-amplitude bars during action segments (no audio = music plays),
+  // squashed bars during interview kinds (speech triggers the duck).
+  // No real audio analysis yet — that's a Phase 16 polish item.
+  waveCard.style.display = '';
+  const TOTAL_BARS = 200;
+  const barsByClip = clips.map(c => Math.max(1, Math.round(TOTAL_BARS * c.effDur / totalForLayout)));
+  // Normalise so total stays roughly TOTAL_BARS.
+  const barTotal = barsByClip.reduce((s, n) => s + n, 0);
+  if (barTotal !== TOTAL_BARS) barsByClip[barsByClip.length - 1] += (TOTAL_BARS - barTotal);
+
+  const waveBars = [];
+  let barIdx = 0;
+  clips.forEach((c, i) => {
+    const ducked = TL_INTERVIEW_KINDS.has(c.kind);
+    const fill = ducked ? 'rgba(136,147,168,.45)' : 'var(--sm-brand-hi)';
+    for (let k = 0; k < barsByClip[i]; k++) {
+      const x = barIdx * (1000 / TOTAL_BARS);
+      // Deterministic pseudo-amplitude — same seed produces identical waveform
+      // every render; brain is happy with the visual stability.
+      const seed = Math.sin(barIdx * 1.3) * 0.5 + Math.cos(barIdx * 0.7) * 0.3 + Math.sin(barIdx * 0.21) * 0.5;
+      const h = (Math.abs(seed) * 14 + 6) * (ducked ? 0.35 : 1);
+      waveBars.push(
+        '<rect x="' + x.toFixed(2) + '" y="' + (20 - h).toFixed(2) +
+        '" width="3" height="' + (h * 2).toFixed(2) + '" rx="1.5" fill="' + fill + '"/>'
+      );
+      barIdx++;
+    }
+  });
+  waveSvg.innerHTML = waveBars.join('');
+
+  // Track-name caption in the upper-right of the waveform card.
+  if (MUSIC_PICKED_ID && MUSIC_PICKED_TITLE) {
+    waveLabel.textContent = MUSIC_PICKED_TITLE.toUpperCase() + ' · sidechain ducked under speech';
+  } else {
+    waveLabel.textContent = 'no music picked · interview audio only';
+  }
+}
+
+function tlPlayBtnClick() {
+  if (!TL_STATE.clips.length) return;
+  if (TL_STATE.playing) tlStop();
+  else tlStart();
+}
+
+function tlStart() {
+  TL_STATE.playing = true;
+  TL_STATE.clipIdx = 0;
+  TL_STATE.segIdx = 0;
+  TL_STATE.elapsedBefore = 0;
+
+  document.getElementById('tl-play-btn').textContent = '⏸ Pause';
+  document.getElementById('tl-stop-btn').style.display = '';
+  document.getElementById('tl-video').style.display = 'block';
+
+  tlLoadCurrent();
+}
+
+function tlStop() {
+  TL_STATE.playing = false;
+  const v = document.getElementById('tl-video');
+  v.pause();
+  document.getElementById('tl-play-btn').textContent = '▶ Play timeline';
+  document.getElementById('tl-stop-btn').style.display = 'none';
+  document.getElementById('tl-play-kind').textContent = '';
+  tlSetPlayheadPct(-1);
+}
+
+// tlSetPlayheadPct positions both the strip diamond playhead and the
+// waveform-card line at the same horizontal fraction of the layout.
+// Pass a negative value to park them off-screen.
+function tlSetPlayheadPct(pct) {
+  const head = document.getElementById('tl-playhead');
+  const wHead = document.getElementById('tl-wave-playhead');
+  const left = pct < 0 ? '-10px' : (pct.toFixed(3) + '%');
+  if (head)  head.style.left  = left;
+  if (wHead) wHead.style.left = left;
+}
+
+function tlLoadCurrent() {
+  if (!TL_STATE.playing) return;
+  if (TL_STATE.clipIdx >= TL_STATE.clips.length) {
+    tlStop();
+    return;
+  }
+  const clip = TL_STATE.clips[TL_STATE.clipIdx];
+  const seg = clip.segs[TL_STATE.segIdx];
+  document.getElementById('tl-play-kind').textContent =
+    'now: ' + (TL_KIND_LABEL[clip.kind] || clip.kind);
+
+  const v = document.getElementById('tl-video');
+  // .src normalises to absolute URL; compare via endsWith to skip a reload
+  // when we're walking between segments of the SAME source clip.
+  if (v.src && v.src.indexOf(clip.src) !== -1) {
+    try { v.currentTime = seg[0]; } catch (_) { /* ignore */ }
+    v.play().catch(() => {});
+  } else {
+    const onMeta = () => {
+      v.removeEventListener('loadedmetadata', onMeta);
+      try { v.currentTime = seg[0]; } catch (_) { /* ignore */ }
+      v.play().catch(() => {});
+    };
+    v.addEventListener('loadedmetadata', onMeta);
+    v.src = clip.src;
+  }
+}
+
+function tlOnTimeUpdate() {
+  if (!TL_STATE.playing) return;
+  const v = document.getElementById('tl-video');
+  const clip = TL_STATE.clips[TL_STATE.clipIdx];
+  if (!clip) return;
+  const seg = clip.segs[TL_STATE.segIdx];
+
+  // Past the end of this segment → advance.
+  if (v.currentTime >= seg[1] - 0.05) {
+    if (TL_STATE.segIdx + 1 < clip.segs.length) {
+      TL_STATE.segIdx++;
+    } else {
+      TL_STATE.elapsedBefore += clip.effDur;
+      TL_STATE.clipIdx++;
+      TL_STATE.segIdx = 0;
+    }
+    tlLoadCurrent();
+    return;
+  }
+
+  // Update clock + playhead from elapsed-before + seg-prefix + (current - seg.start).
+  let inClipElapsed = 0;
+  for (let i = 0; i < TL_STATE.segIdx; i++) {
+    inClipElapsed += clip.segs[i][1] - clip.segs[i][0];
+  }
+  inClipElapsed += Math.max(0, v.currentTime - seg[0]);
+  const totalElapsed = TL_STATE.elapsedBefore + inClipElapsed;
+
+  document.getElementById('tl-play-time').textContent =
+    tlFormatTime(totalElapsed) + ' / ' + tlFormatTime(TL_STATE.totalEff);
+
+  if (TL_STATE.totalForLayout > 0) {
+    const pct = (totalElapsed / TL_STATE.totalForLayout) * 100;
+    tlSetPlayheadPct(pct);
+  }
+}
+
+function tlOnEnded() {
+  if (!TL_STATE.playing) return;
+  const clip = TL_STATE.clips[TL_STATE.clipIdx];
+  if (!clip) return;
+  if (TL_STATE.segIdx + 1 < clip.segs.length) {
+    TL_STATE.segIdx++;
+  } else {
+    TL_STATE.elapsedBefore += clip.effDur;
+    TL_STATE.clipIdx++;
+    TL_STATE.segIdx = 0;
+  }
+  tlLoadCurrent();
+}
+
+(function tlInit() {
+  // Run after the rest of the inline JS so all the earlier handlers are
+  // attached. The clip board is rendered server-side, so we can read it now.
+  tlRender();
+  document.getElementById('tl-play-btn').addEventListener('click', tlPlayBtnClick);
+  document.getElementById('tl-stop-btn').addEventListener('click', tlStop);
+  const v = document.getElementById('tl-video');
+  v.addEventListener('timeupdate', tlOnTimeUpdate);
+  v.addEventListener('ended', tlOnEnded);
+})();
 </script>
 </body>
 </html>

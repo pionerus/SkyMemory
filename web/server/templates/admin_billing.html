@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Billing · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+</head>
+<body>
+
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Billing</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Plan, usage and invoices</div>
+      </div>
+    </header>
+
+    <div style="padding:28px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:24px">
+      <!-- Plan tiers -->
+      <section>
+        <h2 style="font-size:14px;margin-bottom:12px;color:var(--sm-text-muted)">Plan</h2>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+          <div class="sm-card" style="padding:22px;position:relative">
+            <div style="font-size:12px;color:var(--sm-text-muted)">Free</div>
+            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€0<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
+            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">1 operator · 5 jumps/mo</div>
+          </div>
+          <div class="sm-card" style="padding:22px;position:relative;border-color:var(--sm-brand);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent 60%),var(--sm-surface)">
+            <span class="sm-pill is-brand" style="position:absolute;top:16px;right:16px">Current</span>
+            <div style="font-size:12px;color:var(--sm-text-muted)">Pro</div>
+            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€49<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
+            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">3 operators · 100 jumps/mo</div>
+          </div>
+          <div class="sm-card" style="padding:22px;position:relative">
+            <div style="font-size:12px;color:var(--sm-text-muted)">Studio</div>
+            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€149<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
+            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">Unlimited operators &amp; jumps</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Usage meter -->
+      <section class="sm-card" style="padding:22px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+          <div style="font-weight:500">Usage this month</div>
+          <div style="font-size:12px;color:var(--sm-text-muted)">Resets on the 1st · 00:00 UTC</div>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
+          <span style="font-size:28px;font-family:var(--sm-display);font-weight:500">{{.UsageCount}}</span>
+          <span style="color:var(--sm-text-muted)">/ {{.UsageCap}} jumps</span>
+        </div>
+        <div style="height:8px;background:var(--sm-surface-3);border-radius:999px;overflow:hidden">
+          <div style="width:{{.UsagePct}}%;height:100%;background:var(--sm-gradient-hero)"></div>
+        </div>
+      </section>
+
+      <!-- Invoices placeholder -->
+      <section class="sm-card" style="padding:0;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid var(--sm-border)">
+          <div style="font-weight:500">Invoices</div>
+          <button class="sm-btn is-sm" disabled>Update payment method</button>
+        </div>
+        <div style="padding:40px;text-align:center;color:var(--sm-text-muted);font-size:13px">
+          Stripe integration ships in a later session. Manual B2B invoicing meanwhile via Flowtark.
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

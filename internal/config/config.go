@@ -26,6 +26,15 @@ type ServerConfig struct {
 	MusicSecretKey    string
 	MusicBucket       string // 'freefall-music'
 	MusicUsePathStyle bool   // true for MinIO
+
+	// Tenant branding (watermark PNG + optional intro/outro clips). Reuses
+	// the same MinIO/S3 credentials as music — only the bucket differs so
+	// branding stays a separate namespace from the global music library.
+	BrandingBucket string // 'freefall-branding'
+
+	// Final deliverables (rendered videos + photos) uploaded by studio.exe
+	// after each render. Per-tenant prefix inside the bucket. Phase 7.1.
+	DeliverablesBucket string // 'freefall-deliverables'
 }
 
 // StudioConfig — minimal env for the local Windows binary.
@@ -53,6 +62,10 @@ func LoadServer() (*ServerConfig, error) {
 		MusicSecretKey:    getenv("FREEFALL_MUSIC_SECRET_KEY", "freefall_dev_secret"),
 		MusicBucket:       getenv("FREEFALL_MUSIC_BUCKET", "freefall-music"),
 		MusicUsePathStyle: getenv("FREEFALL_MUSIC_PATH_STYLE", "true") == "true",
+
+		BrandingBucket: getenv("FREEFALL_BRANDING_BUCKET", "freefall-branding"),
+
+		DeliverablesBucket: getenv("FREEFALL_DELIVERABLES_BUCKET", "freefall-deliverables"),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("FREEFALL_DATABASE_URL is required")

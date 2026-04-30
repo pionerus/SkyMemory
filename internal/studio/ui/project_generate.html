@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Generate · {{.P.ClientName}} · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .topbar {
+    display:flex;align-items:center;gap:14px;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--sm-border);
+    background: var(--sm-surface);
+  }
+  .topbar h1 { font-size: 16px; }
+  .topbar .meta { color: var(--sm-text-muted); font-size: 12px; }
+  .topbar .right { margin-left:auto; display:flex; gap:10px; align-items:center; }
+
+  .step-rail {
+    display:flex; align-items:center; gap:14px;
+    padding: 0 32px 18px;
+    background: var(--sm-surface);
+    border-bottom: 1px solid var(--sm-border);
+    font-size: 12px;
+  }
+  .step {
+    display:flex; align-items:center; gap:8px;
+    color: var(--sm-text-muted);
+  }
+  .step .dot {
+    width:22px; height:22px; border-radius:999px;
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border-strong);
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--sm-mono); font-size: 11px;
+  }
+  .step.is-done .dot {
+    background: rgba(91,210,160,.15);
+    border-color: rgba(91,210,160,.35);
+    color: var(--sm-success);
+  }
+  .step.is-current .dot {
+    background: var(--sm-brand);
+    border-color: var(--sm-brand);
+    color: var(--sm-bg);
+    font-weight: 600;
+  }
+  .step.is-current { color: var(--sm-text); }
+  .step-rail .arrow { color: var(--sm-text-dim); }
+
+  .gen-card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+    max-width: 640px;
+    margin: 32px auto;
+  }
+  .gen-eyebrow {
+    font-size: 11px; color: var(--sm-text-muted);
+    letter-spacing: .12em; text-transform: uppercase;
+    font-family: var(--sm-mono); margin-bottom: 14px;
+  }
+  .gen-title { font-size: 28px; font-family: var(--sm-display); margin-bottom: 8px; }
+  .gen-sub { color: var(--sm-text-muted); font-size: 14px; margin-bottom: 24px; }
+  .gen-summary {
+    background: var(--sm-surface-2); border: 1px solid var(--sm-border);
+    border-radius: 12px; padding: 16px 20px; margin: 24px auto;
+    max-width: 480px; text-align: left;
+  }
+  .gen-summary-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13px; }
+  .gen-summary-row .k { color: var(--sm-text-muted); }
+  .gen-bar {
+    height: 8px; background: var(--sm-surface-3);
+    border-radius: 4px; overflow: hidden; margin: 16px auto 8px;
+    max-width: 480px;
+    display: none;
+  }
+  .gen-bar.show { display: block; }
+  .gen-bar > div {
+    height: 100%; width: 0%;
+    background: var(--sm-gradient-hero);
+    transition: width 250ms ease-out;
+  }
+  .gen-step-label {
+    font-size: 13px; color: var(--sm-text-muted);
+    margin-bottom: 16px;
+    display: none;
+  }
+  .gen-step-label.show { display: block; }
+  .gen-error {
+    background: rgba(255,107,122,.10);
+    color: var(--sm-danger);
+    border: 1px solid rgba(255,107,122,.28);
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin: 16px auto 0;
+    max-width: 480px;
+    display: none;
+    text-align: left;
+  }
+  .gen-error.show { display: block; }
+  .gen-result {
+    margin-top: 24px;
+    display: none;
+  }
+  .gen-result.show { display: block; }
+  .gen-result video {
+    width: 100%; max-height: 360px;
+    border-radius: 12px; background: black;
+    border: 1px solid var(--sm-border);
+  }
+  .gen-result .actions {
+    display:flex; gap:10px; justify-content:center;
+    margin-top: 16px; flex-wrap: wrap;
+  }
+  .gen-bullets {
+    text-align: left;
+    color: var(--sm-text-muted);
+    font-size: 13px;
+    line-height: 1.7;
+    max-width: 420px;
+    margin: 16px auto 0;
+    padding-left: 18px;
+  }
+  .gen-bullets li::marker { color: var(--sm-brand); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="sm-tile" style="width:36px;height:36px;border-radius:10px;box-shadow:none">
+    <span class="sm-mark" style="width:24px;color:var(--sm-bg)"></span>
+  </span>
+  <div>
+    <h1>{{.P.ClientName}}</h1>
+    <div class="meta">project #{{.P.ID}} · access code <span class="mono" style="color:var(--sm-brand)">{{.P.AccessCode}}</span></div>
+  </div>
+  <div class="right">
+    <a href="/projects/{{.P.ID}}/clips" class="sm-btn is-ghost is-sm">← Back to clips</a>
+    <a href="/" class="sm-btn is-ghost is-sm">All projects</a>
+  </div>
+</div>
+
+<div class="step-rail">
+  <div class="step is-done">
+    <div class="dot">✓</div>
+    <span>1 · Create</span>
+  </div>
+  <span class="arrow">→</span>
+  <div class="step is-done">
+    <div class="dot">✓</div>
+    <span>2 · Clips &amp; music</span>
+  </div>
+  <span class="arrow">→</span>
+  <div class="step is-current">
+    <div class="dot">3</div>
+    <span>3 · Generate &amp; send</span>
+  </div>
+</div>
+
+<main>
+  <div class="gen-card">
+    <div class="gen-eyebrow">Final step</div>
+    <div class="gen-title">Generate the final video</div>
+    <p class="gen-sub">Renders the assembled timeline, mixes music with sidechain ducking, and {{if .P.ClientEmail}}emails the watch link to <span class="mono" style="color:var(--sm-brand-hi)">{{.P.ClientEmail}}</span>{{else}}produces a watch link you can share manually (no client email saved){{end}}.</p>
+
+    <div class="gen-summary">
+      <div class="gen-summary-row"><span class="k">Clip slots filled</span><span>{{.ClipCount}} / 7 canonical</span></div>
+      <div class="gen-summary-row"><span class="k">Music</span><span>{{if .P.MusicTitle}}{{.P.MusicTitle}}{{else}}<span style="color:var(--sm-warning)">none picked</span>{{end}}</span></div>
+      <div class="gen-summary-row"><span class="k">Outputs</span><span>
+        {{if .P.Output1080p}}<span class="sm-pill" style="margin-left:4px">1080p</span>{{end}}
+        {{if .P.Output4K}}<span class="sm-pill" style="margin-left:4px">4K</span>{{end}}
+        {{if .P.OutputVertical}}<span class="sm-pill" style="margin-left:4px">vertical</span>{{end}}
+        {{if .P.OutputPhotos}}<span class="sm-pill" style="margin-left:4px">photos</span>{{end}}
+      </span></div>
+    </div>
+
+    <button id="generate-btn" class="sm-btn is-hero is-lg" style="margin-top:8px;height:54px;font-size:15px;padding:0 32px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 12h14"/></svg>
+      Generate &amp; send to client
+    </button>
+    <button id="cancel-btn" class="sm-btn is-danger is-lg" style="margin-top:8px;display:none;height:54px;padding:0 32px">
+      ■ Stop
+    </button>
+
+    <div class="gen-bar"><div></div></div>
+    <div class="gen-step-label"></div>
+
+    <div class="gen-error"></div>
+
+    <div class="gen-result">
+      <video id="gen-output-video" controls></video>
+      <div class="actions">
+        <a id="gen-download" class="sm-btn" download>Download MP4</a>
+        <a id="gen-watch" class="sm-btn is-primary" target="_blank">Open watch link →</a>
+        <button id="gen-resend" class="sm-btn" disabled title="Phase 13 — Resend integration">Resend email</button>
+      </div>
+      <div style="margin-top:14px;font-size:12px;color:var(--sm-text-dim)">
+        Email auto-send arrives in Phase 13. Today the operator copies the watch link manually.
+      </div>
+    </div>
+
+    {{if not .P.MusicTitle}}
+    <ul class="gen-bullets">
+      <li>You haven't picked music yet — the render will use silence under action segments.</li>
+      <li>Go <a href="/projects/{{.P.ID}}/clips">back to clips</a> if you want to pick a track first.</li>
+    </ul>
+    {{end}}
+  </div>
+</main>
+
+<script>
+const PROJECT_ID = {{.P.ID}};
+const ACCESS_CODE = "{{.AccessCodeCanonical}}";
+const CLOUD_BASE = "{{.CloudBaseURL}}";
+
+const generateBtn = document.getElementById('generate-btn');
+const cancelBtn   = document.getElementById('cancel-btn');
+const barEl       = document.querySelector('.gen-bar');
+const barFill     = barEl.querySelector('div');
+const stepEl      = document.querySelector('.gen-step-label');
+const errEl       = document.querySelector('.gen-error');
+const resultEl    = document.querySelector('.gen-result');
+const videoEl     = document.getElementById('gen-output-video');
+const downloadEl  = document.getElementById('gen-download');
+const watchEl     = document.getElementById('gen-watch');
+
+let activeGenID = null;
+let pollTimer   = null;
+
+function paint(g) {
+  if (!g) return;
+  activeGenID = g.id || activeGenID;
+  if (g.status === 'failed') {
+    errEl.textContent = g.error || 'Generation failed without an error message — check studio log.';
+    errEl.classList.add('show');
+    barEl.classList.remove('show');
+    stepEl.classList.remove('show');
+    cancelBtn.style.display = 'none';
+    generateBtn.style.display = '';
+    generateBtn.disabled = false;
+    return;
+  }
+  if (g.status === 'done') {
+    barEl.classList.remove('show');
+    stepEl.classList.remove('show');
+    cancelBtn.style.display = 'none';
+    generateBtn.style.display = 'none';
+    const url = '/projects/' + PROJECT_ID + '/output/1080p?t=' + Date.now();
+    videoEl.src = url;
+    downloadEl.href = url;
+    watchEl.href = CLOUD_BASE + '/watch/' + ACCESS_CODE;
+    resultEl.classList.add('show');
+    return;
+  }
+  // queued / trimming / concating
+  barEl.classList.add('show');
+  stepEl.classList.add('show');
+  cancelBtn.style.display = '';
+  generateBtn.style.display = 'none';
+  barFill.style.width = (g.progress_pct || 0) + '%';
+  stepEl.textContent = g.step_label || g.status;
+  errEl.classList.remove('show');
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/generations');
+      if (!res.ok) return;
+      const body = await res.json();
+      paint(body.generation);
+      if (body.generation && (body.generation.status === 'done' || body.generation.status === 'failed')) {
+        stopPolling();
+      }
+    } catch (e) {}
+  }, 1500);
+}
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+generateBtn.addEventListener('click', async () => {
+  errEl.classList.remove('show');
+  generateBtn.disabled = true;
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/generate', { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok && res.status !== 202) {
+      errEl.textContent = body.message || ('HTTP ' + res.status);
+      errEl.classList.add('show');
+      generateBtn.disabled = false;
+      return;
+    }
+    paint({ status: body.status || 'queued', progress_pct: 0 });
+    startPolling();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('show');
+    generateBtn.disabled = false;
+  }
+});
+
+cancelBtn.addEventListener('click', async () => {
+  if (!activeGenID) return;
+  if (!confirm('Stop the running generation? ffmpeg will be killed.')) return;
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = '■ Stopping…';
+  try {
+    await fetch('/generations/' + activeGenID + '/cancel', { method: 'POST' });
+  } catch (e) {}
+});
+
+// On load: pick up any in-flight generation
+(async () => {
+  try {
+    const res = await fetch('/projects/' + PROJECT_ID + '/generations');
+    if (!res.ok) return;
+    const body = await res.json();
+    if (body.generation) {
+      paint(body.generation);
+      if (body.generation.status !== 'done' && body.generation.status !== 'failed') {
+        startPolling();
+      }
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

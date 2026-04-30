@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .stat-card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .stat-label { font-size: 12px; color: var(--sm-text-muted); }
+  .stat-row { display: flex; align-items: baseline; justify-content: space-between; }
+  .stat-value { font-size: 30px; font-family: var(--sm-display); font-weight: 500; letter-spacing: -0.02em; }
+  .quick-action { display:flex; gap:12px; padding:12px 10px; border-radius:10px; cursor:pointer; margin-bottom:4px; transition: background 80ms; text-decoration:none; color:inherit; }
+  .quick-action:hover { background: var(--sm-surface-2); }
+  .quick-icon {
+    width:32px; height:32px; border-radius:8px; flex-shrink:0;
+    background: var(--sm-surface-2);
+    display:flex; align-items:center; justify-content:center;
+    color: var(--sm-brand-hi);
+  }
+  .quick-title { font-size:13px; font-weight:500; }
+  .quick-sub { font-size:11px; color: var(--sm-text-muted); }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Dashboard</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Last 30 days · {{.TenantName}}</div>
+      </div>
+      <button class="sm-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Filter
+      </button>
+      <a href="/admin/tokens" class="sm-btn is-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Issue token
+      </a>
+    </header>
+
+    <div style="padding:28px;overflow:auto;flex:1">
+      <!-- Stat row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px">
+        <div class="stat-card">
+          <div class="stat-label">Jumps rendered</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.JumpsRendered}}</div>
+            <span class="sm-pill is-success">↑ {{.Stats.JumpsTrend}}</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Watch link clicks</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.WatchClicks}}</div>
+            <span class="sm-pill is-success">↑ {{.Stats.WatchTrend}}</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Photo packs sold</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.PhotosSold}}</div>
+            <span class="sm-pill is-success">↑ {{.Stats.PhotosTrend}}</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">MRR</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.MRR}}</div>
+            <span class="sm-pill">— {{.Stats.MRRTrend}}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent jumps + Quick actions -->
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:20px">
+        <div class="sm-card" style="overflow:hidden">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--sm-border)">
+            <div style="font-weight:500;font-size:14px">Recent jumps</div>
+            <div style="font-size:12px;color:var(--sm-text-muted)">{{len .RecentJumps}} of {{.Stats.JumpsRendered}}</div>
+          </div>
+          {{if .RecentJumps}}
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="color:var(--sm-text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.06em">
+                <th style="text-align:left;padding:10px 20px">Client</th>
+                <th style="text-align:left;padding:10px 20px">Code</th>
+                <th style="text-align:left;padding:10px 20px">When</th>
+                <th style="text-align:left;padding:10px 20px">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .RecentJumps}}
+              <tr style="border-top:1px solid var(--sm-border)">
+                <td style="padding:14px 20px;font-weight:500">{{.ClientName}}</td>
+                <td style="padding:14px 20px"><span class="sm-pill is-mono">{{.AccessCode}}</span></td>
+                <td style="padding:14px 20px;color:var(--sm-text-muted)">{{.When}}</td>
+                <td style="padding:14px 20px"><span class="sm-pill {{.StatusClass}}"><span class="sm-dot"></span>{{.StatusLabel}}</span></td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div style="padding:40px;text-align:center;color:var(--sm-text-muted);font-size:13px">
+            No jumps yet. Once your operators register one in their studio, it'll show up here.
+          </div>
+          {{end}}
+        </div>
+
+        <div class="sm-card" style="padding:20px">
+          <div style="font-weight:500;font-size:14px;margin-bottom:4px">Quick actions</div>
+          <div style="font-size:12px;color:var(--sm-text-muted);margin-bottom:16px">Speed-run common tasks.</div>
+          <a href="/admin/tokens" class="quick-action">
+            <div class="quick-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            </div>
+            <div>
+              <div class="quick-title">Issue operator token</div>
+              <div class="quick-sub">Add a new camera operator</div>
+            </div>
+          </a>
+          <a href="/admin/music-library" class="quick-action">
+            <div class="quick-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
+            <div>
+              <div class="quick-title">Upload music</div>
+              <div class="quick-sub">Drop a track + tag mood</div>
+            </div>
+          </a>
+          <a href="/admin/branding" class="quick-action">
+            <div class="quick-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z"/></svg>
+            </div>
+            <div>
+              <div class="quick-title">Update branding</div>
+              <div class="quick-sub">Watermark · intro · outro</div>
+            </div>
+          </a>
+          <div class="quick-action" style="opacity:.6;cursor:default">
+            <div class="quick-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </div>
+            <div>
+              <div class="quick-title">Resend a watch link</div>
+              <div class="quick-sub">Coming soon</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;font-size:11px;color:var(--sm-text-dim);text-align:center">
+        Diagnostics: <a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

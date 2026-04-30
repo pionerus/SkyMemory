@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Branding · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  /* === Watermark live preview frame === */
+  .preview-frame {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--sm-border);
+    background-color: #0F1420;
+    background-image:
+      repeating-linear-gradient(135deg, rgba(255,255,255,.025) 0 2px, transparent 2px 12px),
+      radial-gradient(120% 80% at 30% 20%, rgba(79,142,255,.10), transparent 60%),
+      radial-gradient(140% 90% at 80% 90%, rgba(255,177,105,.08), transparent 60%);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-frame .frame-cap {
+    position: absolute; top: 12px; left: 12px;
+    font-family: var(--sm-mono); font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: rgba(230,233,242,.55);
+    background: rgba(11,14,20,.55);
+    padding: 4px 8px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .preview-frame .watermark-overlay {
+    position: absolute;
+    width: 12%;
+    /* Position default = bottom-right */
+    bottom: 16px; right: 16px;
+    transition: width 80ms, opacity 80ms, top 80ms, bottom 80ms, left 80ms, right 80ms;
+    pointer-events: none;
+  }
+  .preview-frame .watermark-overlay img {
+    width: 100%;
+    display: block;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.5));
+  }
+  .preview-frame .watermark-overlay.empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 60px;
+    border: 1.5px dashed rgba(255,200,61,.4);
+    color: rgba(255,200,61,.7);
+    font-family: var(--sm-mono); font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border-radius: 4px;
+    background: rgba(255,200,61,.06);
+  }
+
+  .position-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .position-pills .sm-pill { cursor: pointer; }
+  .position-pills .sm-pill:not(.is-brand):hover { background: var(--sm-surface-3); }
+
+  .file-chip {
+    display: flex; gap: 12px; align-items: center;
+    padding: 14px;
+    background: var(--sm-surface-2);
+    border: 1px solid var(--sm-border);
+    border-radius: 10px;
+  }
+  .file-chip .icon-box {
+    width: 44px; height: 44px; border-radius: 8px;
+    background: var(--sm-surface-3);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--sm-text);
+    flex-shrink: 0;
+  }
+  .file-chip .file-info { flex: 1; min-width: 0; }
+  .file-chip .file-name { font-family: var(--sm-mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .file-meta { font-size: 11px; color: var(--sm-text-muted); }
+  .file-chip .file-actions { background: transparent; border: none; color: var(--sm-text-muted); cursor: pointer; padding: 4px; }
+  .file-chip .file-actions:hover { color: var(--sm-danger); }
+
+  .drop-zone {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    border: 1.5px dashed var(--sm-border-strong);
+    border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: var(--sm-text-muted); font-size: 12px;
+    background: var(--sm-surface-2);
+    cursor: pointer;
+    transition: border-color 80ms, background 80ms;
+  }
+  .drop-zone:hover, .drop-zone.dropping { border-color: var(--sm-brand); background: var(--sm-brand-soft); color: var(--sm-text); }
+  .drop-zone strong { color: var(--sm-text); font-weight: 500; }
+  .drop-zone input[type=file] { display: none; }
+
+  .upload-progress { width: 100%; height: 4px; background: var(--sm-surface-3); border-radius: 2px; overflow: hidden; display: none; }
+  .upload-progress.show { display: block; }
+  .upload-progress > div { width: 0%; height: 100%; background: var(--sm-brand); transition: width 120ms; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 100;
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 10px; padding: 12px 16px;
+    color: var(--sm-text); font-size: 13px;
+    box-shadow: var(--sm-shadow-elev);
+    display: none;
+  }
+  .toast.show { display: block; }
+  .toast.is-success { border-color: rgba(91,210,160,.35); color: var(--sm-success); }
+  .toast.is-error   { border-color: rgba(255,107,122,.35); color: var(--sm-danger); }
+
+  .video-clip {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    border-radius: 10px;
+    background: black;
+    border: 1px solid var(--sm-border);
+    overflow: hidden;
+  }
+  .video-clip video { width: 100%; height: 100%; display: block; object-fit: contain; background: black; }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Branding</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Watermark, intro, outro · applied to all future renders</div>
+      </div>
+      <div id="status-msg" style="font-size:12px;color:var(--sm-text-muted)">Loading…</div>
+    </header>
+
+    <div style="padding:28px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:24px">
+
+      <!-- === 4.1 Watermark logo === -->
+      <section class="sm-card" style="padding:0;overflow:hidden">
+        <header style="padding:18px 24px;border-bottom:1px solid var(--sm-border);display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:11px;color:var(--sm-text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-family:var(--sm-mono)">4.1</div>
+            <h2 style="font-size:18px">Watermark logo</h2>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="sm-btn is-sm" id="reset-defaults-btn">Reset to defaults</button>
+            <button class="sm-btn is-primary is-sm" id="save-settings-btn" disabled>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Apply to all future renders
+            </button>
+          </div>
+        </header>
+
+        <div style="display:grid;grid-template-columns:1fr 380px;gap:0">
+          <!-- Live preview -->
+          <div style="padding:24px;border-right:1px solid var(--sm-border)">
+            <div class="sm-label" style="margin-bottom:10px">Live preview · 1920×1080 frame</div>
+            <div class="preview-frame" id="preview-frame">
+              <span class="frame-cap">◉ FREEFALL · 0:14</span>
+              <div class="watermark-overlay empty" id="watermark-overlay">
+                NO LOGO YET
+              </div>
+            </div>
+            <div style="margin-top:12px">
+              <div class="sm-label">Position</div>
+              <div class="position-pills" id="position-pills">
+                <span class="sm-pill is-brand" data-pos="bottom-right">Bottom-right</span>
+                <span class="sm-pill" data-pos="bottom-left">Bottom-left</span>
+                <span class="sm-pill" data-pos="top-right">Top-right</span>
+                <span class="sm-pill" data-pos="top-left">Top-left</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right controls -->
+          <div style="padding:24px;display:flex;flex-direction:column;gap:22px">
+            <div>
+              <label class="sm-label">Logo file</label>
+              <div id="watermark-chip-container">
+                <!-- Either an empty drop-zone or a filled .file-chip lives here -->
+                <div class="drop-zone" id="watermark-drop">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <div><strong>Click to upload</strong> or drop PNG with alpha</div>
+                  <div style="font-size:11px;color:var(--sm-text-dim)">≤ 2 MB · transparent recommended</div>
+                  <input type="file" id="watermark-input" accept="image/png">
+                </div>
+              </div>
+              <div class="upload-progress" id="watermark-progress"><div></div></div>
+            </div>
+
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span class="sm-label" style="margin-bottom:0">Size</span>
+                <span class="mono" id="size-val" style="font-size:12px;color:var(--sm-brand-hi)">12%</span>
+              </div>
+              <input class="sm-range" type="range" id="size-slider" min="5" max="25" value="12">
+              <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--sm-text-dim);font-family:var(--sm-mono)">
+                <span>5%</span><span>25%</span>
+              </div>
+            </div>
+
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span class="sm-label" style="margin-bottom:0">Opacity</span>
+                <span class="mono" id="opacity-val" style="font-size:12px;color:var(--sm-brand-hi)">70%</span>
+              </div>
+              <input class="sm-range" type="range" id="opacity-slider" min="10" max="100" value="70">
+              <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--sm-text-dim);font-family:var(--sm-mono)">
+                <span>10%</span><span>100%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- === 4.2 Intro / outro snippets === -->
+      <section class="sm-card" style="padding:0;overflow:hidden">
+        <header style="padding:18px 24px;border-bottom:1px solid var(--sm-border)">
+          <div style="font-size:11px;color:var(--sm-text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-family:var(--sm-mono)">4.2</div>
+          <h2 style="font-size:18px">Intro / outro snippets <span style="color:var(--sm-text-muted);font-weight:400;font-size:13px">· optional</span></h2>
+          <p style="color:var(--sm-text-muted);font-size:13px;margin-top:6px">Auto-prepended (intro) and auto-appended (outro) to every rendered video. Keep them ≤ 5 seconds and 1080p H.264.</p>
+        </header>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+          <div style="padding:24px;border-right:1px solid var(--sm-border)" id="intro-section">
+            <div class="sm-label">Intro clip · ≤5s · 1080p H.264</div>
+            <div id="intro-container">
+              <div class="drop-zone" id="intro-drop">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div><strong>Drop intro clip here</strong></div>
+                <div>or click to upload (.mp4, ≤ 20 MB)</div>
+                <input type="file" id="intro-input" accept="video/mp4,video/quicktime">
+              </div>
+            </div>
+            <div class="upload-progress" id="intro-progress"><div></div></div>
+          </div>
+          <div style="padding:24px" id="outro-section">
+            <div class="sm-label">Outro clip · ≤5s · 1080p H.264</div>
+            <div id="outro-container">
+              <div class="drop-zone" id="outro-drop">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div><strong>Drop outro clip here</strong></div>
+                <div>or click to upload (.mp4, ≤ 20 MB)</div>
+                <input type="file" id="outro-input" accept="video/mp4,video/quicktime">
+              </div>
+            </div>
+            <div class="upload-progress" id="outro-progress"><div></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pipeline integration note -->
+      <div class="sm-card" style="padding:18px 22px;background:var(--sm-surface-2);border:1px solid rgba(255,209,102,.20);border-color:rgba(255,209,102,.20)">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div style="flex-shrink:0;color:var(--sm-warning);font-size:18px;line-height:1">⚠</div>
+          <div>
+            <div style="font-weight:500;font-size:13px;margin-bottom:4px">Pipeline integration arrives next session</div>
+            <div style="font-size:12px;color:var(--sm-text-muted)">
+              Settings save to the cloud immediately, but ffmpeg overlay + intro/outro concat ships in the next pipeline pass.
+              Renders today still come out without watermark.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const previewFrame = $('#preview-frame');
+const wmOverlay    = $('#watermark-overlay');
+const sizeSlider   = $('#size-slider');
+const sizeVal      = $('#size-val');
+const opSlider     = $('#opacity-slider');
+const opVal        = $('#opacity-val');
+const positionPills = $('#position-pills');
+const saveBtn      = $('#save-settings-btn');
+const resetBtn     = $('#reset-defaults-btn');
+const statusMsg    = $('#status-msg');
+const toast        = $('#toast');
+
+let state = {
+  watermark_logo_url: '',
+  watermark_size_pct: 12,
+  watermark_opacity_pct: 70,
+  watermark_position: 'bottom-right',
+  intro_clip_url: '',
+  outro_clip_url: '',
+};
+let dirty = false;
+
+function showToast(msg, kind) {
+  toast.className = 'toast show' + (kind === 'success' ? ' is-success' : kind === 'error' ? ' is-error' : '');
+  toast.textContent = msg;
+  setTimeout(() => toast.classList.remove('show'), 2400);
+}
+
+function paintWatermarkPreview() {
+  // Position
+  const pos = state.watermark_position;
+  wmOverlay.style.top = wmOverlay.style.bottom = wmOverlay.style.left = wmOverlay.style.right = '';
+  if (pos === 'bottom-right') { wmOverlay.style.bottom = '16px'; wmOverlay.style.right = '16px'; }
+  else if (pos === 'bottom-left') { wmOverlay.style.bottom = '16px'; wmOverlay.style.left = '16px'; }
+  else if (pos === 'top-right') { wmOverlay.style.top = '16px'; wmOverlay.style.right = '16px'; }
+  else if (pos === 'top-left') { wmOverlay.style.top = '16px'; wmOverlay.style.left = '16px'; }
+
+  wmOverlay.style.width = state.watermark_size_pct + '%';
+  wmOverlay.style.opacity = (state.watermark_opacity_pct / 100).toString();
+
+  if (state.watermark_logo_url) {
+    wmOverlay.classList.remove('empty');
+    wmOverlay.innerHTML = '<img src="' + state.watermark_logo_url + '" alt="watermark">';
+  } else {
+    wmOverlay.classList.add('empty');
+    wmOverlay.innerHTML = 'NO LOGO YET';
+  }
+
+  // Position pills
+  positionPills.querySelectorAll('.sm-pill').forEach(p => {
+    p.classList.toggle('is-brand', p.dataset.pos === state.watermark_position);
+  });
+
+  sizeVal.textContent = state.watermark_size_pct + '%';
+  opVal.textContent   = state.watermark_opacity_pct + '%';
+  sizeSlider.value    = state.watermark_size_pct;
+  opSlider.value      = state.watermark_opacity_pct;
+}
+
+function paintWatermarkChip() {
+  const cont = $('#watermark-chip-container');
+  if (!state.watermark_logo_url) {
+    cont.innerHTML = `
+      <div class="drop-zone" id="watermark-drop">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div><strong>Click to upload</strong> or drop PNG with alpha</div>
+        <div style="font-size:11px;color:var(--sm-text-dim)">≤ 2 MB · transparent recommended</div>
+        <input type="file" id="watermark-input" accept="image/png">
+      </div>`;
+    wireWatermarkUpload();
+    return;
+  }
+  cont.innerHTML = `
+    <div class="file-chip">
+      <div class="icon-box">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      </div>
+      <div class="file-info">
+        <div class="file-name">watermark.png</div>
+        <div class="file-meta">PNG with alpha · uploaded to cloud</div>
+      </div>
+      <button class="file-actions" id="watermark-delete" title="Remove watermark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+      </button>
+    </div>
+    <button class="sm-btn is-sm is-block" style="margin-top:10px" id="watermark-replace">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Replace PNG
+    </button>
+    <input type="file" id="watermark-input" accept="image/png" style="display:none">
+  `;
+  wireWatermarkUpload();
+  $('#watermark-delete').addEventListener('click', deleteWatermark);
+  $('#watermark-replace').addEventListener('click', () => $('#watermark-input').click());
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/admin/branding/json');
+    if (!res.ok) {
+      if (res.status === 401) location.href = '/login';
+      throw new Error('HTTP ' + res.status);
+    }
+    state = await res.json();
+    paintAll();
+    statusMsg.textContent = 'Loaded';
+    statusMsg.style.color = 'var(--sm-success)';
+  } catch (e) {
+    statusMsg.textContent = 'Failed: ' + e.message;
+    statusMsg.style.color = 'var(--sm-danger)';
+  }
+}
+
+function paintAll() {
+  paintWatermarkPreview();
+  paintWatermarkChip();
+  paintIntroOutro('intro');
+  paintIntroOutro('outro');
+}
+
+function paintIntroOutro(slot) {
+  const cont = $('#' + slot + '-container');
+  const url = state[slot + '_clip_url'];
+  if (!url) {
+    cont.innerHTML = `
+      <div class="drop-zone" id="${slot}-drop">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div><strong>Drop ${slot} clip here</strong></div>
+        <div>or click to upload (.mp4, ≤ 20 MB)</div>
+        <input type="file" id="${slot}-input" accept="video/mp4,video/quicktime">
+      </div>`;
+    wireClipUpload(slot);
+    return;
+  }
+  cont.innerHTML = `
+    <div class="video-clip"><video src="${url}" controls preload="metadata"></video></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+      <div class="mono" style="font-size:11px;color:var(--sm-text-muted)">${slot}.mp4 · cloud-stored</div>
+      <div style="display:flex;gap:8px">
+        <button class="sm-btn is-sm" id="${slot}-replace">Replace</button>
+        <button class="sm-btn is-sm is-danger" id="${slot}-delete">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        </button>
+      </div>
+    </div>
+    <input type="file" id="${slot}-input" accept="video/mp4,video/quicktime" style="display:none">
+  `;
+  wireClipUpload(slot);
+  $('#' + slot + '-replace').addEventListener('click', () => $('#' + slot + '-input').click());
+  $('#' + slot + '-delete').addEventListener('click', () => deleteClip(slot));
+}
+
+// Sliders / position
+sizeSlider.addEventListener('input', () => {
+  state.watermark_size_pct = parseInt(sizeSlider.value, 10);
+  sizeVal.textContent = state.watermark_size_pct + '%';
+  paintWatermarkPreview();
+  markDirty();
+});
+opSlider.addEventListener('input', () => {
+  state.watermark_opacity_pct = parseInt(opSlider.value, 10);
+  opVal.textContent = state.watermark_opacity_pct + '%';
+  paintWatermarkPreview();
+  markDirty();
+});
+positionPills.querySelectorAll('.sm-pill').forEach(p => {
+  p.addEventListener('click', () => {
+    state.watermark_position = p.dataset.pos;
+    paintWatermarkPreview();
+    markDirty();
+  });
+});
+
+resetBtn.addEventListener('click', () => {
+  state.watermark_size_pct = 12;
+  state.watermark_opacity_pct = 70;
+  state.watermark_position = 'bottom-right';
+  paintWatermarkPreview();
+  markDirty();
+});
+
+function markDirty() {
+  dirty = true;
+  saveBtn.disabled = false;
+}
+
+saveBtn.addEventListener('click', async () => {
+  saveBtn.disabled = true;
+  const orig = saveBtn.innerHTML;
+  saveBtn.innerHTML = 'Saving…';
+  try {
+    const res = await fetch('/admin/branding/json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        watermark_size_pct: state.watermark_size_pct,
+        watermark_opacity_pct: state.watermark_opacity_pct,
+        watermark_position: state.watermark_position,
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    state = body;
+    paintAll();
+    dirty = false;
+    saveBtn.innerHTML = orig;
+    showToast('Settings saved · applied to all future renders', 'success');
+  } catch (e) {
+    saveBtn.innerHTML = orig;
+    saveBtn.disabled = false;
+    showToast('Save failed: ' + e.message, 'error');
+  }
+});
+
+// Watermark upload
+function wireWatermarkUpload() {
+  const drop = $('#watermark-drop');
+  const input = $('#watermark-input');
+  if (!input) return;
+
+  if (drop) {
+    drop.addEventListener('click', () => input.click());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dropping'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dropping'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('dropping');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) uploadWatermark(e.dataTransfer.files[0]);
+    });
+  }
+  input.addEventListener('change', () => {
+    if (input.files && input.files[0]) uploadWatermark(input.files[0]);
+  });
+}
+
+async function uploadWatermark(file) {
+  const bar = $('#watermark-progress');
+  const fill = bar.querySelector('div');
+  bar.classList.add('show');
+  fill.style.width = '0%';
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
+    };
+    const result = await new Promise((resolve, reject) => {
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Bad response')); }
+        } else {
+          let msg = 'HTTP ' + xhr.status;
+          try { const b = JSON.parse(xhr.responseText); if (b.message) msg = b.message; } catch {}
+          reject(new Error(msg));
+        }
+      };
+      xhr.open('POST', '/admin/branding/watermark');
+      xhr.send(fd);
+    });
+    state = result;
+    paintAll();
+    bar.classList.remove('show');
+    showToast('Watermark uploaded', 'success');
+  } catch (e) {
+    bar.classList.remove('show');
+    showToast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteWatermark() {
+  if (!confirm('Remove the watermark? Future renders will have no logo overlay until you upload a new one.')) return;
+  try {
+    const res = await fetch('/admin/branding/watermark', { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state.watermark_logo_url = '';
+    paintAll();
+    showToast('Watermark removed', 'success');
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+// Intro / outro upload
+function wireClipUpload(slot) {
+  const drop = $('#' + slot + '-drop');
+  const input = $('#' + slot + '-input');
+  if (!input) return;
+
+  if (drop) {
+    drop.addEventListener('click', () => input.click());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dropping'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dropping'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('dropping');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) uploadClip(slot, e.dataTransfer.files[0]);
+    });
+  }
+  input.addEventListener('change', () => {
+    if (input.files && input.files[0]) uploadClip(slot, input.files[0]);
+  });
+}
+
+async function uploadClip(slot, file) {
+  const bar = $('#' + slot + '-progress');
+  const fill = bar.querySelector('div');
+  bar.classList.add('show');
+  fill.style.width = '0%';
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
+    };
+    const result = await new Promise((resolve, reject) => {
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Bad response')); }
+        } else {
+          let msg = 'HTTP ' + xhr.status;
+          try { const b = JSON.parse(xhr.responseText); if (b.message) msg = b.message; } catch {}
+          reject(new Error(msg));
+        }
+      };
+      xhr.open('POST', '/admin/branding/' + slot);
+      xhr.send(fd);
+    });
+    state = result;
+    paintAll();
+    bar.classList.remove('show');
+    showToast(slot + ' clip uploaded', 'success');
+  } catch (e) {
+    bar.classList.remove('show');
+    showToast('Upload failed: ' + e.message, 'error');
+  }
+}
+
+async function deleteClip(slot) {
+  if (!confirm('Remove the ' + slot + ' clip?')) return;
+  try {
+    const res = await fetch('/admin/branding/' + slot, { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state[slot + '_clip_url'] = '';
+    paintAll();
+    showToast(slot + ' clip removed', 'success');
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'error');
+  }
+}
+
+loadSettings();
+</script>
+</body>
+</html>

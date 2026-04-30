@@ -3,152 +3,777 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Music library · Freefall admin</title>
+<title>Music · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
-  body {
-    margin: 0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-    background: #fbfaf7;
-    color: #0a0a14;
-  }
-  header {
-    padding: 18px 32px;
-    border-bottom: 1px solid #eee;
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    background: white;
-  }
-  header .mark { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg,#ffd6b3,#e0d4ff); display: grid; place-items: center; font-size: 18px; }
-  header h1 { font-size: 16px; margin: 0; }
-  header .meta { color: #777; font-size: 13px; }
-  header .nav { margin-left: auto; display: flex; gap: 16px; font-size: 14px; }
-  header .nav a { color: #4f46e5; text-decoration: none; }
-  main { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
-  .card { background: white; border: 1px solid #eee; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
-  h2 { margin: 0 0 4px; font-size: 18px; }
-  .sub { color: #777; font-size: 14px; margin: 0 0 20px; }
+/* ===== Skydive Memory — Music library (B3)
+   1:1 port of screens/admin.jsx → Music. YT Studio–style row list with a
+   persistent player bar at the bottom. Upload form is hidden by default
+   and toggled from the topbar "Upload track" CTA. */
 
-  .upload-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px;
-    margin-top: 8px;
-  }
-  .upload-grid label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #555; }
-  .upload-grid input[type="text"], .upload-grid input[type="number"] {
-    width: 100%; box-sizing: border-box; padding: 8px 10px;
-    border-radius: 8px; border: 1px solid #ddd; font: inherit;
-  }
-  .upload-grid input:focus { outline: 2px solid #4f46e5; border-color: transparent; }
-  .upload-grid .full { grid-column: 1 / -1; }
-  .file-zone {
-    border: 2px dashed #ddd; border-radius: 10px;
-    padding: 18px; text-align: center; color: #999; font-size: 13px;
-    background: #fafafa;
-    transition: border-color 120ms;
-  }
-  .file-zone.has-file { border-style: solid; border-color: #c5b9ff; background: white; color: #0a0a14; }
-  .file-zone input[type="file"] { display: none; }
+/* Topbar search input */
+.search-wrap { position: relative; }
+.search-wrap svg.ico {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+}
+.search-wrap .sm-input { padding-left: 36px; height: 38px; width: 280px; font-size: 13px; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-  th { color: #777; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-  td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
-  tr.inactive { color: #999; }
-  audio { width: 220px; height: 36px; }
+/* Filter chips row */
+.mood-chips {
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.mood-chips .sm-pill {
+  height: 26px; padding: 0 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 80ms;
+}
+.mood-chips .sm-pill:hover { background: var(--sm-surface-3); color: var(--sm-text); }
+.mood-chips .sort-tag {
+  margin-left: auto;
+  font-family: var(--sm-mono, monospace);
+  font-size: 11px;
+  color: var(--sm-text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eee; color: #555; margin-right: 4px; }
-  .pill.mood     { background: #e0d4ff; color: #4338ca; }
-  .pill.intent   { background: #b5e4ca; color: #14532d; }
-  .pill.inactive { background: #ffd1d6; color: #7f1d1d; }
+/* Header row above tracks */
+.tracks-head {
+  display: grid;
+  grid-template-columns: 32px 56px minmax(0, 1.6fr) minmax(0, 1.1fr) 140px 60px minmax(0, 1.2fr) 32px;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--sm-border);
+  font-size: 11px;
+  font-family: var(--sm-mono, monospace);
+  color: var(--sm-text-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.tracks-head .col-num { text-align: center; }
+.tracks-head .col-len { text-align: right; }
 
-  .btn {
-    display: inline-block; padding: 9px 16px; border-radius: 8px;
-    background: #4f46e5; color: white; text-decoration: none;
-    font-weight: 600; font-size: 13px; border: none; cursor: pointer;
-  }
-  .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
-  .btn.secondary { background: white; color: #0a0a14; border: 1px solid #ddd; }
-  .btn.danger    { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+/* Track row */
+.tracks-list { display: flex; flex-direction: column; gap: 2px; }
+.track-row {
+  display: grid;
+  grid-template-columns: 32px 56px minmax(0, 1.6fr) minmax(0, 1.1fr) 140px 60px minmax(0, 1.2fr) 32px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 80ms;
+}
+.track-row:hover { background: var(--sm-surface-2); }
+.track-row.is-playing { background: var(--sm-surface-2); }
+.track-row.is-inactive { opacity: 0.55; }
 
-  .err { background: #fee2e2; color: #991b1b; padding: 10px 12px; border-radius: 10px; margin-top: 16px; font-size: 13px; display: none; }
-  .err.show { display: block; }
-  .ok  { background: #dcfce7; color: #14532d; padding: 10px 12px; border-radius: 10px; margin-top: 16px; font-size: 13px; display: none; }
-  .ok.show  { display: block; }
+.track-num {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  font-family: var(--sm-mono, monospace);
+  font-size: 12px;
+  color: var(--sm-text-muted);
+  position: relative;
+}
+.track-num .num-text { transition: opacity 80ms; }
+.track-num .num-play { position: absolute; opacity: 0; transition: opacity 80ms; }
+.track-row:hover .track-num .num-text { opacity: 0; }
+.track-row:hover .track-num .num-play { opacity: 1; }
+.track-row.is-playing .track-num {
+  background: var(--sm-accent);
+  color: white;
+}
+.track-row.is-playing .track-num .num-text { opacity: 0; }
+.track-row.is-playing .track-num .num-play { opacity: 1; }
 
-  .empty { color: #888; text-align: center; padding: 40px 0; }
+.track-thumb {
+  width: 56px; height: 32px;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #FF7A59 0%, #C44A6E 100%); /* default = epic */
+}
+.track-thumb::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(80% 60% at 30% 20%, rgba(255,255,255,.22), transparent 60%);
+}
+.track-thumb.mood-chill  { background: linear-gradient(135deg, #4F8EFF 0%, #8E5BFF 100%); }
+.track-thumb.mood-fun    { background: linear-gradient(135deg, #FF6BBA 0%, #FFD166 100%); }
+.track-thumb.mood-outro  { background: linear-gradient(135deg, #2E5BD0 0%, #1B2845 100%); }
+.track-thumb.mood-sunset { background: linear-gradient(135deg, #FFB169 0%, #C44A6E 100%); }
+
+.track-meta { min-width: 0; }
+.track-title {
+  font-size: 13px; font-weight: 500;
+  color: var(--sm-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.track-row.is-playing .track-title { color: var(--sm-accent); }
+.track-artist {
+  font-size: 12px;
+  color: var(--sm-text-muted);
+  margin-top: 2px;
+}
+
+.track-mood-cell {
+  font-size: 11px;
+  font-family: var(--sm-mono, monospace);
+  color: var(--sm-text-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.track-wave svg { display: block; }
+
+.track-len {
+  font-family: var(--sm-mono, monospace);
+  font-size: 12px;
+  color: var(--sm-text-muted);
+  text-align: right;
+}
+
+.track-tags {
+  display: flex; gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.track-tags .sm-pill { height: 20px; padding: 0 10px; font-size: 10px; }
+
+.track-overflow {
+  display: flex; justify-content: center;
+  color: var(--sm-text-muted);
+  position: relative;
+}
+.track-overflow .menu-btn {
+  background: transparent; border: none;
+  color: var(--sm-text-muted);
+  cursor: pointer;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+.track-overflow .menu-btn:hover { background: var(--sm-surface-3); color: var(--sm-text); }
+.track-overflow .menu {
+  display: none;
+  position: absolute; top: 32px; right: 0; z-index: 5;
+  background: var(--sm-surface-2);
+  border: 1px solid var(--sm-border);
+  border-radius: 8px;
+  min-width: 160px;
+  box-shadow: var(--sm-shadow-elev);
+  overflow: hidden;
+}
+.track-overflow .menu.is-open { display: block; }
+.track-overflow .menu button {
+  display: block; width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: var(--sm-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.track-overflow .menu button:hover { background: var(--sm-surface-3); }
+.track-overflow .menu button.is-danger { color: var(--sm-danger); }
+
+/* Persistent player bar */
+.player-bar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 16px;
+  background: var(--sm-surface-2);
+  border-radius: 12px;
+  border: 1px solid var(--sm-border);
+}
+.player-thumb {
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #FF7A59 0%, #C44A6E 100%);
+}
+.player-thumb::after {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(80% 60% at 30% 20%, rgba(255,255,255,.22), transparent 60%);
+}
+.player-thumb.mood-chill  { background: linear-gradient(135deg, #4F8EFF 0%, #8E5BFF 100%); }
+.player-thumb.mood-fun    { background: linear-gradient(135deg, #FF6BBA 0%, #FFD166 100%); }
+.player-thumb.mood-outro  { background: linear-gradient(135deg, #2E5BD0 0%, #1B2845 100%); }
+.player-thumb.mood-sunset { background: linear-gradient(135deg, #FFB169 0%, #C44A6E 100%); }
+
+.player-controls { display: flex; align-items: center; gap: 10px; }
+.player-controls .play-btn {
+  width: 36px; height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--sm-accent);
+  border: none;
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.player-controls .play-btn:hover { background: var(--sm-accent-hi, #FF9F86); }
+
+.player-meta { min-width: 0; flex: 0 0 200px; }
+.player-meta .title {
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.player-meta .artist {
+  font-size: 11px;
+  color: var(--sm-text-muted);
+}
+
+.player-progress { flex: 1; display: flex; align-items: center; gap: 10px; }
+.player-progress .time {
+  font-family: var(--sm-mono, monospace);
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  flex-shrink: 0;
+  min-width: 32px;
+}
+.player-progress .bar {
+  flex: 1; height: 4px;
+  background: var(--sm-surface-3);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+.player-progress .fill {
+  height: 100%;
+  background: var(--sm-accent);
+  width: 0;
+}
+.player-progress .knob {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px; height: 12px;
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 0 0 2px var(--sm-accent);
+  pointer-events: none;
+  left: 0;
+}
+
+.player-empty {
+  text-align: center;
+  padding: 14px;
+  color: var(--sm-text-dim);
+  font-size: 12px;
+  font-family: var(--sm-mono, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Upload modal */
+.upload-modal {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 100;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.upload-modal.is-open { display: flex; }
+.upload-modal .panel {
+  width: 100%;
+  max-width: 560px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 16px;
+  padding: 24px;
+  max-height: 90vh;
+  overflow: auto;
+  position: relative;
+}
+.upload-modal .panel h2 { font-size: 18px; margin-bottom: 6px; }
+.upload-modal .panel p { color: var(--sm-text-muted); font-size: 13px; margin-bottom: 18px; }
+.upload-modal .close-btn {
+  position: absolute; top: 14px; right: 14px;
+  width: 32px; height: 32px;
+  background: transparent; border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--sm-text-muted);
+  display: flex; align-items: center; justify-content: center;
+}
+.upload-modal .close-btn:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; margin-top: 12px; }
+.upload-grid .sm-input { height: 38px; padding: 0 12px; font-size: 13px; }
+.upload-grid .full { grid-column: 1 / -1; }
+
+.file-zone {
+  border: 2px dashed var(--sm-border-strong);
+  border-radius: 12px;
+  padding: 22px;
+  text-align: center;
+  color: var(--sm-text-muted);
+  font-size: 13px;
+  background: var(--sm-surface-2);
+  transition: border-color 120ms, background 120ms;
+  cursor: pointer;
+  display: block;
+}
+.file-zone:hover { border-color: var(--sm-brand); }
+.file-zone.has-file { border-style: solid; border-color: var(--sm-brand); background: var(--sm-brand-soft); color: var(--sm-text); }
+.file-zone input[type="file"] { display: none; }
+
+.err  { background: rgba(255,107,122,.10); color: var(--sm-danger); border: 1px solid rgba(255,107,122,.28);
+        padding: 10px 14px; border-radius: 10px; margin-top: 14px; font-size: 12px; display: none; }
+.err.show { display: block; }
+.ok   { background: rgba(91,210,160,.10); color: var(--sm-success); border: 1px solid rgba(91,210,160,.28);
+        padding: 10px 14px; border-radius: 10px; margin-top: 14px; font-size: 12px; display: none; }
+.ok.show  { display: block; }
+
+.empty-state {
+  color: var(--sm-text-muted);
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 13px;
+}
 </style>
 </head>
 <body>
-<header>
-  <div class="mark">🪂</div>
-  <div>
-    <h1>Music library</h1>
-    <div class="meta">{{.OperatorEmail}} · global tracks visible to all clubs</div>
-  </div>
-  <div class="nav">
-    <a href="/">← Dashboard</a>
-    <a href="/admin/tokens">License tokens</a>
-    <form method="POST" action="/auth/logout" style="display:inline">
-      <button type="submit" class="btn secondary" style="font-size:13px;padding:6px 12px">Sign out</button>
-    </form>
-  </div>
-</header>
 
-<main>
-  <div class="card">
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:12px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Music library</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px" id="header-stats">Loading tracks…</div>
+      </div>
+      <div class="search-wrap">
+        <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sm-text-muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="sm-input" id="searchInput" placeholder="Search tracks…">
+      </div>
+      <button class="sm-btn" id="moodFilterBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Mood
+      </button>
+      <button class="sm-btn is-primary" id="openUploadBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload track
+      </button>
+    </header>
+
+    <div style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <!-- Track list -->
+      <div style="padding:20px 28px 12px;flex:1;overflow:auto" id="list-wrap">
+        <div class="mood-chips" id="moodChips">
+          <span class="sm-pill is-brand" data-mood="">All · …</span>
+          <span class="sort-tag">Sort · newest</span>
+        </div>
+
+        <div class="tracks-head">
+          <div class="col-num">#</div>
+          <div></div>
+          <div>Track</div>
+          <div>Mood</div>
+          <div>Preview</div>
+          <div class="col-len">Length</div>
+          <div>License · tags</div>
+          <div></div>
+        </div>
+
+        <div class="tracks-list" id="tracksList">
+          <div class="empty-state">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Persistent player bar -->
+      <div style="padding:12px 28px 20px;border-top:1px solid var(--sm-border)">
+        <div id="playerWrap"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Upload modal -->
+<div class="upload-modal" id="uploadModal">
+  <div class="panel">
+    <button class="close-btn" id="closeUploadBtn" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
     <h2>Upload a new track</h2>
-    <p class="sub">MP3 file (≤100 MB). License + mood tags help studio operators pick a fitting track. Tracks are <strong>global</strong> — every club sees them in their studio.</p>
+    <p>MP3 file (≤100 MB). License + mood tags help studio operators pick a fitting track. Tracks are <strong>global</strong> — every club sees them in their studio.</p>
 
-    <form id="f" novalidate>
-      <div class="file-zone" id="dropZone">
+    <form id="uploadForm" novalidate>
+      <label class="file-zone" id="dropZone">
         <input type="file" name="file" accept="audio/mpeg,audio/mp3,audio/*" id="fileIn">
         <span id="fileLabel">Click or drop an MP3 file here</span>
+      </label>
+
+      <div class="upload-grid">
+        <div class="full">
+          <label class="sm-label">Title *</label>
+          <input class="sm-input" type="text" name="title" required maxlength="200" placeholder="Energetic Sunset">
+        </div>
+        <div>
+          <label class="sm-label">Artist</label>
+          <input class="sm-input" type="text" name="artist" maxlength="100" placeholder="Andrey Lukin">
+        </div>
+        <div>
+          <label class="sm-label">Duration in seconds *</label>
+          <input class="sm-input" type="number" name="duration_seconds" min="1" max="3600" required placeholder="187">
+        </div>
+        <div>
+          <label class="sm-label">License *</label>
+          <input class="sm-input" type="text" name="license" required value="CC0" placeholder="CC0 / CC-BY / Custom">
+        </div>
+        <div>
+          <label class="sm-label">Mood (csv) <span style="color:var(--sm-text-dim);font-weight:400">e.g. epic, fun</span></label>
+          <input class="sm-input" type="text" name="mood" placeholder="epic, sunset">
+        </div>
+        <div class="full">
+          <label class="sm-label">Suggested for (csv) <span style="color:var(--sm-text-dim);font-weight:400">intro / main / outro</span></label>
+          <input class="sm-input" type="text" name="suggested_for" placeholder="main, outro">
+        </div>
       </div>
 
-      <div class="upload-grid" style="margin-top:14px">
-        <div class="full"><label>Title *</label>
-          <input type="text" name="title" required maxlength="200"
-                 placeholder="auto-filled from filename if empty">
-        </div>
-        <div><label>Artist</label>
-          <input type="text" name="artist" maxlength="100">
-        </div>
-        <div><label>Duration in seconds *</label>
-          <input type="number" name="duration_seconds" min="1" max="3600" required
-                 placeholder="e.g. 187">
-        </div>
-        <div><label>License *</label>
-          <input type="text" name="license" required value="CC0"
-                 placeholder="CC0 / CC-BY / YouTube Audio Library">
-        </div>
-        <div><label>Mood (csv) <span style="color:#999;font-weight:400">e.g. epic, fun</span></label>
-          <input type="text" name="mood" placeholder="epic, chill">
-        </div>
-        <div class="full"><label>Suggested for (csv) <span style="color:#999;font-weight:400">intro / main / outro</span></label>
-          <input type="text" name="suggested_for" placeholder="main">
-        </div>
-      </div>
-
-      <button type="submit" class="btn" style="margin-top:14px" id="uploadBtn">Upload track</button>
+      <button type="submit" class="sm-btn is-primary" style="margin-top:18px" id="uploadBtn">Upload track</button>
       <div id="err" class="err"></div>
-      <div id="ok"  class="ok"></div>
+      <div id="ok" class="ok"></div>
     </form>
   </div>
-
-  <div class="card">
-    <h2>Library</h2>
-    <p class="sub">Soft-delete keeps the row for audit (old jumps may reference it). Hard-delete also removes the S3 object — only do this for tracks no jump has ever picked.</p>
-    <div id="tableHost"><div class="empty">Loading…</div></div>
-  </div>
-</main>
+</div>
 
 <script>
-const fileIn    = document.getElementById('fileIn');
-const dropZone  = document.getElementById('dropZone');
-const fileLabel = document.getElementById('fileLabel');
-const form      = document.getElementById('f');
-const uploadBtn = document.getElementById('uploadBtn');
-const errEl     = document.getElementById('err');
-const okEl      = document.getElementById('ok');
-const tableHost = document.getElementById('tableHost');
+// ===== Constants =====
+const MOOD_CLASS = (mood) => {
+  if (!mood) return '';
+  const m = String(mood).toLowerCase();
+  if (m === 'chill')  return 'mood-chill';
+  if (m === 'fun')    return 'mood-fun';
+  if (m === 'outro')  return 'mood-outro';
+  if (m === 'sunset') return 'mood-sunset';
+  return '';
+};
+
+// ===== State =====
+let allTracks = [];
+let activeMood = '';
+let player = {
+  track: null,           // currently selected track object
+  audio: null,           // <audio> element
+  playing: false,
+  currentTime: 0,
+  duration: 0,
+};
+
+// ===== DOM refs =====
+const headerStats = document.getElementById('header-stats');
+const searchInput = document.getElementById('searchInput');
+const moodChips   = document.getElementById('moodChips');
+const tracksList  = document.getElementById('tracksList');
+const playerWrap  = document.getElementById('playerWrap');
+
+// Upload modal
+const uploadModal   = document.getElementById('uploadModal');
+const openUploadBtn = document.getElementById('openUploadBtn');
+const closeUploadBtn= document.getElementById('closeUploadBtn');
+const fileIn        = document.getElementById('fileIn');
+const dropZone      = document.getElementById('dropZone');
+const fileLabel     = document.getElementById('fileLabel');
+const uploadForm    = document.getElementById('uploadForm');
+const uploadBtn     = document.getElementById('uploadBtn');
+const errEl         = document.getElementById('err');
+const okEl          = document.getElementById('ok');
+
+// ===== Helpers =====
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+function durFmt(s) {
+  if (!s) return '0:00';
+  const sec = Math.round(s);
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
+// ===== Mini waveform — deterministic from title+artist seed =====
+function miniWaveSVG(seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const bars = 36, barW = 2, gap = 1;
+  const totalW = bars * (barW + gap);
+  const height = 22;
+  const items = [];
+  for (let i = 0; i < bars; i++) {
+    const r = Math.abs(Math.sin(h * 0.0001 + i * 0.45) + Math.sin(h * 0.0007 + i * 1.13) * 0.5);
+    const v = 0.25 + (r % 1) * 0.75;
+    const bh = Math.max(2, Math.round(v * height));
+    items.push({ x: i * (barW + gap), bh });
+  }
+  return '<svg width="110" height="22" viewBox="0 0 ' + totalW + ' ' + height + '">' +
+    items.map(b =>
+      '<rect x="' + b.x + '" y="' + ((height - b.bh) / 2) + '" ' +
+      'width="' + barW + '" height="' + b.bh + '" rx="1" ' +
+      'fill="var(--sm-text-dim)" opacity="0.55"/>'
+    ).join('') +
+    '</svg>';
+}
+
+// ===== Mood chips: derive from data, render as filter pills =====
+function renderMoodChips() {
+  const counts = new Map();
+  allTracks.forEach(t => (t.mood || []).forEach(m => {
+    const lc = m.toLowerCase();
+    counts.set(lc, (counts.get(lc) || 0) + 1);
+  }));
+  const moods = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const parts = ['<span class="sm-pill ' + (activeMood === '' ? 'is-brand' : '') +
+                 '" data-mood="">All · ' + allTracks.length + '</span>'];
+  for (const [m, n] of moods) {
+    const sel = activeMood === m ? 'is-brand' : '';
+    parts.push('<span class="sm-pill ' + sel + '" data-mood="' + escapeHtml(m) + '">' +
+               escapeHtml(m[0].toUpperCase() + m.slice(1)) + ' · ' + n + '</span>');
+  }
+  parts.push('<span class="sort-tag">Sort · newest</span>');
+  moodChips.innerHTML = parts.join('');
+
+  for (const chip of moodChips.querySelectorAll('[data-mood]')) {
+    chip.addEventListener('click', () => {
+      activeMood = chip.dataset.mood;
+      renderMoodChips();
+      renderTracks();
+    });
+  }
+}
+
+// ===== Track rows =====
+function renderTracks() {
+  const q = (searchInput.value || '').toLowerCase().trim();
+  const filtered = allTracks.filter(t => {
+    if (activeMood && !(t.mood || []).some(m => m.toLowerCase() === activeMood)) return false;
+    if (!q) return true;
+    return (t.title || '').toLowerCase().includes(q) ||
+           (t.artist || '').toLowerCase().includes(q) ||
+           (t.mood || []).some(m => m.toLowerCase().includes(q));
+  });
+
+  const totalSec = allTracks.reduce((s, t) => s + (t.duration_seconds || 0), 0);
+  const moodCount = new Set();
+  allTracks.forEach(t => (t.mood || []).forEach(m => moodCount.add(m.toLowerCase())));
+  headerStats.textContent =
+    allTracks.length + ' track' + (allTracks.length === 1 ? '' : 's') +
+    ' · ' + moodCount.size + ' mood' + (moodCount.size === 1 ? '' : 's') +
+    ' · ' + Math.floor(totalSec / 60) + ' min';
+
+  if (filtered.length === 0) {
+    tracksList.innerHTML = '<div class="empty-state">' +
+      (q || activeMood ? 'No tracks match your filter.' : 'No tracks yet. Click "Upload track" to add one.') +
+      '</div>';
+    return;
+  }
+
+  tracksList.innerHTML = filtered.map((t, i) => {
+    const inactive = !t.is_active;
+    const moods = (t.mood || []).slice(0, 2);
+    const display = (t.mood || [])[0] || (inactive ? 'inactive' : 'epic');
+    const moodCls = MOOD_CLASS(display);
+    const playing = player.track && player.track.id === t.id && player.playing;
+    const seed = (t.title || '') + '·' + (t.artist || '');
+    return `
+      <div class="track-row ${playing ? 'is-playing' : ''} ${inactive ? 'is-inactive' : ''}"
+           data-id="${t.id}" data-mood="${escapeHtml(display)}">
+        <div class="track-num">
+          <span class="num-text">${String(i + 1).padStart(2, '0')}</span>
+          <svg class="num-play" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            ${playing
+              ? '<rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/>'
+              : '<path d="M8 5v14l11-7z"/>'}
+          </svg>
+        </div>
+        <div class="track-thumb ${moodCls}"></div>
+        <div class="track-meta">
+          <div class="track-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
+          <div class="track-artist">${escapeHtml(t.artist || '—')}</div>
+        </div>
+        <div class="track-mood-cell">${escapeHtml(display)}</div>
+        <div class="track-wave">${miniWaveSVG(seed)}</div>
+        <div class="track-len">${durFmt(t.duration_seconds)}</div>
+        <div class="track-tags">
+          <span class="sm-pill is-brand">${escapeHtml(t.license)}</span>
+          ${moods.map(m => '<span class="sm-pill">' + escapeHtml(m) + '</span>').join('')}
+          ${inactive ? '<span class="sm-pill is-danger">inactive</span>' : ''}
+        </div>
+        <div class="track-overflow">
+          <button class="menu-btn" type="button" aria-label="More" data-overflow="${t.id}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+          </button>
+          <div class="menu" data-menu="${t.id}">
+            ${inactive
+              ? '<button type="button" class="is-danger" data-hard="' + t.id + '">Permanently delete</button>'
+              : '<button type="button" class="is-danger" data-soft="' + t.id + '">Hide track</button>'}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Wire row click → load+play
+  for (const row of tracksList.querySelectorAll('.track-row')) {
+    row.addEventListener('click', (e) => {
+      // Ignore clicks on the overflow menu
+      if (e.target.closest('.track-overflow')) return;
+      const id = parseInt(row.dataset.id, 10);
+      const t = allTracks.find(x => x.id === id);
+      if (!t) return;
+      // Toggle: clicking the currently playing row pauses
+      if (player.track && player.track.id === id && player.playing) {
+        playerPause();
+      } else {
+        playerPlay(t);
+      }
+    });
+  }
+  // Overflow menus
+  for (const btn of tracksList.querySelectorAll('[data-overflow]')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.overflow;
+      // Close any other open menus
+      tracksList.querySelectorAll('.menu.is-open').forEach(m => {
+        if (m.dataset.menu !== id) m.classList.remove('is-open');
+      });
+      const m = tracksList.querySelector('[data-menu="' + id + '"]');
+      if (m) m.classList.toggle('is-open');
+    });
+  }
+  for (const b of tracksList.querySelectorAll('button[data-soft]'))
+    b.addEventListener('click', (e) => { e.stopPropagation(); del(b.dataset.soft, false); });
+  for (const b of tracksList.querySelectorAll('button[data-hard]'))
+    b.addEventListener('click', (e) => { e.stopPropagation(); del(b.dataset.hard, true); });
+}
+// Click anywhere closes any open overflow menu
+document.addEventListener('click', () => {
+  tracksList.querySelectorAll('.menu.is-open').forEach(m => m.classList.remove('is-open'));
+});
+
+// ===== Player bar =====
+function renderPlayer() {
+  if (!player.track) {
+    playerWrap.innerHTML = '<div class="player-empty">No track selected · click a row to preview</div>';
+    return;
+  }
+  const t = player.track;
+  const display = (t.mood || [])[0] || 'epic';
+  const moodCls = MOOD_CLASS(display);
+  const dur = durFmt(player.duration || t.duration_seconds);
+  const cur = durFmt(player.currentTime);
+  const pct = (player.duration > 0) ? (player.currentTime / player.duration) * 100 : 0;
+  playerWrap.innerHTML = `
+    <div class="player-bar">
+      <div class="player-thumb ${moodCls}"></div>
+      <div class="player-controls">
+        <button class="play-btn" type="button" id="playerToggle" aria-label="${player.playing ? 'Pause' : 'Play'}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            ${player.playing
+              ? '<rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/>'
+              : '<path d="M8 5v14l11-7z"/>'}
+          </svg>
+        </button>
+      </div>
+      <div class="player-meta">
+        <div class="title">${escapeHtml(t.title)}</div>
+        <div class="artist">${escapeHtml(t.artist || '—')}</div>
+      </div>
+      <div class="player-progress">
+        <span class="time">${cur}</span>
+        <div class="bar" id="playerBar">
+          <div class="fill" style="width:${pct.toFixed(2)}%"></div>
+          <div class="knob" style="left:${pct.toFixed(2)}%"></div>
+        </div>
+        <span class="time">${dur}</span>
+      </div>
+    </div>`;
+  document.getElementById('playerToggle').addEventListener('click', () => {
+    if (player.playing) playerPause(); else playerResume();
+  });
+  document.getElementById('playerBar').addEventListener('click', (e) => {
+    if (!player.audio || !player.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    player.audio.currentTime = frac * player.duration;
+  });
+}
+
+function playerPlay(track) {
+  // New track — tear down any existing audio.
+  if (player.audio) {
+    try { player.audio.pause(); } catch (_) {}
+    player.audio.src = '';
+  }
+  player.track = track;
+  player.audio = new Audio(track.preview_url || '');
+  player.playing = false;
+  player.currentTime = 0;
+  player.duration = track.duration_seconds || 0;
+
+  player.audio.addEventListener('loadedmetadata', () => {
+    if (isFinite(player.audio.duration) && player.audio.duration > 0) {
+      player.duration = player.audio.duration;
+    }
+    renderPlayer();
+  });
+  player.audio.addEventListener('timeupdate', () => {
+    player.currentTime = player.audio.currentTime;
+    renderPlayer();
+  });
+  player.audio.addEventListener('ended', () => {
+    player.playing = false;
+    player.currentTime = 0;
+    renderTracks();
+    renderPlayer();
+  });
+
+  player.audio.play().then(() => {
+    player.playing = true;
+    renderTracks();
+    renderPlayer();
+  }).catch(err => {
+    console.warn('audio play failed:', err);
+  });
+}
+function playerPause() {
+  if (player.audio) player.audio.pause();
+  player.playing = false;
+  renderTracks();
+  renderPlayer();
+}
+function playerResume() {
+  if (!player.audio) return;
+  player.audio.play().then(() => {
+    player.playing = true;
+    renderTracks();
+    renderPlayer();
+  });
+}
+
+// ===== Upload modal =====
+openUploadBtn.addEventListener('click', () => uploadModal.classList.add('is-open'));
+closeUploadBtn.addEventListener('click', () => uploadModal.classList.remove('is-open'));
+uploadModal.addEventListener('click', (e) => {
+  if (e.target === uploadModal) uploadModal.classList.remove('is-open');
+});
 
 dropZone.addEventListener('click', () => fileIn.click());
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('has-file'); });
@@ -168,7 +793,7 @@ fileIn.addEventListener('change', () => {
   }
 });
 
-form.addEventListener('submit', async (e) => {
+uploadForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   errEl.classList.remove('show'); okEl.classList.remove('show');
   if (!fileIn.files || !fileIn.files[0]) {
@@ -180,13 +805,13 @@ form.addEventListener('submit', async (e) => {
   const orig = uploadBtn.textContent;
   uploadBtn.textContent = 'Uploading…';
   try {
-    const fd = new FormData(form);
+    const fd = new FormData(uploadForm);
     const res = await fetch('/admin/music', { method: 'POST', body: fd, credentials: 'same-origin' });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
     okEl.textContent = 'Uploaded "' + body.title + '" (id #' + body.id + ').';
     okEl.classList.add('show');
-    form.reset();
+    uploadForm.reset();
     fileLabel.textContent = 'Click or drop an MP3 file here';
     dropZone.classList.remove('has-file');
     load();
@@ -199,8 +824,7 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-function durFmt(s) { if (!s) return ''; return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
-
+// ===== Load + delete =====
 async function load() {
   try {
     const res = await fetch('/admin/music?include_inactive=1', { credentials: 'same-origin' });
@@ -209,70 +833,38 @@ async function load() {
       throw new Error('HTTP ' + res.status);
     }
     const body = await res.json();
-    render(body.tracks || []);
+    allTracks = body.tracks || [];
+    renderMoodChips();
+    renderTracks();
+    renderPlayer();
   } catch (e) {
-    tableHost.innerHTML = '<div class="empty" style="color:#991b1b">Failed: ' + e.message + '</div>';
+    tracksList.innerHTML = '<div class="empty-state" style="color:var(--sm-danger)">Failed: ' +
+                            escapeHtml(e.message) + '</div>';
+    headerStats.textContent = '';
   }
-}
-
-function render(tracks) {
-  if (tracks.length === 0) {
-    tableHost.innerHTML = '<div class="empty">No tracks yet. Upload your first above.</div>';
-    return;
-  }
-  let h = '<table><thead><tr>'
-        + '<th>ID</th><th>Title</th><th>Artist</th><th>Length</th>'
-        + '<th>Tags</th><th>License</th><th>Preview</th><th>Status</th><th></th></tr></thead><tbody>';
-  for (const t of tracks) {
-    const inactive = !t.is_active;
-    const moodPills   = (t.mood || []).map(m => '<span class="pill mood">' + m + '</span>').join('');
-    const intentPills = (t.suggested_for || []).map(m => '<span class="pill intent">' + m + '</span>').join('');
-    h += '<tr class="' + (inactive ? 'inactive' : '') + '">'
-       + '<td class="mono">#' + t.id + '</td>'
-       + '<td><strong>' + escapeHtml(t.title) + '</strong></td>'
-       + '<td>' + escapeHtml(t.artist || '') + '</td>'
-       + '<td class="mono">' + durFmt(t.duration_seconds) + '</td>'
-       + '<td>' + moodPills + intentPills + '</td>'
-       + '<td>' + escapeHtml(t.license) + '</td>'
-       + '<td>' + (t.preview_url
-           ? '<audio controls preload="none" src="' + t.preview_url + '"></audio>'
-           : '<span class="pill">no preview</span>') + '</td>'
-       + '<td>' + (inactive
-           ? '<span class="pill inactive">inactive</span>'
-           : '<span class="pill" style="background:#b5e4ca;color:#14532d">active</span>') + '</td>'
-       + '<td>' + (inactive
-           ? '<button class="btn danger" data-hard="' + t.id + '">Hard-delete</button>'
-           : '<button class="btn danger" data-soft="' + t.id + '">Deactivate</button>') + '</td>'
-       + '</tr>';
-  }
-  h += '</tbody></table>';
-  tableHost.innerHTML = h;
-  for (const btn of tableHost.querySelectorAll('button[data-soft]'))
-    btn.addEventListener('click', () => del(btn.dataset.soft, false));
-  for (const btn of tableHost.querySelectorAll('button[data-hard]'))
-    btn.addEventListener('click', () => del(btn.dataset.hard, true));
 }
 
 async function del(id, hard) {
-  const verb = hard ? 'hard-delete' : 'deactivate';
+  const verb = hard ? 'permanently delete' : 'hide';
   if (!confirm('Are you sure you want to ' + verb + ' track #' + id + '?')) return;
   try {
     const res = await fetch('/admin/music/' + id + (hard ? '?hard=1' : ''),
                             { method: 'DELETE', credentials: 'same-origin' });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    // If the deleted track was the player's current track, stop it.
+    if (player.track && player.track.id === parseInt(id, 10)) {
+      playerPause();
+      player.track = null;
+      player.audio = null;
+    }
     load();
   } catch (e) {
-    errEl.textContent = verb + ' failed: ' + e.message;
-    errEl.classList.add('show');
+    alert(verb + ' failed: ' + e.message);
   }
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
-}
+searchInput.addEventListener('input', renderTracks);
 
 load();
 </script>

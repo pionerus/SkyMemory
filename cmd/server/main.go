@@ -17,11 +17,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/pionerus/freefall/internal/auth"
+	"github.com/pionerus/freefall/internal/branding"
+	"github.com/pionerus/freefall/internal/clients"
 	"github.com/pionerus/freefall/internal/config"
 	"github.com/pionerus/freefall/internal/db"
 	"github.com/pionerus/freefall/internal/jump"
 	"github.com/pionerus/freefall/internal/music"
+	"github.com/pionerus/freefall/internal/platform"
 	"github.com/pionerus/freefall/internal/storage"
+	"github.com/pionerus/freefall/internal/watch"
 	"github.com/pionerus/freefall/web/server/templates"
 )
 
@@ -35,6 +39,12 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := runMigrate(cfg.DatabaseURL, os.Args[2:]); err != nil {
 			log.Fatalf("migrate: %v", err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "platform-admin" {
+		if err := runPlatformAdmin(cfg.DatabaseURL, os.Args[2:]); err != nil {
+			log.Fatalf("platform-admin: %v", err)
 		}
 		return
 	}
@@ -67,11 +77,58 @@ func main() {
 	bucketCancel()
 	musicH := &music.Handlers{DB: pool, Storage: musicStorage}
 
+	// Branding storage — same MinIO/S3 endpoint, separate bucket. Holds
+	// per-tenant watermark PNG + optional intro/outro clips.
+	brandStorage, err := storage.NewBrandingClient(cfg)
+	if err != nil {
+		log.Fatalf("branding storage: %v", err)
+	}
+	brandBucketCtx, brandBucketCancel := context.WithTimeout(ctx, 8*time.Second)
+	if berr := brandStorage.EnsureBucket(brandBucketCtx); berr != nil {
+		log.Printf("WARN: branding bucket %q not ready (%v) — admin uploads will fail until it's reachable", cfg.BrandingBucket, berr)
+	} else {
+		log.Printf("branding bucket: %s @ %s", cfg.BrandingBucket, cfg.MusicEndpoint)
+	}
+	brandBucketCancel()
+	brandH := &branding.Handlers{DB: pool, Storage: brandStorage}
+
+	// Deliverables storage — final rendered videos uploaded by studio.exe
+	// after each render (Phase 7.1). Same MinIO endpoint, separate bucket.
+	deliverStorage, err := storage.NewDeliverablesClient(cfg)
+	if err != nil {
+		log.Fatalf("deliverables storage: %v", err)
+	}
+	delivBucketCtx, delivBucketCancel := context.WithTimeout(ctx, 8*time.Second)
+	if berr := deliverStorage.EnsureBucket(delivBucketCtx); berr != nil {
+		log.Printf("WARN: deliverables bucket %q not ready (%v) — studio uploads will fail until it's reachable", cfg.DeliverablesBucket, berr)
+	} else {
+		log.Printf("deliverables bucket: %s @ %s", cfg.DeliverablesBucket, cfg.MusicEndpoint)
+	}
+	delivBucketCancel()
+	artifactsH := &jump.ArtifactsHandlers{DB: pool, Storage: deliverStorage}
+	watchH := &watch.Handlers{
+		DB:             pool,
+		DeliverStorage: deliverStorage,
+		Templates:      templates.Templates,
+	}
+	platformH := &platform.Handlers{
+		DB:        pool,
+		Templates: templates.Templates,
+		BaseURL:   cfg.PublicBaseURL,
+	}
+	clientsH := &clients.Handlers{
+		DB:        pool,
+		Templates: templates.Templates,
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+
+	// Skydive Memory design assets — CSS + brand mark — embedded into the binary.
+	r.Handle("/static/*", http.StripPrefix("/static/", templates.StaticHandler()))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{
@@ -90,41 +147,81 @@ func main() {
 		_ = json.NewEncoder(w).Encode(out)
 	})
 
-	// Root: dashboard placeholder for authenticated users, redirect to /login otherwise.
+	// Root: Skydive Memory dashboard for authenticated owners; redirect to /login
+	// for anon, /operator/ for non-owner operators. Manual checks rather than
+	// RequireSession middleware so unauthenticated hits get a friendly redirect
+	// instead of a 401 JSON.
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
 		s := sessions.Read(req)
+		if s.IsPlatformAdmin() {
+			http.Redirect(w, req, "/platform/", http.StatusFound)
+			return
+		}
 		if !s.IsAuthenticated() {
 			http.Redirect(w, req, "/login", http.StatusFound)
 			return
 		}
+		if !s.IsOwner() {
+			http.Redirect(w, req, "/operator/", http.StatusFound)
+			return
+		}
+		data := adminPageData(req.Context(), pool, s, "dash", nil)
+		// Stat placeholders — Phase D (dashboard polish) will compute these from
+		// jumps / watch_events / photo_orders / monthly_invoices.
+		data["Stats"] = map[string]any{
+			"JumpsRendered": 0, "JumpsTrend": "0%",
+			"WatchClicks": 0, "WatchTrend": "0%",
+			"PhotosSold": 0, "PhotosTrend": "0%",
+			"MRR": "€0", "MRRTrend": "0%",
+		}
+		data["RecentJumps"] = []map[string]any{}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Freefall</title>
-<style>body{font-family:system-ui;max-width:720px;margin:4rem auto;padding:0 1rem;color:#0a0a14}
-a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;padding:20px;margin:16px 0}
-.btn{display:inline-block;padding:8px 14px;border-radius:8px;background:#4f46e5;color:white;text-decoration:none;font-weight:600;font-size:14px}
-.btn.secondary{background:white;color:#0a0a14;border:1px solid #ddd}</style></head>
-<body>
-<h1>🪂 Welcome, %s</h1>
-<p>Tenant ID: <code>%d</code> · role: <code>%s</code></p>
+		if err := templates.Templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 
-<div class="card">
-  <h3 style="margin-top:0">Studio installs</h3>
-  <p>Issue and revoke license tokens that operators paste into their studio.exe.</p>
-  <p><a href="/admin/tokens" class="btn">Manage license tokens →</a></p>
-</div>
+	// Branding (Phase 6) — watermark PNG + size/opacity sliders + intro/outro
+	// clips. Settings persist on tenants table; binary assets land in MinIO.
+	r.With(sessions.RequireOwner).Get("/admin/branding", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		data := adminPageData(req.Context(), pool, s, "brand", nil)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := templates.Templates.ExecuteTemplate(w, "admin_branding.html", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	r.With(sessions.RequireOwner).Get("/admin/branding/json", brandH.Get)
+	r.With(sessions.RequireOwner).Put("/admin/branding/json", brandH.UpdateSettings)
+	r.With(sessions.RequireOwner).Post("/admin/branding/watermark", brandH.UploadWatermark)
+	r.With(sessions.RequireOwner).Delete("/admin/branding/watermark", brandH.DeleteWatermark)
+	r.With(sessions.RequireOwner).Post("/admin/branding/intro", brandH.UploadIntro)
+	r.With(sessions.RequireOwner).Delete("/admin/branding/intro", brandH.DeleteIntro)
+	r.With(sessions.RequireOwner).Post("/admin/branding/outro", brandH.UploadOutro)
+	r.With(sessions.RequireOwner).Delete("/admin/branding/outro", brandH.DeleteOutro)
+	r.With(sessions.RequireOwner).Get("/admin/clients", clientsH.List)
+	r.With(sessions.RequireOwner).Post("/admin/clients", clientsH.Create)
 
-<div class="card">
-  <h3 style="margin-top:0">Music library</h3>
-  <p>Upload royalty-free MP3 tracks. Studio operators pick from this catalog when finalising a project.</p>
-  <p><a href="/admin/music-library" class="btn">Manage music library →</a></p>
-</div>
-
-<p style="margin-top:2rem;color:#888;font-size:13px">
-  Diagnostics: <a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a>
-</p>
-
-<form method="POST" action="/auth/logout"><button type="submit" class="btn secondary">Sign out</button></form>
-</body></html>`, s.OperatorEmail, s.TenantID, s.OperatorRole)
+	r.With(sessions.RequireOwner).Get("/admin/billing", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		data := adminPageData(req.Context(), pool, s, "billing", map[string]any{
+			"UsageCount": 0, "UsageCap": 100, "UsagePct": 0,
+		})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := templates.Templates.ExecuteTemplate(w, "admin_billing.html", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	r.With(sessions.RequireSession).Get("/admin/settings", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		data := adminPageData(req.Context(), pool, s, "settings", map[string]any{
+			"OperatorRole": s.OperatorRole,
+			"TenantSlug":   data_tenantSlug(req.Context(), pool, s.TenantID),
+		})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := templates.Templates.ExecuteTemplate(w, "admin_settings.html", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	// Public auth pages (HTML)
@@ -137,6 +234,37 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	r.Post("/auth/logout", authH.Logout)
 	r.With(sessions.RequireSession).Get("/auth/me", authH.Me)
 
+	// === Platform admin portal (cross-tenant ops, pricing, billing) ===
+	r.Get("/platform/login", renderTemplate("platform_login.html"))
+	r.Post("/platform/login", authH.PlatformLogin)
+	r.Post("/platform/logout", authH.PlatformLogout)
+
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs", platformH.ClubsList)
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs/{id}", platformH.ClubDetail)
+	r.With(sessions.RequirePlatformAdmin).Post("/platform/clubs", platformH.CreateClub)
+
+	r.With(sessions.RequirePlatformAdmin).Get("/platform/", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		// Stats placeholders — Phase 10 wires real queries.
+		stats := platformStats(req.Context(), pool)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.Templates.ExecuteTemplate(w, "platform_dashboard.html", map[string]any{
+			"AdminName": s.PlatformAdminName,
+			"Stats":     stats,
+		})
+	})
+
+	// === Operator portal (web dashboard for camera operators, in addition to studio.exe) ===
+	r.With(sessions.RequireSession).Get("/operator/", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.Templates.ExecuteTemplate(w, "operator_dashboard.html", map[string]any{
+			"OperatorEmail": s.OperatorEmail,
+			"OperatorRole":  s.OperatorRole,
+			"TenantName":    data_tenantName(req.Context(), pool, s.TenantID),
+		})
+	})
+
 	// Admin: license token CRUD (owner-only). Tokens get installed in studio.exe.
 	r.With(sessions.RequireOwner).Post("/admin/license-tokens", authH.CreateToken)
 	r.With(sessions.RequireOwner).Get("/admin/license-tokens", authH.ListTokens)
@@ -148,32 +276,23 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	r.With(sessions.RequireOwner).Delete("/admin/music/{id}", musicH.Delete)
 
 	// Admin HTML — music library page
-	r.With(sessions.RequireOwner).Get("/admin/music-library", func(w http.ResponseWriter, r *http.Request) {
-		s := auth.MustFromContext(r.Context())
+	r.With(sessions.RequireOwner).Get("/admin/music-library", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		data := adminPageData(req.Context(), pool, s, "music", nil)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := templates.Templates.ExecuteTemplate(w, "admin_music.html", map[string]any{
-			"OperatorEmail": s.OperatorEmail,
-		}); err != nil {
+		if err := templates.Templates.ExecuteTemplate(w, "admin_music.html", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 
 	// Admin HTML — owner-rendered page that drives the JSON CRUD above.
-	r.With(sessions.RequireOwner).Get("/admin/tokens", func(w http.ResponseWriter, r *http.Request) {
-		s := auth.MustFromContext(r.Context())
-
-		// Pull tenant slug for the page header. Failure is non-fatal — UI just shows id.
-		var tenantSlug string
-		_ = pool.QueryRow(r.Context(),
-			`SELECT slug FROM tenants WHERE id = $1`, s.TenantID,
-		).Scan(&tenantSlug)
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		err := templates.Templates.ExecuteTemplate(w, "admin_tokens.html", map[string]any{
-			"OperatorEmail": s.OperatorEmail,
-			"TenantSlug":    tenantSlug,
+	r.With(sessions.RequireOwner).Get("/admin/tokens", func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		data := adminPageData(req.Context(), pool, s, "ops", map[string]any{
+			"TenantSlug": data_tenantSlug(req.Context(), pool, s.TenantID),
 		})
-		if err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := templates.Templates.ExecuteTemplate(w, "admin_tokens.html", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -188,6 +307,12 @@ a{color:#4f46e5}.card{background:white;border:1px solid #eee;border-radius:16px;
 	r.With(requireToken).Get("/api/v1/music", musicH.StudioCatalog)
 	r.With(requireToken).Post("/api/v1/music/suggest", musicH.StudioSuggest)
 	r.With(requireToken).Get("/api/v1/music/{id}/file", musicH.StudioDownload)
+	r.With(requireToken).Get("/api/v1/tenant/branding", brandH.GetForStudio)
+	r.With(requireToken).Post("/api/v1/jumps/{id}/artifacts/upload-url", artifactsH.RequestUploadURL)
+	r.With(requireToken).Post("/api/v1/jumps/{id}/artifacts", artifactsH.RegisterArtifact)
+
+	// Public client-facing watch page. No auth — access_code is the bearer.
+	r.Get("/watch/{access_code}", watchH.Render)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -220,6 +345,111 @@ func renderTemplate(name string) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
+}
+
+// adminPageData builds the data map every admin template expects via the
+// shared `admin-rail` partial: who's signed in, which tenant, which nav item
+// to highlight. Page-specific extras get merged on top.
+func adminPageData(ctx context.Context, pool *db.Pool, s auth.SessionData, active string, extra map[string]any) map[string]any {
+	var name string
+	var isFreeForever bool
+	_ = pool.QueryRow(ctx,
+		`SELECT name, is_free_forever FROM tenants WHERE id = $1`,
+		s.TenantID,
+	).Scan(&name, &isFreeForever)
+	if name == "" {
+		name = "Tenant"
+	}
+
+	data := map[string]any{
+		"Active":         active,
+		"OperatorEmail":  s.OperatorEmail,
+		"OperatorRole":   s.OperatorRole,
+		"TenantName":     name,
+		"TenantInitials": tenantInitials(name),
+		"PlanLabel":      planLabel(isFreeForever),
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	return data
+}
+
+// data_tenantSlug pulls just the slug. Failures degrade silently to "" so a
+// transient DB hiccup doesn't break the whole admin page render.
+func data_tenantSlug(ctx context.Context, pool *db.Pool, tenantID int64) string {
+	var slug string
+	_ = pool.QueryRow(ctx, `SELECT slug FROM tenants WHERE id = $1`, tenantID).Scan(&slug)
+	return slug
+}
+
+// data_tenantName looks up the human-readable tenant name for the operator
+// portal header. Falls back to "Tenant" if the row is missing.
+func data_tenantName(ctx context.Context, pool *db.Pool, tenantID int64) string {
+	var name string
+	_ = pool.QueryRow(ctx, `SELECT name FROM tenants WHERE id = $1`, tenantID).Scan(&name)
+	if name == "" {
+		return "Tenant"
+	}
+	return name
+}
+
+// platformStats computes the cross-tenant dashboard numbers. Phase 10 will
+// add charts + per-club drill-ins; today we just count what we have so the
+// stat cards show real values immediately.
+type platformStatsView struct {
+	Clubs          int
+	Operators      int
+	Jumps30d       int
+	JumpsTotal     int
+	WatchClicks30d int
+}
+
+func platformStats(ctx context.Context, pool *db.Pool) platformStatsView {
+	var s platformStatsView
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL`).Scan(&s.Clubs)
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM operators`).Scan(&s.Operators)
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM jumps`).Scan(&s.JumpsTotal)
+	_ = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM jumps WHERE created_at > now() - INTERVAL '30 days'`,
+	).Scan(&s.Jumps30d)
+	_ = pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM watch_events WHERE created_at > now() - INTERVAL '30 days'`,
+	).Scan(&s.WatchClicks30d)
+	return s
+}
+
+// tenantInitials picks up to 2 leading alphanumeric characters from a tenant
+// name for the avatar tile in the rail. "Aero Club Ural" -> "AC".
+func tenantInitials(name string) string {
+	out := []rune{}
+	prevWasSep := true
+	for _, r := range name {
+		if r == ' ' || r == '-' || r == '_' {
+			prevWasSep = true
+			continue
+		}
+		if prevWasSep && len(out) < 2 {
+			if r >= 'a' && r <= 'z' {
+				r = r - 'a' + 'A'
+			}
+			out = append(out, r)
+		}
+		prevWasSep = false
+	}
+	if len(out) == 0 {
+		return "?"
+	}
+	return string(out)
+}
+
+// planLabel returns the plan name shown in the rail's bottom block. Until we
+// have a richer plans table, the only signal is `tenants.is_free_forever`.
+func planLabel(isFreeForever bool) string {
+	if isFreeForever {
+		return "Free"
+	}
+	return "Pro"
 }
 
 // runMigrate handles `server.exe migrate <subcommand>` invocations.
@@ -274,5 +504,104 @@ func runMigrate(databaseURL string, args []string) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown subcommand %q (expected up|down|version|force)", args[0])
+	}
+}
+
+// runPlatformAdmin handles `server.exe platform-admin <subcommand>`.
+//
+//	add <email> <name>      create a platform admin (prompts for password)
+//	list                    list platform admins
+//	delete <email>          soft-delete a platform admin
+//
+// Platform admins are the YES/Skydive Memory employees who oversee all
+// tenants. Distinct from `operators` which are tenant-scoped.
+func runPlatformAdmin(databaseURL string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: server platform-admin <add|list|delete> [...]")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, databaseURL)
+	if err != nil {
+		return fmt.Errorf("db open: %w", err)
+	}
+	defer pool.Close()
+
+	switch args[0] {
+	case "add":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: server platform-admin add <email> <name>")
+		}
+		email, name := args[1], args[2]
+		fmt.Print("Password: ")
+		var pw string
+		_, _ = fmt.Scanln(&pw)
+		if pw == "" {
+			return fmt.Errorf("password cannot be empty")
+		}
+		hash, err := auth.HashPassword(pw)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		var id int64
+		err = pool.QueryRow(ctx,
+			`INSERT INTO platform_admins (email, password_hash, name)
+			 VALUES ($1, $2, $3) RETURNING id`,
+			email, hash, name,
+		).Scan(&id)
+		if err != nil {
+			return fmt.Errorf("insert: %w", err)
+		}
+		log.Printf("platform-admin add: created id=%d email=%s name=%s", id, email, name)
+		return nil
+
+	case "list":
+		rows, err := pool.Query(ctx, `
+			SELECT id, email, name, last_login_at, created_at, deleted_at
+			FROM platform_admins ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		fmt.Printf("%-4s %-32s %-20s %-12s\n", "ID", "EMAIL", "NAME", "STATUS")
+		for rows.Next() {
+			var (
+				id            int64
+				email, name   string
+				lastLogin     *time.Time
+				created       time.Time
+				deleted       *time.Time
+			)
+			if err := rows.Scan(&id, &email, &name, &lastLogin, &created, &deleted); err != nil {
+				return err
+			}
+			status := "active"
+			if deleted != nil {
+				status = "deleted"
+			}
+			fmt.Printf("%-4d %-32s %-20s %-12s\n", id, email, name, status)
+		}
+		return rows.Err()
+
+	case "delete":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: server platform-admin delete <email>")
+		}
+		email := args[1]
+		ct, err := pool.Exec(ctx,
+			`UPDATE platform_admins SET deleted_at = now() WHERE email = $1 AND deleted_at IS NULL`,
+			email,
+		)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() == 0 {
+			return fmt.Errorf("no active platform admin with email %q", email)
+		}
+		log.Printf("platform-admin delete: soft-deleted email=%s", email)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown subcommand %q (expected add|list|delete)", args[0])
 	}
 }

@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clients · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+/* ===== Skydive Memory — Clients (B6)
+   1:1 port of screens/admin2.jsx → Clients. CSV import + assign-to-operator
+   live behind buttons that hand off to Phase 11+ work ("coming soon"); the
+   layout for both is wired so adding logic later won't require chrome edits. */
+
+/* Topbar search */
+.search-wrap { position: relative; }
+.search-wrap .ico {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--sm-text-muted);
+}
+.search-wrap .sm-input { padding-left: 36px; height: 38px; width: 280px; font-size: 13px; }
+
+/* Filter chips row */
+.filter-chips {
+  display: flex; gap: 8px; align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.filter-chips .sm-pill {
+  height: 26px; padding: 0 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 80ms;
+}
+.filter-chips .sm-pill:hover { background: var(--sm-surface-3); color: var(--sm-text); }
+.filter-chips .sort-tag {
+  margin-left: auto;
+  font-family: var(--sm-mono, monospace);
+  font-size: 11px;
+  color: var(--sm-text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Header row */
+.client-head, .client-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1.4fr) 130px 110px 200px 120px 32px;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 14px;
+}
+.client-head {
+  border-bottom: 1px solid var(--sm-border);
+  font-size: 11px;
+  font-family: var(--sm-mono, monospace);
+  color: var(--sm-text-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Row */
+.client-row {
+  border-bottom: 1px solid var(--sm-border);
+  transition: background 80ms;
+  cursor: default;
+}
+.client-row:hover { background: var(--sm-surface-2); }
+.client-row .checkbox {
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid var(--sm-border-strong);
+}
+.client-row .name-cell {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+}
+.client-row .avatar {
+  width: 30px; height: 30px;
+  border-radius: 999px;
+  background: var(--sm-surface-3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+  color: var(--sm-text-muted);
+  flex-shrink: 0;
+}
+.client-row .name {
+  font-size: 13px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.client-row .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+.client-row .email,
+.client-row .phone,
+.client-row .date {
+  font-size: 13px;
+  color: var(--sm-text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.client-row .phone, .client-row .date { font-family: var(--sm-mono, monospace); font-size: 12px; }
+.client-row .date.has-date { color: var(--sm-text); }
+
+/* Operator chip */
+.op-chip {
+  width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 10px;
+  background: var(--sm-surface-2);
+  border: 1px solid var(--sm-border);
+  border-radius: 8px;
+  color: var(--sm-text);
+  font-size: 12px;
+  cursor: not-allowed;            /* dropdown is Phase 11+ */
+}
+.op-chip.is-unassigned {
+  color: var(--sm-text-dim);
+}
+.op-chip .ava {
+  width: 18px; height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #FFB169, #C44A6E);
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700;
+}
+.op-chip.is-unassigned .ava {
+  background: transparent;
+  border: 1.5px dashed var(--sm-text-dim);
+  color: var(--sm-text-dim);
+}
+.op-chip .chev {
+  margin-left: auto;
+  color: var(--sm-text-muted);
+}
+
+/* Row overflow */
+.row-more {
+  display: flex; justify-content: center;
+  color: var(--sm-text-muted);
+}
+
+/* Empty state */
+.empty {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--sm-text-muted);
+  font-size: 13px;
+}
+
+/* ===== Modal ===== */
+.modal-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(8,10,16,0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-backdrop.is-open { display: flex; }
+.modal-panel {
+  width: 100%;
+  max-width: 480px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border-strong);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.modal-head {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-head h2 { font-size: 18px; font-weight: 500; }
+.modal-head .close {
+  background: transparent; border: none;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  color: var(--sm-text-muted);
+  cursor: pointer;
+}
+.modal-head .close:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.modal-foot {
+  padding: 16px 24px;
+  border-top: 1px solid var(--sm-border);
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+
+.field-grid-equal { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.err-box, .ok-box { padding: 10px 14px; border-radius: 10px; font-size: 12px; display: none; }
+.err-box { background: rgba(255,107,122,.10); color: var(--sm-danger); border: 1px solid rgba(255,107,122,.28); }
+.ok-box { background: rgba(91,210,160,.10); color: var(--sm-success); border: 1px solid rgba(91,210,160,.28); }
+.err-box.show, .ok-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:12px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Clients</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">
+          {{.TotalClients}} jumper{{if ne .TotalClients 1}}s{{end}} ·
+          {{.UnassignedCount}} unassigned ·
+          {{.UpcomingCount}} in flight
+        </div>
+      </div>
+      <div class="search-wrap">
+        <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="sm-input" id="searchInput" placeholder="Search by name or email…">
+      </div>
+      <button class="sm-btn" type="button" disabled title="Filtering — coming soon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Filter
+      </button>
+      <button class="sm-btn" type="button" disabled title="CSV import — coming soon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import CSV
+      </button>
+      <button class="sm-btn is-primary" id="openAddClient">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add client
+      </button>
+    </header>
+
+    <div style="padding:20px 28px;overflow:auto;flex:1">
+      <!-- Filter chips -->
+      <div class="filter-chips">
+        <span class="sm-pill is-brand">All · {{.TotalClients}}</span>
+        {{if .UnassignedCount}}<span class="sm-pill is-danger">Unassigned · {{.UnassignedCount}}</span>{{end}}
+        {{if .UpcomingCount}}<span class="sm-pill is-warn">In flight · {{.UpcomingCount}}</span>{{end}}
+        <span class="sort-tag">Sort · latest jump ↓</span>
+      </div>
+
+      {{if .Clients}}
+      <!-- Header -->
+      <div class="client-head">
+        <div></div>
+        <div>Client</div>
+        <div>Email</div>
+        <div>Phone</div>
+        <div>Latest jump</div>
+        <div>Operator</div>
+        <div>Status</div>
+        <div></div>
+      </div>
+
+      <!-- Rows -->
+      <div id="clientsList">
+        {{range .Clients}}
+        <div class="client-row" data-name="{{.Name}}" data-email="{{.Email}}" data-phone="{{.Phone}}">
+          <div><div class="checkbox"></div></div>
+          <div class="name-cell">
+            <div class="avatar">{{.Initials}}</div>
+            <div style="min-width:0">
+              <div class="name" title="{{.Name}}">{{.Name}}</div>
+              <div class="sub mono" style="font-family:var(--sm-mono);font-size:10px;letter-spacing:.05em">{{.DashedAccessCode}}</div>
+            </div>
+          </div>
+          <div class="email">{{if .Email}}{{.Email}}{{else}}—{{end}}</div>
+          <div class="phone">{{if .Phone}}{{.Phone}}{{else}}—{{end}}</div>
+          {{if not .LatestJumpAt.IsZero}}
+            {{if eq .LatestJumpAt.Year 1}}
+            <div class="date">never</div>
+            {{else}}
+            <div class="date has-date">{{.LatestJumpAt.Format "Jan 2 · 15:04"}}</div>
+            {{end}}
+          {{else}}
+          <div class="date">never</div>
+          {{end}}
+          <div>
+            {{if .OperatorEmail}}
+            <div class="op-chip" title="{{.OperatorEmail}}">
+              <span class="ava">{{.OperatorInits}}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.OperatorEmail}}</span>
+              <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            {{else}}
+            <div class="op-chip is-unassigned" title="Unassigned">
+              <span class="ava">+</span>
+              <span style="flex:1;text-align:left">Assign…</span>
+              <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            {{end}}
+          </div>
+          <div>
+            {{if eq .LatestStatus "ready"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Ready</span>
+            {{else if eq .LatestStatus "sent"}}<span class="sm-pill is-success">Sent</span>
+            {{else if eq .LatestStatus "delivered"}}<span class="sm-pill is-success">Delivered</span>
+            {{else if eq .LatestStatus "encoding"}}<span class="sm-pill is-warn">Encoding</span>
+            {{else if eq .LatestStatus "uploading"}}<span class="sm-pill is-warn">Uploading</span>
+            {{else if eq .LatestStatus "editing"}}<span class="sm-pill is-warn">In edit</span>
+            {{else if eq .LatestStatus "draft"}}<span class="sm-pill">Draft</span>
+            {{else if eq .LatestStatus "failed"}}<span class="sm-pill is-danger">Failed</span>
+            {{else if .LatestStatus}}<span class="sm-pill">{{.LatestStatus}}</span>
+            {{else}}<span class="sm-pill is-danger">No jump</span>{{end}}
+          </div>
+          <div class="row-more">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty">
+        <div style="font-size:16px;margin-bottom:8px">No clients yet.</div>
+        <div>Click <strong>Add client</strong> to register the first jumper.</div>
+      </div>
+      {{end}}
+    </div>
+  </main>
+</div>
+
+<!-- Add client modal -->
+<div class="modal-backdrop" id="addClientModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Add a client</h2>
+      <button class="close" id="closeAddClient" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="addClientForm" novalidate>
+      <div class="modal-body">
+        <div>
+          <label class="sm-label">Full name *</label>
+          <input class="sm-input" name="name" required maxlength="200" placeholder="Anna Vorobyeva">
+        </div>
+        <div class="field-grid-equal">
+          <div>
+            <label class="sm-label">Email</label>
+            <input class="sm-input" name="email" type="email" placeholder="anna@…">
+          </div>
+          <div>
+            <label class="sm-label">Phone</label>
+            <input class="sm-input" name="phone" placeholder="+1 555 123 4567">
+          </div>
+        </div>
+        <div id="addClientErr" class="err-box"></div>
+        <div id="addClientOk" class="ok-box"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="sm-btn" id="cancelAddClient">Cancel</button>
+        <button type="submit" class="sm-btn is-primary" id="submitAddClient">Add client</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Search filter
+const searchInput = document.getElementById('searchInput');
+const list = document.getElementById('clientsList');
+if (searchInput && list) {
+  searchInput.addEventListener('input', () => {
+    const q = (searchInput.value || '').toLowerCase().trim();
+    list.querySelectorAll('.client-row').forEach(r => {
+      const hay = (r.dataset.name + ' ' + r.dataset.email + ' ' + r.dataset.phone).toLowerCase();
+      r.style.display = (!q || hay.includes(q)) ? '' : 'none';
+    });
+  });
+}
+
+// Modal
+const modal = document.getElementById('addClientModal');
+document.getElementById('openAddClient').addEventListener('click', () => modal.classList.add('is-open'));
+document.getElementById('closeAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
+document.getElementById('cancelAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
+
+const form = document.getElementById('addClientForm');
+const errBox = document.getElementById('addClientErr');
+const okBox = document.getElementById('addClientOk');
+const submitBtn = document.getElementById('submitAddClient');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.classList.remove('show'); okBox.classList.remove('show');
+  const data = {};
+  for (const [k, v] of new FormData(form).entries()) data[k] = v;
+
+  submitBtn.disabled = true;
+  const orig = submitBtn.textContent;
+  submitBtn.textContent = 'Adding…';
+  try {
+    const res = await fetch('/admin/clients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    okBox.textContent = 'Added. Access code: ' + (body.access_code || '—');
+    okBox.classList.add('show');
+    setTimeout(() => location.reload(), 700);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.classList.add('show');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = orig;
+  }
+});
+</script>
+
+</body>
+</html>

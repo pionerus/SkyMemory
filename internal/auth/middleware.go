@@ -38,6 +38,48 @@ func (m *Manager) RequireOwner(next http.Handler) http.Handler {
 	}))
 }
 
+// RequirePlatformAdmin blocks anyone but a platform admin. Used for /platform/*
+// routes that read cross-tenant data and mutate per-club pricing / app_settings.
+// On a browser hit (Accept: text/html) we redirect to /platform/login instead
+// of returning JSON 401 so an unauthenticated visit gets a friendly form.
+func (m *Manager) RequirePlatformAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s := m.Read(r)
+		if !s.IsPlatformAdmin() {
+			if isHTMLRequest(r) {
+				http.Redirect(w, r, "/platform/login", http.StatusFound)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "PLATFORM_ADMIN_REQUIRED", "Platform admin sign-in is required.")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(WithSession(r.Context(), s)))
+	})
+}
+
+// isHTMLRequest checks Accept header for "text/html" precedence over JSON. Keeps
+// browser requests routed to redirects, API requests to JSON 401.
+func isHTMLRequest(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	for _, part := range []string{"text/html", "application/xhtml"} {
+		if len(accept) >= len(part) && containsAccept(accept, part) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAccept(haystack, needle string) bool {
+	// Plain substring search; mime-type lists never contain weird escape chars
+	// so this is safe and avoids importing mime parsing.
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // RequireLicenseToken authenticates a request via "Authorization: Bearer <token>".
 // Used for studio-facing endpoints (jumps/register, music/suggest, upload-init, …).
 // On success, stashes SessionData in the request context like RequireSession does,

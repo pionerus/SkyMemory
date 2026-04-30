@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{if .NotFound}}Link not found{{else}}{{.ClientName}}'s skydive · Skydive Memory{{end}}</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+/* ===== Skydive Memory — Watch page (D1)
+   1:1 port of screens/client.jsx → WatchDesktop / WatchMobile.
+   Photo grid + per-format download cards + photo pack CTA are stubbed
+   ("Coming soon") because they depend on Phases 5/7.6/8 which aren't
+   built yet — the layout slots stay so the polish lands cleanly later. */
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--sm-bg);
+  color: var(--sm-text);
+  font-family: var(--sm-body, -apple-system, BlinkMacSystemFont, sans-serif);
+  min-height: 100vh;
+}
+
+/* ===== Hero — full-width video stage ===== */
+.wt-hero {
+  position: relative;
+  width: 100%;
+  height: 760px;
+  overflow: hidden;
+  background: #000;
+}
+.wt-hero-frame {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(60% 50% at 30% 30%, rgba(79,142,255,.25), transparent 60%),
+    radial-gradient(60% 50% at 80% 80%, rgba(255,177,105,.25), transparent 60%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 12px),
+    var(--sm-surface);
+}
+.wt-hero-fade {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 220px;
+  background: linear-gradient(to top, var(--sm-bg) 0%, transparent 100%);
+  pointer-events: none;
+}
+.wt-hero-video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* When video is present, hide the gradient placeholder behind it */
+.wt-hero.has-video .wt-hero-frame { display: none; }
+
+/* Overlay header — brand mark + dropzone + access code */
+.wt-hero-header {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 24px 36px;
+  display: flex; justify-content: space-between; align-items: center;
+  color: rgba(255,255,255,.85);
+  z-index: 5;
+}
+.wt-brand-lockup {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--sm-display);
+  font-weight: 600; font-size: 15px;
+  color: rgba(255,255,255,.9);
+}
+.wt-brand-lockup .sm-mark { width: 20px; height: 20px; }
+.wt-hero-meta {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 12px; opacity: .85;
+}
+.wt-hero-meta .sep {
+  width: 1px; height: 14px;
+  background: rgba(255,255,255,.3);
+}
+.wt-hero-meta .mono {
+  font-family: var(--sm-mono, monospace);
+  letter-spacing: 0.04em;
+}
+
+/* Center play button overlay */
+.wt-play-cta {
+  position: absolute; left: 50%; top: 44%;
+  transform: translate(-50%, -50%);
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  background: rgba(11,14,20,.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255,255,255,.4);
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+  cursor: pointer;
+  z-index: 4;
+  transition: transform 120ms ease-out, background 120ms;
+}
+.wt-play-cta:hover { transform: translate(-50%, -50%) scale(1.05); background: rgba(11,14,20,.65); }
+.wt-play-cta.is-hidden { opacity: 0; pointer-events: none; }
+
+/* ===== Below the fold ===== */
+.wt-body {
+  padding: 0 80px 60px;
+  margin-top: -80px;
+  position: relative;
+  z-index: 2;
+  max-width: 1280px;
+  margin-left: auto; margin-right: auto;
+}
+
+/* Headline */
+.wt-headline {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.wt-eyebrow {
+  font-size: 11px;
+  font-family: var(--sm-mono, monospace);
+  color: var(--sm-accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.wt-eyebrow::before { content: "◉ "; }
+.wt-title {
+  font-size: 56px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 0;
+}
+.wt-title .grad {
+  background: var(--sm-gradient-hero);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-style: italic;
+  font-weight: 400;
+}
+.wt-byline {
+  margin-top: 14px;
+  color: var(--sm-text-muted);
+  font-size: 15px;
+}
+
+/* Section heading row (heading + tag on the right) */
+.wt-section-h {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 14px;
+}
+.wt-section-h h2 {
+  font-size: 16px;
+  font-family: var(--sm-display);
+  margin: 0;
+}
+.wt-section-h .sub {
+  color: var(--sm-text-muted);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+/* Downloads section */
+.wt-downloads {
+  margin-bottom: 32px;
+}
+.wt-download-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.wt-dl-card {
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 14px;
+  padding: 0;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.wt-dl-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background:
+    radial-gradient(60% 50% at 30% 30%, rgba(79,142,255,.22), transparent 60%),
+    radial-gradient(60% 50% at 80% 80%, rgba(255,177,105,.22), transparent 60%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.04) 0 2px, transparent 2px 12px),
+    var(--sm-surface-2);
+  border-bottom: 1px solid var(--sm-border);
+}
+.wt-dl-thumb-cap {
+  position: absolute; top: 10px; left: 10px;
+  font-family: var(--sm-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--sm-text-dim);
+  background: rgba(11,14,20,.55);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.wt-dl-play {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%,-50%);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(11,14,20,.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.3);
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+}
+.wt-dl-body {
+  padding: 16px;
+  display: flex; flex-direction: column; flex: 1;
+}
+.wt-dl-row1 {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.wt-dl-name { font-size: 15px; font-weight: 500; font-family: var(--sm-display); }
+.wt-dl-detail {
+  font-family: var(--sm-mono, monospace);
+  font-size: 11px;
+  color: var(--sm-text-dim);
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.wt-dl-desc {
+  font-size: 12px;
+  color: var(--sm-text-muted);
+  line-height: 1.4;
+  margin-bottom: 14px;
+  flex: 1;
+}
+.wt-dl-actions { display: flex; gap: 6px; }
+.wt-dl-actions .sm-btn { flex: 1; height: 40px; }
+.wt-dl-actions .sm-btn.is-icon-only { width: 40px; flex: none; padding: 0; justify-content: center; }
+.wt-dl-stub {
+  /* Same dimensions as a real card — used for "Phase 5: coming soon" placeholders. */
+  opacity: .55;
+}
+
+/* Combined-zip strip */
+.wt-zip-strip {
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--sm-surface);
+  border: 1px dashed var(--sm-border-strong);
+  border-radius: 12px;
+  display: flex; align-items: center; gap: 14px;
+}
+.wt-zip-strip .ico {
+  width: 18px; height: 18px;
+  color: var(--sm-text-muted);
+}
+.wt-zip-strip .text { flex: 1; }
+.wt-zip-strip .title { font-size: 13px; font-weight: 500; }
+.wt-zip-strip .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+
+/* Photo pack CTA */
+.wt-photo-pack {
+  padding: 2px;
+  border-radius: 18px;
+  background: var(--sm-gradient-hero);
+  margin-bottom: 32px;
+}
+.wt-photo-pack-inner {
+  background: var(--sm-bg);
+  border-radius: 16px;
+  padding: 32px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: center;
+}
+.wt-photo-pack .eyebrow {
+  font-size: 11px;
+  font-family: var(--sm-mono, monospace);
+  color: var(--sm-accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.wt-photo-pack h3 {
+  font-size: 26px;
+  margin-bottom: 8px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+}
+.wt-photo-pack .sub {
+  color: var(--sm-text-muted);
+  font-size: 14px;
+}
+.wt-photo-pack .price-col {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
+}
+.wt-photo-pack .price {
+  font-size: 38px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Share row */
+.wt-share-row {
+  display: flex; gap: 10px;
+  justify-content: center;
+  margin-bottom: 40px;
+}
+
+/* Footer */
+.wt-footer {
+  border-top: 1px solid var(--sm-border);
+  padding-top: 24px;
+  text-align: center;
+  color: var(--sm-text-dim);
+  font-size: 12px;
+}
+.wt-footer a { color: var(--sm-brand-hi); text-decoration: none; }
+.wt-footer a:hover { text-decoration: underline; }
+.wt-footer .sm-mark { display: inline-block; vertical-align: middle; }
+
+/* ===== Not-found + waiting-for-render states ===== */
+.wt-state {
+  text-align: center;
+  padding: 120px 24px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.wt-state h1 {
+  font-size: 32px;
+  font-family: var(--sm-display);
+  margin-bottom: 14px;
+}
+.wt-state p { color: var(--sm-text-muted); margin: 8px 0; }
+
+/* "sm-pill is-warn" overlay above thumbs */
+.wt-pill-warn {
+  display: inline-flex; align-items: center;
+  height: 22px; padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(255,209,102,.10);
+  color: var(--sm-warning);
+  border: 1px solid rgba(255,209,102,.25);
+  white-space: nowrap;
+}
+
+/* ===== Mobile: Match WatchMobile on screens ≤ 600px ===== */
+@media (max-width: 900px) {
+  .wt-hero { height: 540px; }
+  .wt-play-cta { width: 72px; height: 72px; }
+  .wt-hero-header { padding: 18px 20px; }
+  .wt-body { padding: 28px 20px 40px; margin-top: -60px; }
+  .wt-title { font-size: 32px; line-height: 1.05; }
+  .wt-headline { text-align: left; margin-bottom: 22px; }
+  .wt-byline { font-size: 13px; }
+  .wt-download-grid { grid-template-columns: 1fr; }
+  .wt-photo-pack-inner { grid-template-columns: 1fr; padding: 18px; }
+  .wt-photo-pack .price-col { flex-direction: row; align-items: center; justify-content: space-between; }
+  .wt-photo-pack .price { font-size: 24px; }
+  .wt-share-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .wt-share-row .sm-btn { height: 34px; font-size: 12px; }
+}
+@media (max-width: 460px) {
+  .wt-hero { height: 480px; }
+  .wt-title { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+
+{{if .NotFound}}
+  <div class="wt-state">
+    <div class="wt-brand-lockup" style="justify-content:center;margin-bottom:32px">
+      <span class="sm-mark"></span> Skydive Memory
+    </div>
+    <h1>Link not found</h1>
+    <p>This watch link is invalid or the jump has been removed by the operator.</p>
+    <p style="margin-top:24px">If you believe this is a mistake, contact the dropzone where you jumped.</p>
+  </div>
+{{else}}
+
+<!-- ===== HERO ===== -->
+<div class="wt-hero {{if .HasVideo}}has-video{{end}}" id="wt-hero">
+  <div class="wt-hero-frame"></div>
+
+  {{if .HasVideo}}
+  <video class="wt-hero-video" id="wt-video" preload="metadata" playsinline
+         poster="" src="{{.VideoURL}}"></video>
+  {{end}}
+
+  <div class="wt-hero-fade"></div>
+
+  <div class="wt-hero-header">
+    <div class="wt-brand-lockup">
+      <span class="sm-mark"></span> Skydive Memory
+    </div>
+    <div class="wt-hero-meta">
+      {{if .TenantName}}<span>{{.TenantName}}</span><div class="sep"></div>{{end}}
+      <span class="mono">{{.AccessCode}}</span>
+    </div>
+  </div>
+
+  {{if .HasVideo}}
+  <button class="wt-play-cta" id="wt-play-cta" type="button" aria-label="Play">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+  </button>
+  {{end}}
+</div>
+
+<!-- ===== BELOW THE FOLD ===== -->
+<div class="wt-body">
+
+  <div class="wt-headline">
+    <div class="wt-eyebrow">{{.JumpDate.Format "January 2, 2006"}}</div>
+    <h1 class="wt-title">
+      {{.ClientName}}'s skydive<br>
+      <span class="grad">{{if .TenantName}}at {{.TenantName}}.{{else}}captured.{{end}}</span>
+    </h1>
+    <p class="wt-byline">
+      {{if .OperatorName}}Filmed by {{.OperatorName}}{{end}}{{if and .OperatorName .TenantName}} · {{.TenantName}}{{else}}{{.TenantName}}{{end}}
+    </p>
+  </div>
+
+  {{if .HasVideo}}
+  <!-- Downloads — Phase 7.1 ships only the Full edit. Reel + WOW slots
+       stay as visual placeholders so Phase 5 lands cleanly. -->
+  <div class="wt-downloads">
+    <div class="wt-section-h">
+      <h2>Downloads <span class="sub">· {{if .HasVideo}}1 of 3 video formats ready{{else}}rendering{{end}}</span></h2>
+      <span class="mono" style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.1em">READY · NO WATERMARK</span>
+    </div>
+    <div class="wt-download-grid">
+
+      <!-- Full edit -->
+      <div class="wt-dl-card">
+        <div class="wt-dl-thumb">
+          <span class="wt-dl-thumb-cap">16:9 · horizontal</span>
+          <div class="wt-dl-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+        </div>
+        <div class="wt-dl-body">
+          <div class="wt-dl-row1">
+            <div class="wt-dl-name">Full edit</div>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-brand-hi);border-color:var(--sm-brand-hi)">Main</span>
+          </div>
+          <div class="wt-dl-detail">1080p{{if .VideoSizeBytes}} · {{bytesHuman .VideoSizeBytes}}{{end}}</div>
+          <div class="wt-dl-desc">The complete edit — boarding, freefall, canopy, landing.</div>
+          <div class="wt-dl-actions">
+            <a class="sm-btn is-primary" href="{{.VideoURL}}" download>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </a>
+            <button class="sm-btn is-icon-only" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)" title="Copy link">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reel (Phase 5 placeholder) -->
+      <div class="wt-dl-card wt-dl-stub">
+        <div class="wt-dl-thumb"><span class="wt-dl-thumb-cap">9:16 · vertical</span></div>
+        <div class="wt-dl-body">
+          <div class="wt-dl-row1">
+            <div class="wt-dl-name">Reel</div>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-accent);border-color:var(--sm-accent)">Instagram</span>
+          </div>
+          <div class="wt-dl-detail">vertical · coming soon</div>
+          <div class="wt-dl-desc">Reframed for Stories &amp; Reels — captions burned in.</div>
+          <div class="wt-dl-actions">
+            <button class="sm-btn" disabled style="flex:1;height:40px">Coming soon</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- WOW · freefall (Phase 5 placeholder) -->
+      <div class="wt-dl-card wt-dl-stub">
+        <div class="wt-dl-thumb"><span class="wt-dl-thumb-cap">16:9 · highlight</span></div>
+        <div class="wt-dl-body">
+          <div class="wt-dl-row1">
+            <div class="wt-dl-name">WOW · freefall</div>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-success);border-color:var(--sm-success)">Highlight</span>
+          </div>
+          <div class="wt-dl-detail">freefall cut · coming soon</div>
+          <div class="wt-dl-desc">Pure freefall cut — sidechain music, slow-mo arch, big finish.</div>
+          <div class="wt-dl-actions">
+            <button class="sm-btn" disabled style="flex:1;height:40px">Coming soon</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Photo pack — Phase 8 (SEPA) wires the buy button. For now: visible placeholder. -->
+  <div class="wt-photo-pack">
+    <div class="wt-photo-pack-inner">
+      <div>
+        <div class="eyebrow">Add-on · photo pack</div>
+        <h3>15 high-res photos · no watermark · instant download</h3>
+        <div class="sub">Coming after the operator processes your stills. We'll email you here when they're ready.</div>
+      </div>
+      <div class="price-col">
+        <div class="price">€29</div>
+        <button class="sm-btn is-hero" disabled style="height:50px;font-weight:700">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Coming soon
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share row -->
+  <div class="wt-share-row">
+    <button class="sm-btn" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Copy link
+    </button>
+    <a class="sm-btn" target="_blank" rel="noopener"
+       href="https://wa.me/?text={{.ClientName}}'s%20skydive%20{{$.AccessCode}}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      WhatsApp
+    </a>
+    <a class="sm-btn" target="_blank" rel="noopener"
+       href="https://twitter.com/intent/tweet?text={{.ClientName}}'s%20skydive%20over%20{{.TenantName}}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"/></svg>
+      Share
+    </a>
+  </div>
+
+  {{else}}
+  <!-- No video uploaded yet — render-pending state, friendly placeholder -->
+  <div class="wt-state" style="padding:60px 24px">
+    <h1>Your video is being prepared</h1>
+    <p>The operator's render is still in progress.</p>
+    <p>This page will refresh automatically — or check back in a few minutes.</p>
+  </div>
+  {{end}}
+
+  <div class="wt-footer">
+    <span class="sm-mark" style="width:18px;height:18px;color:var(--sm-text-muted)"></span>
+    <span style="margin:0 8px">Powered by <a href="https://skydivememory.app">Skydive Memory</a></span>
+    · <a href="mailto:support@skydivememory.app">Get help</a>
+  </div>
+</div>
+
+{{if .HasVideo}}
+<script>
+// Click the play overlay → start the actual hero video and hide overlay.
+(function() {
+  const v   = document.getElementById('wt-video');
+  const cta = document.getElementById('wt-play-cta');
+  if (!v || !cta) return;
+  cta.addEventListener('click', () => {
+    v.controls = true;
+    v.play().catch(() => {});
+    cta.classList.add('is-hidden');
+  });
+  // If the user uses native controls, hide the overlay too.
+  v.addEventListener('play', () => cta.classList.add('is-hidden'));
+})();
+</script>
+{{else}}
+<script>
+// No video yet — soft auto-reload every 60s so the page picks up the
+// freshly uploaded artifact without the jumper hitting refresh manually.
+setTimeout(() => location.reload(), 60_000);
+</script>
+{{end}}
+
+{{end}}{{/* end NotFound branch */}}
+
+</body>
+</html>
