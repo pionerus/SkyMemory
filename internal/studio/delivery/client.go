@@ -20,21 +20,20 @@ import (
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 )
 
-// Client wraps cloud-facing HTTP calls. One instance per studio process.
+// Client wraps cloud-facing HTTP calls. Auth is via the cookie jar
+// inside the supplied http.Client (built in session.Manager).
 type Client struct {
 	baseURL string
-	token   string
 	hc      *http.Client
 }
 
-func NewClient(baseURL, token string) *Client {
-	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		// Long timeout — uploads can be 50–500 MB. ffprobe + Stat have
-		// already validated the file before we get here.
-		hc: &http.Client{Timeout: 30 * time.Minute},
+// NewClient takes a cookie-jar-backed *http.Client. The hc must have a
+// long timeout — uploads can be 50-500 MB.
+func NewClient(baseURL string, hc *http.Client) *Client {
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Minute}
 	}
+	return &Client{baseURL: baseURL, hc: hc}
 }
 
 // APIError mirrors cloud's {code, message}.
@@ -106,7 +105,6 @@ func (c *Client) requestUploadURL(ctx context.Context, jumpID int64, kind string
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Short-timeout sub-client for the JSON round-trips so a hung cloud
@@ -169,7 +167,6 @@ func (c *Client) register(ctx context.Context, jumpID int64, body v1.ArtifactReg
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	short := &http.Client{Timeout: 15 * time.Second}

@@ -16,19 +16,19 @@ import (
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 )
 
-// Client wraps HTTP calls to the cloud server. One instance per studio process.
+// Client wraps HTTP calls to the cloud server. Auth is via the cookie
+// jar baked into hc — every request carries the operator's session.
 type Client struct {
 	baseURL string
-	token   string
 	hc      *http.Client
 }
 
-func NewClient(baseURL, token string) *Client {
-	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		hc:      &http.Client{Timeout: 8 * time.Second},
+// NewClient takes the cookie-jar *http.Client from session.Manager.
+func NewClient(baseURL string, hc *http.Client) *Client {
+	if hc == nil {
+		hc = &http.Client{Timeout: 8 * time.Second}
 	}
+	return &Client{baseURL: baseURL, hc: hc}
 }
 
 // APIError mirrors the cloud-side {code, message} response so studio handlers
@@ -57,7 +57,6 @@ func (c *Client) Suggest(ctx context.Context, durationSeconds int, mood []string
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -82,7 +81,6 @@ func (c *Client) Catalog(ctx context.Context) (*v1.MusicListResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("get music: %w", err)
@@ -109,7 +107,6 @@ func (c *Client) SetJumpMusic(ctx context.Context, jumpID, trackID int64) error 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.hc.Do(req)
 	if err != nil {

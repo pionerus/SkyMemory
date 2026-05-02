@@ -62,7 +62,10 @@ func main() {
 	sessions := auth.NewManager(cfg.SecretKey, cfg.Env == "production")
 	authH := &auth.Handlers{DB: pool, Sessions: sessions}
 	jumpH := &jump.Handlers{DB: pool}
-	requireToken := auth.RequireLicenseToken(pool)
+	// License-token middleware — kept for the legacy /api/v1/license/validate
+	// endpoint that older studio binaries may still hit. New /api/v1/* routes
+	// use session-cookie auth via sessions.RequireSession.
+	_ = auth.RequireLicenseToken(pool)
 
 	// Music storage. EnsureBucket is idempotent — safe on every boot.
 	musicStorage, err := storage.NewMusicClient(cfg)
@@ -330,15 +333,15 @@ func main() {
 	r.Post("/api/v1/license/validate", authH.ValidateLicense)
 
 	// API v1 — studio-facing endpoints. Each is gated by RequireLicenseToken.
-	r.With(requireToken).Post("/api/v1/jumps/register", jumpH.Register)
-	r.With(requireToken).Get("/api/v1/jumps/{id}", jumpH.GetByIDForStudio)
-	r.With(requireToken).Put("/api/v1/jumps/{id}/music", jumpH.SetMusic)
-	r.With(requireToken).Get("/api/v1/music", musicH.StudioCatalog)
-	r.With(requireToken).Post("/api/v1/music/suggest", musicH.StudioSuggest)
-	r.With(requireToken).Get("/api/v1/music/{id}/file", musicH.StudioDownload)
-	r.With(requireToken).Get("/api/v1/tenant/branding", brandH.GetForStudio)
-	r.With(requireToken).Post("/api/v1/jumps/{id}/artifacts/upload-url", artifactsH.RequestUploadURL)
-	r.With(requireToken).Post("/api/v1/jumps/{id}/artifacts", artifactsH.RegisterArtifact)
+	r.With(sessions.RequireSession).Post("/api/v1/jumps/register", jumpH.Register)
+	r.With(sessions.RequireSession).Get("/api/v1/jumps/{id}", jumpH.GetByIDForStudio)
+	r.With(sessions.RequireSession).Put("/api/v1/jumps/{id}/music", jumpH.SetMusic)
+	r.With(sessions.RequireSession).Get("/api/v1/music", musicH.StudioCatalog)
+	r.With(sessions.RequireSession).Post("/api/v1/music/suggest", musicH.StudioSuggest)
+	r.With(sessions.RequireSession).Get("/api/v1/music/{id}/file", musicH.StudioDownload)
+	r.With(sessions.RequireSession).Get("/api/v1/tenant/branding", brandH.GetForStudio)
+	r.With(sessions.RequireSession).Post("/api/v1/jumps/{id}/artifacts/upload-url", artifactsH.RequestUploadURL)
+	r.With(sessions.RequireSession).Post("/api/v1/jumps/{id}/artifacts", artifactsH.RegisterArtifact)
 
 	// Public client-facing watch page. No auth — access_code is the bearer.
 	r.Get("/watch/{access_code}", watchH.Render)

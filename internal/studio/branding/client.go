@@ -30,19 +30,19 @@ import (
 	v1 "github.com/pionerus/freefall/internal/api/v1"
 )
 
-// Client wraps the cloud-facing HTTP calls. One instance per studio process.
+// Client wraps the cloud-facing HTTP calls. Auth is via the cookie jar
+// inside hc — every request carries the operator's session cookie.
 type Client struct {
 	baseURL string
-	token   string
 	hc      *http.Client
 }
 
-func NewClient(baseURL, token string) *Client {
-	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		hc:      &http.Client{Timeout: 10 * time.Second},
+// NewClient takes the cookie-jar-backed *http.Client from session.Manager.
+func NewClient(baseURL string, hc *http.Client) *Client {
+	if hc == nil {
+		hc = &http.Client{Timeout: 10 * time.Second}
 	}
+	return &Client{baseURL: baseURL, hc: hc}
 }
 
 // APIError mirrors the cloud-side {code, message} response.
@@ -65,7 +65,6 @@ func (c *Client) Fetch(ctx context.Context) (*v1.TenantBrandingResponse, error) 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("get branding: %w", err)

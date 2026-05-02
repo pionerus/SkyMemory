@@ -28,6 +28,7 @@ import (
 	"github.com/pionerus/freefall/internal/studio/ffprobe"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
+	studiosession "github.com/pionerus/freefall/internal/studio/session"
 	studiomusic "github.com/pionerus/freefall/internal/studio/music"
 	"github.com/pionerus/freefall/internal/studio/pipeline"
 	"github.com/pionerus/freefall/internal/studio/state"
@@ -84,12 +85,32 @@ func main() {
 		log.Printf("WARN: ffprobe not on PATH — clip uploads will be accepted without metadata. Install ffmpeg.")
 	}
 
-	licenseClient := license.NewClient(cfg.CloudBaseURL)
-	licenseMgr := license.NewManager(licenseClient, cfg.LicenseToken, version, 0 /* default 6h */)
-	licenseMgr.Start(ctx)
+	// Cloud auth: studio logs in with the operator's email + password
+	// (set via STUDIO_OPERATOR_EMAIL / STUDIO_OPERATOR_PASSWORD in .env)
+	// and reuses the resulting session cookie for every /api/v1/* call.
+	// Replaces the legacy license-token bearer flow; see internal/studio/session.
+	sessionMgr := studiosession.NewManager(cfg.CloudBaseURL, cfg.OperatorEmail, cfg.OperatorPassword)
+	sessionMgr.Start(ctx, 6*time.Hour)
 
-	jumpClient := jump.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
-	musicClient := studiomusic.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	// licenseStatus is the bridge between the new session.Manager and all
+	// the existing UI code that used to call licenseStatus(). Returns
+	// the same `license.Result, time.Time` tuple shape so handlers and
+	// templates need no changes — only the source of truth moved.
+	licenseStatus := func() (license.Result, time.Time) {
+		snap, t := sessionMgr.SnapshotState()
+		return license.Result{
+			Valid:         snap.Valid,
+			OperatorID:    snap.OperatorID,
+			TenantID:      snap.TenantID,
+			OperatorEmail: snap.OperatorEmail,
+			TenantName:    snap.TenantSlug, // we don't fetch the name yet
+			Reason:        snap.Reason,
+			Err:           snap.Err,
+		}, t
+	}
+
+	jumpClient := jump.NewClient(cfg.CloudBaseURL, sessionMgr.Client())
+	musicClient := studiomusic.NewClient(cfg.CloudBaseURL, sessionMgr.Client())
 
 	// Music cache lives next to state.db so backups/cleanup are easy to reason about.
 	musicCacheDir := filepath.Join(filepath.Dir(cfg.StatePath), "music-cache")
@@ -102,7 +123,7 @@ func main() {
 	// Branding cache (Phase 6.5) — same disk-cache pattern as music. Each
 	// render fetches the tenant's bundle and re-downloads only when the
 	// cloud-reported ETag has changed.
-	brandingClient := studiobranding.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	brandingClient := studiobranding.NewClient(cfg.CloudBaseURL, sessionMgr.Client())
 	brandingCacheDir := filepath.Join(filepath.Dir(cfg.StatePath), "branding-cache")
 	brandingCache, err := studiobranding.NewCache(brandingCacheDir, brandingClient)
 	if err != nil {
@@ -114,12 +135,12 @@ func main() {
 		DB:               stateDB,
 		JobsDir:          jobsDir,
 		MusicCache:       musicCache,
-		BrandingProvider: &brandingProvider{cache: brandingCache, license: licenseMgr},
+		BrandingProvider: &brandingProvider{cache: brandingCache, session: sessionMgr},
 	}
 
 	// Delivery client (Phase 7.1) — uploads rendered MP4s to cloud after each
 	// successful Run() so the watch page has something to play.
-	deliveryClient := delivery.NewClient(cfg.CloudBaseURL, cfg.LicenseToken)
+	deliveryClient := delivery.NewClient(cfg.CloudBaseURL, sessionMgr.Client())
 	runRegistry := &pipeline.RunRegistry{}
 
 	// Recover from a previous crash / kill: any generation row left in an
@@ -160,7 +181,7 @@ func main() {
 	})
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		res, _ := licenseMgr.Snapshot()
+		res, _ := licenseStatus()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "ok",
@@ -172,7 +193,7 @@ func main() {
 	})
 
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
-		res, lastAt := licenseMgr.Snapshot()
+		res, lastAt := licenseStatus()
 
 		// Pull projects list — best-effort. If state is unreadable we still render the page.
 		projects, perr := stateDB.ListProjects(req.Context(), false)
@@ -187,7 +208,7 @@ func main() {
 			Port:             portFromAddr(cfg.HTTPAddr),
 			CloudBaseURL:     cfg.CloudBaseURL,
 			StatePath:        cfg.StatePath,
-			TokenConfigured:  cfg.LicenseToken != "",
+			TokenConfigured:  cfg.OperatorEmail != "" && cfg.OperatorPassword != "",
 			License:          res,
 			LicenseCheckedAt: lastAt,
 			CloudReachable:   pingCloud(cfg.CloudBaseURL),
@@ -203,7 +224,11 @@ func main() {
 	// without restarting (note: env var is read once at boot — restart is still required to
 	// pick up a NEW token; this endpoint just re-validates the existing one).
 	r.Post("/license/refresh", func(w http.ResponseWriter, r *http.Request) {
-		licenseMgr.Start(r.Context()) // re-trigger immediate validation; idempotent
+		// Re-login on demand. Useful when the operator updates STUDIO_OPERATOR_EMAIL /
+		// STUDIO_OPERATOR_PASSWORD without restarting (note: env is read once at boot,
+		// so a fresh email/password requires restart; this just refreshes the existing
+		// session if cookies expired).
+		_, _ = sessionMgr.Login(r.Context())
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
@@ -219,7 +244,7 @@ func main() {
 			"encoder":         encoder,
 			"encoder_detail":  encoderDetail,
 			"jobs_dir":        jobsDir,
-			"token_masked":    maskToken(cfg.LicenseToken),
+			"operator_email":  cfg.OperatorEmail,
 			"version":         version,
 			"platform":        runtime.GOOS + "/" + runtime.GOARCH,
 			"cloud_url":       cfg.CloudBaseURL,
@@ -230,7 +255,7 @@ func main() {
 	// New project flow. GET renders the form, POST sends it through to the cloud
 	// (POST /api/v1/jumps/register) and renders the access_code on success.
 	r.Get("/projects/new", func(w http.ResponseWriter, req *http.Request) {
-		res, _ := licenseMgr.Snapshot()
+		res, _ := licenseStatus()
 		if !res.Valid {
 			http.Redirect(w, req, "/", http.StatusSeeOther)
 			return
@@ -242,7 +267,7 @@ func main() {
 	})
 
 	r.Post("/projects", func(w http.ResponseWriter, req *http.Request) {
-		res, _ := licenseMgr.Snapshot()
+		res, _ := licenseStatus()
 		if !res.Valid {
 			writeStudioJSON(w, http.StatusUnauthorized, map[string]string{
 				"code": "LICENSE_INVALID", "message": "License is not valid.",
@@ -353,7 +378,7 @@ func main() {
 			cutsByKind[kind] = cutsByClipID[c.ID]
 		}
 
-		licRes, _ := licenseMgr.Snapshot()
+		licRes, _ := licenseStatus()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = ui.Templates.ExecuteTemplate(w, "project_detail.html", map[string]any{
 			"License":             licRes,
@@ -394,7 +419,7 @@ func main() {
 			return
 		}
 		clips, _ := stateDB.ListClips(req.Context(), id)
-		licRes, _ := licenseMgr.Snapshot()
+		licRes, _ := licenseStatus()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = ui.Templates.ExecuteTemplate(w, "project_generate.html", map[string]any{
 			"License":             licRes,
@@ -1331,11 +1356,11 @@ func pingCloud(base string) bool {
 // MP4 rather than failing outright.
 type brandingProvider struct {
 	cache   *studiobranding.Cache
-	license *license.Manager
+	session *studiosession.Manager
 }
 
 func (p *brandingProvider) EnsureForRun(ctx context.Context) (studiobranding.Bundle, error) {
-	snap, _ := p.license.Snapshot()
+	snap, _ := p.session.SnapshotState()
 	if !snap.Valid || snap.TenantID <= 0 {
 		return studiobranding.Bundle{}, nil
 	}
