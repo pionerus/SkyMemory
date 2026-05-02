@@ -260,15 +260,28 @@ func main() {
 	})
 
 	// === Operator portal (web dashboard for camera operators, in addition to studio.exe) ===
-	r.With(sessions.RequireSession).Get("/operator/", func(w http.ResponseWriter, req *http.Request) {
-		s := auth.MustFromContext(req.Context())
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Templates.ExecuteTemplate(w, "operator_dashboard.html", map[string]any{
-			"OperatorEmail": s.OperatorEmail,
-			"OperatorRole":  s.OperatorRole,
-			"TenantName":    data_tenantName(req.Context(), pool, s.TenantID),
-		})
-	})
+	// Operator portal pages. All four sections share operator_dashboard.html
+	// with different `Active` + page titles — content blocks are scoped via
+	// {{if eq .Active "..."}} so the rail highlights correctly. Real impls
+	// land in Phase 9.x; for now they're informative placeholders.
+	renderOperatorPage := func(active, title, sub string) http.HandlerFunc {
+		return func(w http.ResponseWriter, req *http.Request) {
+			s := auth.MustFromContext(req.Context())
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_ = templates.Templates.ExecuteTemplate(w, "operator_dashboard.html", map[string]any{
+				"Active":        active,
+				"PageTitle":     title,
+				"PageSub":       sub,
+				"OperatorEmail": s.OperatorEmail,
+				"OperatorRole":  s.OperatorRole,
+				"TenantName":    data_tenantName(req.Context(), pool, s.TenantID),
+			})
+		}
+	}
+	r.With(sessions.RequireSession).Get("/operator/",         renderOperatorPage("dashboard", "Operator", "My recent jumps · clients · storage"))
+	r.With(sessions.RequireSession).Get("/operator/projects", renderOperatorPage("projects",  "My projects", "Web mirror of your studio.exe project list"))
+	r.With(sessions.RequireSession).Get("/operator/clients",  renderOperatorPage("clients",   "My clients",  "Jumpers you have filmed"))
+	r.With(sessions.RequireSession).Get("/operator/storage",  renderOperatorPage("storage",   "My storage",  "Personal cloud storage for clips + outputs"))
 
 	// Admin: license token CRUD (owner-only). Tokens get installed in studio.exe.
 	r.With(sessions.RequireOwner).Post("/admin/license-tokens", authH.CreateToken)

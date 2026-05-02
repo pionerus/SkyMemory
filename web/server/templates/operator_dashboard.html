@@ -35,19 +35,19 @@
       </div>
     </div>
     <nav style="padding:12px;display:flex;flex-direction:column;gap:2px;flex:1">
-      <a class="sm-rail-item is-active" href="/operator/">
+      <a class="sm-rail-item{{if eq .Active "dashboard"}} is-active{{end}}" href="/operator/">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Dashboard
       </a>
-      <a class="sm-rail-item" href="/operator/projects">
+      <a class="sm-rail-item{{if eq .Active "projects"}} is-active{{end}}" href="/operator/projects">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
         Projects
       </a>
-      <a class="sm-rail-item" href="/operator/clients">
+      <a class="sm-rail-item{{if eq .Active "clients"}} is-active{{end}}" href="/operator/clients">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
         Clients
       </a>
-      <a class="sm-rail-item" href="/operator/storage">
+      <a class="sm-rail-item{{if eq .Active "storage"}} is-active{{end}}" href="/operator/storage">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         Storage
       </a>
@@ -69,8 +69,8 @@
   <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
     <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
       <div style="flex:1">
-        <h1 style="font-size:20px;font-weight:500">Operator</h1>
-        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">{{.TenantName}} · my projects, my clients, my storage</div>
+        <h1 style="font-size:20px;font-weight:500">{{.PageTitle}}</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">{{.PageSub}}</div>
       </div>
       <a href="http://localhost:8080" target="_blank" class="sm-btn is-primary">
         Open Studio →
@@ -78,15 +78,43 @@
     </header>
 
     <div style="padding:28px;overflow:auto;flex:1">
+      {{if eq .Active "dashboard"}}
       <div class="placeholder">
-        <strong>Phase 9</strong> · Operator portal lands here. The web mirror of your studio.exe state — see all your projects from any device, manage personal storage (Google Drive / Dropbox / OneDrive / S3), and review client contacts.
+        <strong>Phase 9</strong> · Operator portal home. Recent jumps, client roster, and storage health will land here as a single overview.
         <ul>
-          <li><strong>Dashboard:</strong> recent jumps · client roster · storage health</li>
-          <li><strong>Projects:</strong> read-only mirror of studio.exe + per-deliverable links</li>
-          <li><strong>Clients:</strong> contacts of all jumpers you've filmed</li>
-          <li><strong>Storage:</strong> connect Google Drive / Dropbox / OneDrive (OAuth) or S3-compatible</li>
+          <li><strong>Recent jumps:</strong> latest 10 you filmed, with status and watch links</li>
+          <li><strong>Storage health:</strong> drive quota, expiring tokens, last sync</li>
+          <li><strong>Tasks:</strong> jumps awaiting upload / re-edit</li>
         </ul>
       </div>
+      {{else if eq .Active "projects"}}
+      <div class="placeholder">
+        <strong>Phase 9.2</strong> · Web mirror of your studio.exe state. Browse every project you started locally, plus the per-deliverable links once they hit the cloud.
+        <ul>
+          <li>Read-only — editing still happens in studio.exe</li>
+          <li>Per-deliverable download links (1080p / Reel / Wow)</li>
+          <li>Watch-link preview &amp; copy</li>
+        </ul>
+      </div>
+      {{else if eq .Active "clients"}}
+      <div class="placeholder">
+        <strong>Phase 9.3</strong> · Personal client roster. Every jumper you've filmed, ordered by latest jump.
+        <ul>
+          <li>Search by name / email / phone</li>
+          <li>Contact history per client</li>
+          <li>Re-send watch link from this page</li>
+        </ul>
+      </div>
+      {{else if eq .Active "storage"}}
+      <div class="placeholder">
+        <strong>Phase 9.4</strong> · Personal storage configuration. Connect a Google Drive / Dropbox / OneDrive account or an S3-compatible bucket — uploaded clips and rendered outputs land there in addition to the cloud copy.
+        <ul>
+          <li>OAuth flow for Drive / Dropbox / OneDrive</li>
+          <li>S3-compatible (AWS / Wasabi / B2 / Hetzner OS)</li>
+          <li>Last sync status + free space</li>
+        </ul>
+      </div>
+      {{end}}
 
       <div style="margin-top:24px;font-size:11px;color:var(--sm-text-dim);text-align:center">
         Today the operator's main surface is studio.exe on localhost:8080.

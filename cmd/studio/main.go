@@ -38,10 +38,28 @@ import (
 // version is overridden at build time via -ldflags "-X main.version=..."
 var version = "0.0.1-dev"
 
+// logFilePath holds the resolved on-disk path of studio.log so the /log
+// endpoint can read it back. Set in main() after we know cfg.StatePath.
+var logFilePath string
+
 func main() {
 	cfg, err := config.LoadStudio()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	// Persistent log — sits next to state.db so it follows the studio's
+	// data dir. Append-mode: each studio session adds to the existing
+	// file (capped naturally because we trim on read; not on disk for
+	// now — that's a Phase 16 polish item if it ever matters).
+	logFilePath = filepath.Join(filepath.Dir(cfg.StatePath), "studio.log")
+	logF, lferr := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if lferr != nil {
+		log.Printf("WARN: open log file %q: %v — logs will only go to stderr", logFilePath, lferr)
+	} else {
+		defer logF.Close()
+		log.SetOutput(io.MultiWriter(os.Stderr, logF))
+		log.Printf("======== studio start v%s @ %s ========", version, time.Now().Format(time.RFC3339))
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -119,6 +137,27 @@ func main() {
 
 	// Skydive Memory design assets — CSS + brand mark — embedded into the binary.
 	r.Handle("/static/*", http.StripPrefix("/static/", ui.StaticHandler()))
+
+	// /log — last N lines of studio.log. Used by the generate-screen UI to
+	// show ffmpeg stderr / pipeline messages when something hangs or fails
+	// without a clean error popup. Plain text so a dev can also `curl` it.
+	r.Get("/log", func(w http.ResponseWriter, req *http.Request) {
+		nLines := 400
+		if v := req.URL.Query().Get("lines"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil && n > 0 && n <= 5000 {
+				nLines = n
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if logFilePath == "" {
+			fmt.Fprintln(w, "(no log file — check stderr)")
+			return
+		}
+		fmt.Fprintln(w, "# studio.log path:", logFilePath)
+		fmt.Fprintln(w, "# tail:", nLines, "lines")
+		fmt.Fprintln(w, "# ----------------------------------------")
+		fmt.Fprintln(w, tailLog(logFilePath, nLines))
+	})
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		res, _ := licenseMgr.Snapshot()
@@ -893,6 +932,19 @@ func main() {
 			return
 		}
 
+		// Registry is empty -> no live pipeline. Any DB row still in an
+		// in-progress status is orphaned from a previous crashed/killed
+		// process; mark them failed so the UI doesn't keep showing
+		// "trimming" forever and a new run can start immediately. Boot-time
+		// MarkStaleGenerationsFailed only catches rows that exist BEFORE
+		// the boot — this catches rows created AFTER boot whose goroutine
+		// died.
+		if n, derr := stateDB.MarkStaleGenerationsFailed(req.Context()); derr != nil {
+			log.Printf("WARN: clean stale generations before new run: %v", derr)
+		} else if n > 0 {
+			log.Printf("cleaned %d stale generation row(s) before starting new run", n)
+		}
+
 		genID, err := stateDB.CreateGeneration(req.Context(), id)
 		if err != nil {
 			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
@@ -925,6 +977,24 @@ func main() {
 		go func(projectID, generationID int64) {
 			defer runCancel()
 			defer runRegistry.End(generationID)
+			// Panic safety net: if anything inside the pipeline panics
+			// (driver crash, ffmpeg pipe weirdness, nil deref in a new
+			// codepath), don't let the goroutine die silently. Mark the
+			// row failed so the UI stops spinning and the operator can
+			// retry. Also persist the panic message so /log captures it.
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("PANIC in pipeline goroutine (project=%d gen=%d): %v", projectID, generationID, rec)
+					failed := state.GenStatusFailed
+					msg := fmt.Sprintf("studio panic: %v — see studio.log for stack", rec)
+					_ = stateDB.UpdateGeneration(context.Background(), generationID, state.GenerationPatch{
+						Status: &failed,
+						Error:  &msg,
+						Finish: true,
+					})
+				}
+			}()
+
 			outputPath, err := pipelineRunner.Run(regCtx, projectID, generationID)
 			if err != nil {
 				log.Printf("pipeline run failed (project=%d gen=%d): %v", projectID, generationID, err)
@@ -1157,6 +1227,43 @@ func writeStudioJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// tailLog reads the last n lines of a log file. Reads at most 1 MB from
+// the end, splits on \n, and returns the trailing nLines. On error returns
+// the error message in the body so /log is always informative.
+func tailLog(path string, nLines int) string {
+	const maxRead = 1 << 20 // 1 MB tail buffer is plenty for a session
+	f, err := os.Open(path)
+	if err != nil {
+		return "(open log: " + err.Error() + ")"
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "(stat log: " + err.Error() + ")"
+	}
+	size := st.Size()
+	readFrom := int64(0)
+	if size > maxRead {
+		readFrom = size - maxRead
+	}
+	if _, err := f.Seek(readFrom, 0); err != nil {
+		return "(seek: " + err.Error() + ")"
+	}
+	buf := make([]byte, size-readFrom)
+	if _, err := io.ReadFull(f, buf); err != nil && !errors.Is(err, io.EOF) {
+		return "(read: " + err.Error() + ")"
+	}
+	lines := strings.Split(strings.TrimRight(string(buf), "\n"), "\n")
+	if readFrom > 0 && len(lines) > 0 {
+		// First line might be partial (we seeked into the middle of one).
+		lines = lines[1:]
+	}
+	if len(lines) > nLines {
+		lines = lines[len(lines)-nLines:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // parseInt64URLParam pulls a chi URL param and parses it as int64. Returns a

@@ -191,6 +191,16 @@
 
     <div class="gen-error"></div>
 
+    <!-- Always-visible diagnostics row. ffmpeg pipes its stderr into
+         studio.log; this surfaces the tail on demand so a hang or silent
+         failure is debuggable without a console window. -->
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" id="show-log-btn" class="sm-btn is-ghost is-sm">Show studio log</button>
+      <a href="/log?lines=400" target="_blank" class="sm-btn is-ghost is-sm">Open in new tab ↗</a>
+      <span style="font-size:11px;color:var(--sm-text-dim)" id="log-hint">Last 400 lines · ffmpeg stderr + pipeline messages.</span>
+    </div>
+    <pre id="log-pane" style="display:none;margin-top:10px;max-height:340px;overflow:auto;background:var(--sm-surface-2);border:1px solid var(--sm-border);border-radius:8px;padding:14px;font-size:11px;font-family:var(--sm-mono,monospace);line-height:1.45;white-space:pre-wrap;color:var(--sm-text-muted)"></pre>
+
     <div class="gen-result">
       <video id="gen-output-video" controls></video>
       <div class="actions">
@@ -242,6 +252,9 @@ function paint(g) {
     cancelBtn.style.display = 'none';
     generateBtn.style.display = '';
     generateBtn.disabled = false;
+    // Auto-open the log pane on failure so the operator doesn't need to
+    // hunt for the diagnostic. Refresh = grab fresh tail right away.
+    refreshLogPane(true);
     return;
   }
   if (g.status === 'done') {
@@ -327,6 +340,41 @@ cancelBtn.addEventListener('click', async () => {
     }
   } catch (e) {}
 })();
+
+// ===== Studio log pane =====
+const logBtn  = document.getElementById('show-log-btn');
+const logPane = document.getElementById('log-pane');
+
+async function refreshLogPane(forceShow) {
+  if (forceShow) logPane.style.display = 'block';
+  if (logPane.style.display === 'none') return;
+  try {
+    const res = await fetch('/log?lines=400', { cache: 'no-store' });
+    const txt = await res.text();
+    logPane.textContent = txt;
+    logPane.scrollTop = logPane.scrollHeight;
+  } catch (e) {
+    logPane.textContent = '(failed to fetch /log: ' + e.message + ')';
+  }
+}
+
+if (logBtn && logPane) {
+  logBtn.addEventListener('click', () => {
+    if (logPane.style.display === 'none') {
+      logPane.style.display = 'block';
+      logBtn.textContent = 'Hide studio log';
+      refreshLogPane(true);
+    } else {
+      logPane.style.display = 'none';
+      logBtn.textContent = 'Show studio log';
+    }
+  });
+}
+// While a generation is in progress, refresh the visible log every 3s so
+// the operator sees ffmpeg output stream in real time.
+setInterval(() => {
+  if (logPane && logPane.style.display !== 'none') refreshLogPane(false);
+}, 3000);
 </script>
 <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
         style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.45);border:1px solid var(--sm-border);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">

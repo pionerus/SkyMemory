@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -34,16 +34,23 @@ func (r *Runner) runFFmpeg(ctx context.Context, args []string, expectedDur float
 	if err != nil {
 		return err
 	}
-	// stderr → tee both into errBuf (capped, surfaced on failure) AND into the
-	// studio process's stderr live, so a hang or weird ffmpeg warning is
-	// visible in the studio console window immediately rather than only after
-	// ffmpeg exits non-zero.
+	// stderr → tee into:
+	//   • errBuf (capped, surfaced on failure)
+	//   • the studio's `log` package writer so it lands in studio.log AND
+	//     in os.Stderr together. Going through `log.Writer()` (the global
+	//     log target, set up at studio boot to MultiWriter(stderr, file))
+	//     means ffmpeg lines persist next to the rest of the pipeline
+	//     messages, in order — invaluable when triaging a hang post-mortem.
 	var errBuf strings.Builder
-	cmd.Stderr = io.MultiWriter(&limitedWriter{b: &errBuf, max: 32 * 1024}, os.Stderr)
+	cmd.Stderr = io.MultiWriter(&limitedWriter{b: &errBuf, max: 32 * 1024}, log.Writer())
+
+	log.Printf("ffmpeg start: %s", summariseArgs(args))
 
 	if err := cmd.Start(); err != nil {
+		log.Printf("ffmpeg start failed: %v", err)
 		return err
 	}
+	log.Printf("ffmpeg pid=%d, expected duration ≈ %.1fs", cmd.Process.Pid, expectedDur)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -83,9 +90,32 @@ func (r *Runner) runFFmpeg(ctx context.Context, args []string, expectedDur float
 	waitErr := cmd.Wait()
 	wg.Wait()
 	if waitErr != nil {
+		log.Printf("ffmpeg exit error: %v", waitErr)
 		return fmt.Errorf("ffmpeg: %v\n%s", waitErr, errBuf.String())
 	}
+	log.Printf("ffmpeg exit OK")
 	return nil
+}
+
+// summariseArgs trims the long filter_complex / source-path strings so
+// the log line stays grep-friendly. We log the full args at debug only;
+// the operator's eye care is "what did we just invoke and which inputs".
+func summariseArgs(args []string) string {
+	const maxArgLen = 80
+	out := make([]string, 0, len(args))
+	for i, a := range args {
+		// Always keep flags (start with `-`) and the short args. Truncate
+		// the next-arg-after-filter-complex (the giant filter graph).
+		if len(a) > maxArgLen {
+			a = a[:maxArgLen-1] + "…"
+		}
+		out = append(out, a)
+		if i > 40 {
+			out = append(out, "… (truncated)")
+			break
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // limitedWriter caps captured stderr so a chatty ffmpeg build can't blow up
