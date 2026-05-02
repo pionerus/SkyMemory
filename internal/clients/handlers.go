@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pionerus/freefall/internal/auth"
@@ -49,8 +51,19 @@ type ClientRow struct {
 	LatestJumpAt   time.Time
 	LatestJumpID   int64
 	LatestStatus   string
-	OperatorEmail  string // empty == unassigned
-	OperatorInits  string // for the avatar tile
+
+	// Assigned-operator state. The "preferred" operator that the club
+	// admin picks when adding the client. Distinct from the operator
+	// who actually filmed any historical jump (`LatestJumpOperator`).
+	AssignedOperatorID    int64  // 0 means unassigned
+	AssignedOperatorEmail string // joined for display
+
+	// Latest-jump operator — set on jumps.operator_id when the studio
+	// register flow runs. Shown next to the assignment so the admin can
+	// see drift ("assigned to A but B actually filmed").
+	LatestJumpOperator string
+
+	OperatorInits  string // initials of AssignedOperatorEmail for the avatar
 	JumpCount      int
 }
 
@@ -118,7 +131,9 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 			COALESCE(latest.created_at, '0001-01-01'::timestamptz),
 			COALESCE(latest.id, 0),
 			COALESCE(latest.status, ''),
-			COALESCE(o.email, ''),
+			COALESCE(c.assigned_operator_id, 0),
+			COALESCE(assigned.email, ''),
+			COALESCE(latestop.email, ''),
 			COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = c.id), 0)
 		FROM clients c
 		LEFT JOIN LATERAL (
@@ -128,7 +143,8 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 			ORDER BY j.created_at DESC
 			LIMIT 1
 		) latest ON true
-		LEFT JOIN operators o ON o.id = latest.operator_id
+		LEFT JOIN operators assigned  ON assigned.id  = c.assigned_operator_id
+		LEFT JOIN operators latestop  ON latestop.id  = latest.operator_id
 		WHERE c.tenant_id = $1
 		ORDER BY COALESCE(latest.created_at, c.created_at) DESC
 		LIMIT 500`,
@@ -147,12 +163,13 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 			&c.ID, &c.Name, &c.Email, &c.Phone,
 			&c.AccessCode, &c.CreatedAt,
 			&c.LatestJumpAt, &c.LatestJumpID, &c.LatestStatus,
-			&c.OperatorEmail, &c.JumpCount,
+			&c.AssignedOperatorID, &c.AssignedOperatorEmail,
+			&c.LatestJumpOperator, &c.JumpCount,
 		); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		c.OperatorInits = operatorInitials(c.OperatorEmail)
+		c.OperatorInits = operatorInitials(c.AssignedOperatorEmail)
 		clients = append(clients, c)
 	}
 
@@ -179,7 +196,10 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range clients {
 		data.TotalClients++
-		if c.LatestJumpID == 0 || c.OperatorEmail == "" {
+		// "Unassigned" = no operator picked yet. The latest-jump operator
+		// is informational only; the assignment is what determines whose
+		// /operator/clients view this client appears in.
+		if c.AssignedOperatorID == 0 {
 			data.UnassignedCount++
 		}
 		switch c.LatestStatus {
@@ -198,11 +218,13 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 // POST /admin/clients   (JSON body)
 // =====================================================================
 
-// CreateRequest is the body of the "Add client" modal form.
+// CreateRequest is the body of the "Add client" modal form. AssignedOperatorID
+// is optional — pass 0 (or omit) to leave the client unassigned.
 type CreateRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Phone string `json:"phone"`
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	Phone              string `json:"phone"`
+	AssignedOperatorID int64  `json:"assigned_operator_id"`
 }
 
 // CreateResponse is the success payload returned to the modal's JS.
@@ -232,6 +254,21 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// If an operator was picked, validate it belongs to the same tenant.
+	// Defends against a malicious form submission with a foreign id.
+	if req.AssignedOperatorID > 0 {
+		var ok bool
+		err := h.DB.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM operators WHERE id = $1 AND tenant_id = $2)`,
+			req.AssignedOperatorID, s.TenantID,
+		).Scan(&ok)
+		if err != nil || !ok {
+			writeJSONErr(w, http.StatusBadRequest, "OPERATOR",
+				"Selected operator doesn't belong to this club.")
+			return
+		}
+	}
+
 	// Insert with retry on access_code collision (we generate; the unique
 	// index would reject on a clash, which is astronomically unlikely but
 	// handle it cleanly anyway).
@@ -247,10 +284,10 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = h.DB.QueryRow(ctx, `
-			INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by)
-			VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6)
+			INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by, assigned_operator_id)
+			VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6, NULLIF($7,0)::bigint)
 			RETURNING id`,
-			s.TenantID, req.Name, req.Email, req.Phone, code, s.OperatorID,
+			s.TenantID, req.Name, req.Email, req.Phone, code, s.OperatorID, req.AssignedOperatorID,
 		).Scan(&id)
 		if err == nil {
 			break
@@ -269,6 +306,66 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(CreateResponse{ID: id, AccessCode: code})
+}
+
+// =====================================================================
+// PUT /admin/clients/{id}/assign  (JSON body: {operator_id: <int64>})
+// =====================================================================
+//
+// Reassigns a client to a different operator (or detaches via 0). Only
+// operators within the same tenant are accepted.
+func (h *Handlers) Assign(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+
+	cid := chi.URLParam(r, "id")
+	clientID, err := strconv.ParseInt(cid, 10, 64)
+	if err != nil || clientID <= 0 {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_ID", "client id required")
+		return
+	}
+
+	var req struct {
+		OperatorID int64 `json:"operator_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if req.OperatorID > 0 {
+		var ok bool
+		_ = h.DB.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM operators WHERE id = $1 AND tenant_id = $2)`,
+			req.OperatorID, s.TenantID,
+		).Scan(&ok)
+		if !ok {
+			writeJSONErr(w, http.StatusBadRequest, "OPERATOR", "operator not in this club")
+			return
+		}
+	}
+
+	ct, err := h.DB.Exec(ctx,
+		`UPDATE clients SET assigned_operator_id = NULLIF($1,0)::bigint
+		 WHERE id = $2 AND tenant_id = $3`,
+		req.OperatorID, clientID, s.TenantID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		writeJSONErr(w, http.StatusNotFound, "NOT_FOUND", "client not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"client_id":   clientID,
+		"operator_id": req.OperatorID,
+	})
 }
 
 // =====================================================================

@@ -357,24 +357,175 @@ func (h *Handlers) renderStub(w http.ResponseWriter, d StubData) {
 	}
 }
 
-// Operators — Phase 10.3.
-func (h *Handlers) Operators(w http.ResponseWriter, r *http.Request) {
-	h.renderStub(w, StubData{
-		Active: "operators", Title: "Operators",
-		Sub:      "Cross-tenant camera-operator roster",
-		Body:     "Will list every operator across every club, with their tenant, role, last-login time, and a sign-in-as button. Filter by club, role, or activity.",
-		PhaseTag: "Phase 10.3",
-	})
+// Operators — Phase 10.3 (real impl).
+//
+// Cross-tenant operator roster: every operator-role and owner-role row
+// across every active club. Sorted by tenant then role then email so
+// related rows cluster.
+type platformOperatorRow struct {
+	ID          int64
+	Email       string
+	Role        string
+	TenantID    int64
+	TenantName  string
+	CreatedAt   time.Time
+	LastLoginAt *time.Time
+	JumpCount   int
+	ClientCount int
 }
 
-// Jumps — Phase 10.4.
+type platformOperatorsPageData struct {
+	StubData
+	Operators []platformOperatorRow
+	TotalOps  int
+	OwnerN    int
+	OperatorN int
+}
+
+func (h *Handlers) Operators(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			o.id, o.email, o.role,
+			t.id AS tenant_id, t.name AS tenant_name,
+			o.created_at, o.last_login_at,
+			COALESCE((SELECT COUNT(*) FROM jumps j WHERE j.operator_id = o.id), 0),
+			COALESCE((SELECT COUNT(*) FROM clients c WHERE c.assigned_operator_id = o.id), 0)
+		FROM operators o
+		JOIN tenants t ON t.id = o.tenant_id
+		WHERE t.deleted_at IS NULL
+		ORDER BY t.name ASC, o.role DESC, o.email ASC`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var ops []platformOperatorRow
+	var owners, operators int
+	for rows.Next() {
+		var op platformOperatorRow
+		var lastLogin *time.Time
+		if err := rows.Scan(
+			&op.ID, &op.Email, &op.Role,
+			&op.TenantID, &op.TenantName,
+			&op.CreatedAt, &lastLogin,
+			&op.JumpCount, &op.ClientCount,
+		); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		op.LastLoginAt = lastLogin
+		ops = append(ops, op)
+		if op.Role == "owner" {
+			owners++
+		} else {
+			operators++
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.Templates.ExecuteTemplate(w, "platform_operators.html", platformOperatorsPageData{
+		StubData: StubData{
+			Active: "operators",
+			Title:  "Operators",
+			Sub:    fmt.Sprintf("%d total · %d owners · %d operators", len(ops), owners, operators),
+		},
+		Operators: ops,
+		TotalOps:  len(ops),
+		OwnerN:    owners,
+		OperatorN: operators,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// Jumps — Phase 10.4 (real impl).
+type platformJumpRow struct {
+	JumpID         int64
+	AccessCode     string
+	ClientName     string
+	ClientEmail    string
+	OperatorEmail  string
+	TenantID       int64
+	TenantName     string
+	Status         string
+	CreatedAt      time.Time
+	HasArtifact    bool
+	ArtifactSize   int64
+}
+
+type platformJumpsPageData struct {
+	StubData
+	Jumps      []platformJumpRow
+	TotalJumps int
+	StatusBreak map[string]int
+}
+
 func (h *Handlers) Jumps(w http.ResponseWriter, r *http.Request) {
-	h.renderStub(w, StubData{
-		Active: "jumps", Title: "Jumps",
-		Sub:      "All jumps across all clubs",
-		Body:     "Will list every jump platform-wide with status (draft / encoding / ready / sent / delivered) and per-tenant filters. Click-through opens the operator's project view.",
-		PhaseTag: "Phase 10.4",
-	})
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			j.id, c.access_code, c.name,
+			COALESCE(c.email, ''),
+			COALESCE(o.email, ''),
+			t.id, t.name,
+			j.status, j.created_at,
+			COALESCE(art.size_bytes, 0)         AS art_size,
+			art.id IS NOT NULL                   AS has_art
+		FROM jumps j
+		JOIN clients c ON c.id = j.client_id
+		JOIN tenants t ON t.id = j.tenant_id
+		LEFT JOIN operators o ON o.id = j.operator_id
+		LEFT JOIN LATERAL (
+			SELECT id, size_bytes FROM jump_artifacts a
+			WHERE a.jump_id = j.id AND a.kind = 'horizontal_1080p'
+			ORDER BY uploaded_at DESC LIMIT 1
+		) art ON true
+		WHERE t.deleted_at IS NULL
+		ORDER BY j.created_at DESC
+		LIMIT 200`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var jumps []platformJumpRow
+	statusN := map[string]int{}
+	for rows.Next() {
+		var j platformJumpRow
+		if err := rows.Scan(
+			&j.JumpID, &j.AccessCode, &j.ClientName, &j.ClientEmail,
+			&j.OperatorEmail,
+			&j.TenantID, &j.TenantName,
+			&j.Status, &j.CreatedAt,
+			&j.ArtifactSize, &j.HasArtifact,
+		); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jumps = append(jumps, j)
+		statusN[j.Status]++
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.Templates.ExecuteTemplate(w, "platform_jumps.html", platformJumpsPageData{
+		StubData: StubData{
+			Active: "jumps",
+			Title:  "Jumps",
+			Sub:    fmt.Sprintf("%d most-recent jumps across all clubs", len(jumps)),
+		},
+		Jumps:       jumps,
+		TotalJumps:  len(jumps),
+		StatusBreak: statusN,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // WatchLinks — Phase 10.5 (analytics from the watch_events table).

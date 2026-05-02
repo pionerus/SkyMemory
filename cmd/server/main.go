@@ -23,6 +23,7 @@ import (
 	"github.com/pionerus/freefall/internal/db"
 	"github.com/pionerus/freefall/internal/jump"
 	"github.com/pionerus/freefall/internal/music"
+	"github.com/pionerus/freefall/internal/operators"
 	"github.com/pionerus/freefall/internal/platform"
 	"github.com/pionerus/freefall/internal/storage"
 	"github.com/pionerus/freefall/internal/watch"
@@ -120,6 +121,10 @@ func main() {
 		DB:        pool,
 		Templates: templates.Templates,
 	}
+	operatorsH := &operators.Handlers{
+		DB:        pool,
+		Templates: templates.Templates,
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -201,6 +206,12 @@ func main() {
 	r.With(sessions.RequireOwner).Delete("/admin/branding/outro", brandH.DeleteOutro)
 	r.With(sessions.RequireOwner).Get("/admin/clients", clientsH.List)
 	r.With(sessions.RequireOwner).Post("/admin/clients", clientsH.Create)
+	r.With(sessions.RequireOwner).Put("/admin/clients/{id}/assign", clientsH.Assign)
+
+	r.With(sessions.RequireOwner).Get("/admin/operators", operatorsH.List)
+	r.With(sessions.RequireOwner).Post("/admin/operators", operatorsH.Create)
+	r.With(sessions.RequireOwner).Get("/admin/operators/json", operatorsH.ListJSON)
+	r.With(sessions.RequireOwner).Delete("/admin/operators/{id}", operatorsH.Delete)
 
 	r.With(sessions.RequireOwner).Get("/admin/billing", func(w http.ResponseWriter, req *http.Request) {
 		s := auth.MustFromContext(req.Context())
@@ -260,11 +271,10 @@ func main() {
 	})
 
 	// === Operator portal (web dashboard for camera operators, in addition to studio.exe) ===
-	// Operator portal pages. All four sections share operator_dashboard.html
-	// with different `Active` + page titles — content blocks are scoped via
-	// {{if eq .Active "..."}} so the rail highlights correctly. Real impls
-	// land in Phase 9.x; for now they're informative placeholders.
-	renderOperatorPage := func(active, title, sub string) http.HandlerFunc {
+	// Operator portal pages. /clients and /projects are real implementations
+	// (see operator_*.go below); /dashboard and /storage stay as
+	// section-specific placeholders rendered by operator_dashboard.html.
+	renderOperatorPlaceholder := func(active, title, sub string) http.HandlerFunc {
 		return func(w http.ResponseWriter, req *http.Request) {
 			s := auth.MustFromContext(req.Context())
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -278,10 +288,11 @@ func main() {
 			})
 		}
 	}
-	r.With(sessions.RequireSession).Get("/operator/",         renderOperatorPage("dashboard", "Operator", "My recent jumps · clients · storage"))
-	r.With(sessions.RequireSession).Get("/operator/projects", renderOperatorPage("projects",  "My projects", "Web mirror of your studio.exe project list"))
-	r.With(sessions.RequireSession).Get("/operator/clients",  renderOperatorPage("clients",   "My clients",  "Jumpers you have filmed"))
-	r.With(sessions.RequireSession).Get("/operator/storage",  renderOperatorPage("storage",   "My storage",  "Personal cloud storage for clips + outputs"))
+	r.With(sessions.RequireSession).Get("/operator/",         renderOperatorPlaceholder("dashboard", "Operator", "My recent jumps · clients · storage"))
+	r.With(sessions.RequireSession).Get("/operator/storage",  renderOperatorPlaceholder("storage",   "My storage",  "Personal cloud storage for clips + outputs"))
+
+	r.With(sessions.RequireSession).Get("/operator/clients",  operatorClientsHandler(pool))
+	r.With(sessions.RequireSession).Get("/operator/projects", operatorProjectsHandler(pool))
 
 	// Admin: license token CRUD (owner-only). Tokens get installed in studio.exe.
 	r.With(sessions.RequireOwner).Post("/admin/license-tokens", authH.CreateToken)
@@ -350,6 +361,156 @@ func main() {
 	defer cncl()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+// operatorClientsHandler renders /operator/clients — the camera operator's
+// view of "clients I've been assigned to". Filters clients by
+// `assigned_operator_id = self`. Pulls the latest jump per client to show
+// status/date in the row.
+func operatorClientsHandler(pool *db.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+
+		type row struct {
+			ID           int64
+			Name         string
+			Email        string
+			Phone        string
+			AccessCode   string
+			LatestJumpAt time.Time
+			LatestStatus string
+			JumpCount    int
+		}
+		rows, err := pool.Query(ctx, `
+			SELECT
+				c.id, c.name, COALESCE(c.email, ''), COALESCE(c.phone, ''),
+				c.access_code,
+				COALESCE(latest.created_at, '0001-01-01'::timestamptz),
+				COALESCE(latest.status, ''),
+				COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = c.id), 0)
+			FROM clients c
+			LEFT JOIN LATERAL (
+				SELECT j.created_at, j.status FROM jumps j
+				WHERE j.client_id = c.id
+				ORDER BY j.created_at DESC LIMIT 1
+			) latest ON true
+			WHERE c.tenant_id = $1 AND c.assigned_operator_id = $2
+			ORDER BY COALESCE(latest.created_at, c.created_at) DESC
+			LIMIT 200`,
+			s.TenantID, s.OperatorID,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		out := make([]row, 0, 16)
+		var pending int // clients with no jump yet
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(
+				&r.ID, &r.Name, &r.Email, &r.Phone,
+				&r.AccessCode,
+				&r.LatestJumpAt, &r.LatestStatus,
+				&r.JumpCount,
+			); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, r)
+			if r.JumpCount == 0 {
+				pending++
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.Templates.ExecuteTemplate(w, "operator_clients.html", map[string]any{
+			"Active":        "clients",
+			"PageTitle":     "My clients",
+			"PageSub":       fmt.Sprintf("%d assigned · %d still need a jump", len(out), pending),
+			"OperatorEmail": s.OperatorEmail,
+			"OperatorRole":  s.OperatorRole,
+			"TenantName":    data_tenantName(ctx, pool, s.TenantID),
+			"Clients":       out,
+			"Pending":       pending,
+		})
+	}
+}
+
+// operatorProjectsHandler renders /operator/projects — every jump where
+// this operator is `jumps.operator_id`. Studio clip data lives in studio's
+// SQLite (per-machine), not here, so we surface what cloud knows: status,
+// access_code, client name, watch link, video size.
+func operatorProjectsHandler(pool *db.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+
+		type row struct {
+			JumpID       int64
+			AccessCode   string
+			ClientName   string
+			Status       string
+			CreatedAt    time.Time
+			HasArtifact  bool
+			ArtifactSize int64
+		}
+		rows, err := pool.Query(ctx, `
+			SELECT
+				j.id, c.access_code, c.name,
+				j.status, j.created_at,
+				art.id IS NOT NULL  AS has_art,
+				COALESCE(art.size_bytes, 0) AS art_size
+			FROM jumps j
+			JOIN clients c ON c.id = j.client_id
+			LEFT JOIN LATERAL (
+				SELECT id, size_bytes FROM jump_artifacts a
+				WHERE a.jump_id = j.id AND a.kind = 'horizontal_1080p'
+				ORDER BY uploaded_at DESC LIMIT 1
+			) art ON true
+			WHERE j.tenant_id = $1 AND j.operator_id = $2
+			ORDER BY j.created_at DESC
+			LIMIT 200`,
+			s.TenantID, s.OperatorID,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		out := make([]row, 0, 16)
+		statusN := map[string]int{}
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(
+				&r.JumpID, &r.AccessCode, &r.ClientName,
+				&r.Status, &r.CreatedAt,
+				&r.HasArtifact, &r.ArtifactSize,
+			); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, r)
+			statusN[r.Status]++
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.Templates.ExecuteTemplate(w, "operator_projects.html", map[string]any{
+			"Active":        "projects",
+			"PageTitle":     "My projects",
+			"PageSub":       fmt.Sprintf("%d jumps you've registered", len(out)),
+			"OperatorEmail": s.OperatorEmail,
+			"OperatorRole":  s.OperatorRole,
+			"TenantName":    data_tenantName(ctx, pool, s.TenantID),
+			"Jumps":         out,
+			"StatusBreak":   statusN,
+		})
 	}
 }
 

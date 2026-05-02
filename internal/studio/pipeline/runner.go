@@ -801,13 +801,18 @@ func (r *Runner) renderSinglePass(
 	}
 	// Attempt 2: QSV failed → swap to libx264 and retry once.
 	if useQSV && isQSVEncoderError(err.Error()) {
-		fmt.Fprintf(log.Writer(), "QSV encode failed (%v) — retrying with libx264\n", err)
+		log.Printf("QSV encode failed: %v", err)
+		log.Printf("retrying with libx264 (CPU encoder) — QSV disabled for the rest of this studio session")
 		r.useQSV = false // remember for the rest of the session
 		_, args2 := build(false)
 		if err2 := r.runFFmpeg(ctx, args2, totalDur, onProgress); err2 != nil {
 			return 0, fmt.Errorf("single-pass render (libx264 fallback): %w", err2)
 		}
+		log.Printf("libx264 fallback succeeded")
 		return totalDur, nil
+	}
+	if useQSV {
+		log.Printf("QSV ffmpeg error did not match isQSVEncoderError pattern, no fallback attempted: %v", err)
 	}
 	return 0, fmt.Errorf("single-pass render: %w", err)
 }

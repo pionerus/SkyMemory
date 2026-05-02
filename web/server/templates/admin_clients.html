@@ -98,7 +98,7 @@
 .client-row .phone, .client-row .date { font-family: var(--sm-mono, monospace); font-size: 12px; }
 .client-row .date.has-date { color: var(--sm-text); }
 
-/* Operator chip */
+/* Operator chip — clickable now (opens an assign-dropdown) */
 .op-chip {
   width: 100%;
   display: flex; align-items: center; gap: 8px;
@@ -108,8 +108,10 @@
   border-radius: 8px;
   color: var(--sm-text);
   font-size: 12px;
-  cursor: not-allowed;            /* dropdown is Phase 11+ */
+  cursor: pointer;
+  text-align: left;
 }
+.op-chip:hover { background: var(--sm-surface-3); border-color: var(--sm-border-strong); }
 .op-chip.is-unassigned {
   color: var(--sm-text-dim);
 }
@@ -274,18 +276,20 @@
           <div class="date">never</div>
           {{end}}
           <div>
-            {{if .OperatorEmail}}
-            <div class="op-chip" title="{{.OperatorEmail}}">
+              {{if .AssignedOperatorEmail}}
+            <button class="op-chip" type="button" data-assign="{{.ID}}"
+                    data-current="{{.AssignedOperatorID}}" title="Click to reassign">
               <span class="ava">{{.OperatorInits}}</span>
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.OperatorEmail}}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.AssignedOperatorEmail}}</span>
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            </button>
             {{else}}
-            <div class="op-chip is-unassigned" title="Unassigned">
+            <button class="op-chip is-unassigned" type="button" data-assign="{{.ID}}"
+                    data-current="0" title="Click to assign">
               <span class="ava">+</span>
               <span style="flex:1;text-align:left">Assign…</span>
               <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            </button>
             {{end}}
           </div>
           <div>
@@ -341,6 +345,17 @@
             <input class="sm-input" name="phone" placeholder="+1 555 123 4567">
           </div>
         </div>
+        <div>
+          <label class="sm-label">Assign to operator</label>
+          <select class="sm-input" name="assigned_operator_id" id="addAssignSelect" style="height:38px">
+            <option value="0">— Unassigned —</option>
+            <!-- options populated by JS from /admin/operators/json -->
+          </select>
+          <div style="font-size:11px;color:var(--sm-text-muted);margin-top:6px">
+            The operator will see this client on their /operator/clients page.
+            You can change the assignment later by clicking the operator chip in the row.
+          </div>
+        </div>
         <div id="addClientErr" class="err-box"></div>
         <div id="addClientOk" class="ok-box"></div>
       </div>
@@ -353,6 +368,78 @@
 </div>
 
 <script>
+// Cached list of tenant operators — used by both the add-modal dropdown
+// and the inline assign-chip prompt. Lazy-loaded on first use.
+let OPERATORS_CACHE = null;
+async function fetchOperators() {
+  if (OPERATORS_CACHE) return OPERATORS_CACHE;
+  const res = await fetch('/admin/operators/json', { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const body = await res.json();
+  OPERATORS_CACHE = body.operators || [];
+  return OPERATORS_CACHE;
+}
+
+// Populate the add-modal's <select> with operators from this tenant.
+async function populateAssignSelect() {
+  const sel = document.getElementById('addAssignSelect');
+  if (!sel) return;
+  try {
+    const ops = await fetchOperators();
+    // Keep the "Unassigned" option as index 0; rebuild the rest.
+    while (sel.options.length > 1) sel.remove(1);
+    for (const op of ops) {
+      const opt = document.createElement('option');
+      opt.value = String(op.id);
+      opt.textContent = op.email + (op.role === 'owner' ? ' (owner)' : '');
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    console.warn('operators fetch failed:', e);
+  }
+}
+
+// Inline reassign: click on the operator chip → prompt picker.
+function wireAssignChips() {
+  document.querySelectorAll('.op-chip[data-assign]').forEach(chip => {
+    chip.addEventListener('click', async () => {
+      const clientID = chip.dataset.assign;
+      const currentID = chip.dataset.current || '0';
+      try {
+        const ops = await fetchOperators();
+        // Build a numbered prompt — minimal but functional. A proper
+        // dropdown lands in Phase 11; this gets the workflow working today.
+        const lines = ['Assign client to:'];
+        lines.push('  0) — Unassigned —');
+        ops.forEach((o, i) => {
+          const mark = String(o.id) === currentID ? ' ✓' : '';
+          lines.push('  ' + (i + 1) + ') ' + o.email + (o.role === 'owner' ? ' (owner)' : '') + mark);
+        });
+        lines.push('');
+        lines.push('Enter number:');
+        const ans = prompt(lines.join('\n'), '');
+        if (ans === null) return;
+        const idx = parseInt(ans.trim(), 10);
+        let opID = 0;
+        if (idx > 0 && idx <= ops.length) opID = ops[idx - 1].id;
+        else if (idx !== 0) return; // anything else = cancel
+
+        const res = await fetch('/admin/clients/' + clientID + '/assign', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ operator_id: opID }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+        location.reload();
+      } catch (e) {
+        alert('Assign failed: ' + e.message);
+      }
+    });
+  });
+}
+
 // Search filter
 const searchInput = document.getElementById('searchInput');
 const list = document.getElementById('clientsList');
@@ -368,10 +455,16 @@ if (searchInput && list) {
 
 // Modal
 const modal = document.getElementById('addClientModal');
-document.getElementById('openAddClient').addEventListener('click', () => modal.classList.add('is-open'));
+document.getElementById('openAddClient').addEventListener('click', () => {
+  modal.classList.add('is-open');
+  populateAssignSelect(); // lazy-load operators for the dropdown
+});
 document.getElementById('closeAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
 document.getElementById('cancelAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
+
+// Inline reassign for every existing row.
+wireAssignChips();
 
 const form = document.getElementById('addClientForm');
 const errBox = document.getElementById('addClientErr');
@@ -383,6 +476,10 @@ form.addEventListener('submit', async (e) => {
   errBox.classList.remove('show'); okBox.classList.remove('show');
   const data = {};
   for (const [k, v] of new FormData(form).entries()) data[k] = v;
+  // Server expects assigned_operator_id as a number, FormData hands strings.
+  if (data.assigned_operator_id !== undefined) {
+    data.assigned_operator_id = parseInt(data.assigned_operator_id, 10) || 0;
+  }
 
   submitBtn.disabled = true;
   const orig = submitBtn.textContent;
