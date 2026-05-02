@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -737,27 +738,78 @@ func (r *Runner) renderSinglePass(
 		finalA = "[afinal]"
 	}
 
-	filterComplex := strings.TrimSuffix(fc.String(), ";")
+	// === Build encode args. Try QSV first when available; on a
+	// QSV-specific encoder error we fall back to libx264 inline so the
+	// operator gets a finished render in one click instead of having to
+	// retry. ===
+	baseFC := fc.String() // snapshot before we append the final format step
+	build := func(useQSV bool) (string, []string) {
+		// Force the encoder's expected pix_fmt at the very end of the
+		// graph. QSV is happiest with nv12; libx264 accepts both but the
+		// CPU path was tested with yuv420p so keep that.
+		pixFmt := "yuv420p"
+		if useQSV {
+			pixFmt = "nv12"
+		}
+		full := baseFC + finalV + "format=" + pixFmt + "[venc];"
+		filterComplex := strings.TrimSuffix(full, ";")
 
-	// === Encode args ===
-	args = append(args,
-		"-filter_complex", filterComplex,
-		"-map", finalV,
-		"-map", finalA,
-	)
-	args = append(args, r.videoEncArgs()...)
-	args = append(args,
-		"-c:a", "aac",
-		"-b:a", "192k",
-		"-ar", "48000",
-		"-movflags", "+faststart",
-		dstPath,
-	)
-
-	if err := r.runFFmpeg(ctx, args, totalDur, onProgress); err != nil {
-		return 0, fmt.Errorf("single-pass render: %w", err)
+		args := append([]string{}, args...) // copy parent args (inputs)
+		args = append(args,
+			"-filter_complex", filterComplex,
+			"-map", "[venc]",
+			"-map", finalA,
+			// Constant framerate. With sources at 50fps + 29.97fps + lavfi
+			// inputs the default vfr emits jittered timestamps that QSV's
+			// frame-type tracker rejects.
+			"-fps_mode", "cfr",
+		)
+		// Inline encoder args (we toggle useQSV per attempt without
+		// touching r.useQSV until we know the result).
+		if useQSV {
+			args = append(args,
+				"-c:v", "h264_qsv",
+				"-preset", "veryfast",
+				"-global_quality", "22",
+				"-pix_fmt", "nv12",
+				"-look_ahead", "0",
+			)
+		} else {
+			args = append(args,
+				"-c:v", "libx264",
+				"-preset", "veryfast",
+				"-crf", "20",
+				"-pix_fmt", "yuv420p",
+			)
+		}
+		args = append(args,
+			"-c:a", "aac",
+			"-b:a", "192k",
+			"-ar", "48000",
+			"-movflags", "+faststart",
+			dstPath,
+		)
+		return filterComplex, args
 	}
-	return totalDur, nil
+
+	// Attempt 1: whatever encoder the auto-detect picked.
+	useQSV := r.useQSV
+	_, args1 := build(useQSV)
+	err := r.runFFmpeg(ctx, args1, totalDur, onProgress)
+	if err == nil {
+		return totalDur, nil
+	}
+	// Attempt 2: QSV failed → swap to libx264 and retry once.
+	if useQSV && isQSVEncoderError(err.Error()) {
+		fmt.Fprintf(log.Writer(), "QSV encode failed (%v) — retrying with libx264\n", err)
+		r.useQSV = false // remember for the rest of the session
+		_, args2 := build(false)
+		if err2 := r.runFFmpeg(ctx, args2, totalDur, onProgress); err2 != nil {
+			return 0, fmt.Errorf("single-pass render (libx264 fallback): %w", err2)
+		}
+		return totalDur, nil
+	}
+	return 0, fmt.Errorf("single-pass render: %w", err)
 }
 
 // =====================================================================
@@ -822,6 +874,12 @@ func (r *Runner) EncoderName(ctx context.Context) string {
 // 22 in perceived quality but ~3-5× faster on UHD-class iGPUs.
 // libx264 fallback: kept conservative (veryfast crf 20) for machines without
 // working QuickSync.
+//
+// Note we used to ship `-low_power 1` here for an extra 1.5-2× via VDENC,
+// but that path produces "Invalid FrameType:0 / Error encoding a frame"
+// on this dev box (UHD 620, mixed 50fps + 29.97fps + lavfi inputs). The
+// default PAK encoder works around it. Real-world cost: ~30% slower
+// QSV; still hardware-accelerated, still QSV.
 func (r *Runner) videoEncArgs() []string {
 	if r.useQSV {
 		return []string{
@@ -830,10 +888,6 @@ func (r *Runner) videoEncArgs() []string {
 			"-global_quality", "22",
 			"-pix_fmt", "nv12",
 			"-look_ahead", "0",
-			// VDENC fixed-function path on Intel iGPUs — typically 1.5–2× faster
-			// than the default PAK encoder at the cost of marginal quality loss
-			// (still well within "good enough for delivery" territory).
-			"-low_power", "1",
 		}
 	}
 	return []string{
@@ -842,6 +896,24 @@ func (r *Runner) videoEncArgs() []string {
 		"-crf", "20",
 		"-pix_fmt", "yuv420p",
 	}
+}
+
+// isQSVEncoderError tells if the ffmpeg error string looks like a QSV
+// encoder failure (driver/iGPU specific) rather than a general filter
+// problem. These errors mean "QSV broke; try libx264 instead", not
+// "the user's inputs are wrong".
+func isQSVEncoderError(errMsg string) bool {
+	for _, needle := range []string{
+		"h264_qsv",
+		"Invalid FrameType",
+		"Error submitting video frame",
+		"MFX_ERR",
+	} {
+		if strings.Contains(errMsg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // Sentinel for callers that need a no-op duration to wait between progress
