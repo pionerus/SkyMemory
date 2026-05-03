@@ -26,14 +26,35 @@ type ServerConfig struct {
 	MusicSecretKey    string
 	MusicBucket       string // 'freefall-music'
 	MusicUsePathStyle bool   // true for MinIO
+
+	// Tenant branding (watermark PNG + optional intro/outro clips). Reuses
+	// the same MinIO/S3 credentials as music — only the bucket differs so
+	// branding stays a separate namespace from the global music library.
+	BrandingBucket string // 'freefall-branding'
+
+	// Final deliverables (rendered videos + photos) uploaded by studio.exe
+	// after each render. Per-tenant prefix inside the bucket. Phase 7.1.
+	DeliverablesBucket string // 'freefall-deliverables'
 }
 
-// StudioConfig — minimal env for the local Windows binary.
+// StudioConfig — minimal env for the local Windows binary. Studio
+// authenticates against cloud with the operator's email + password
+// (same credentials they use to sign into /operator/* in the browser);
+// the legacy `STUDIO_LICENSE_TOKEN` field is preserved as a transition
+// fallback so existing dev installs keep working until they migrate.
 type StudioConfig struct {
-	HTTPAddr      string // ":8080"
-	StatePath     string // path to SQLite state.db
-	CloudBaseURL  string // points at the cloud server
-	LicenseToken  string // provisioned via /admin in cloud
+	HTTPAddr     string // ":8080"
+	StatePath    string // path to SQLite state.db
+	CloudBaseURL string // points at the cloud server
+
+	// New auth path: studio.exe POSTs these to /auth/login at boot,
+	// then keeps the resulting session cookie for every /api/v1/* call.
+	OperatorEmail    string
+	OperatorPassword string
+
+	// Legacy. Set to non-empty to fall back to the bearer-token API path.
+	// Removed entirely once every dev install has migrated.
+	LicenseToken string
 }
 
 func LoadServer() (*ServerConfig, error) {
@@ -53,6 +74,10 @@ func LoadServer() (*ServerConfig, error) {
 		MusicSecretKey:    getenv("FREEFALL_MUSIC_SECRET_KEY", "freefall_dev_secret"),
 		MusicBucket:       getenv("FREEFALL_MUSIC_BUCKET", "freefall-music"),
 		MusicUsePathStyle: getenv("FREEFALL_MUSIC_PATH_STYLE", "true") == "true",
+
+		BrandingBucket: getenv("FREEFALL_BRANDING_BUCKET", "freefall-branding"),
+
+		DeliverablesBucket: getenv("FREEFALL_DELIVERABLES_BUCKET", "freefall-deliverables"),
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("FREEFALL_DATABASE_URL is required")
@@ -71,10 +96,12 @@ func LoadServer() (*ServerConfig, error) {
 func LoadStudio() (*StudioConfig, error) {
 	home, _ := os.UserHomeDir()
 	return &StudioConfig{
-		HTTPAddr:     getenv("STUDIO_HTTP_ADDR", "127.0.0.1:8080"),
-		StatePath:    getenv("STUDIO_STATE_PATH", home+`\.freefall-studio\state.db`),
-		CloudBaseURL: getenv("STUDIO_CLOUD_BASE_URL", "http://localhost:8000"),
-		LicenseToken: os.Getenv("STUDIO_LICENSE_TOKEN"),
+		HTTPAddr:         getenv("STUDIO_HTTP_ADDR", "127.0.0.1:8080"),
+		StatePath:        getenv("STUDIO_STATE_PATH", home+`\.freefall-studio\state.db`),
+		CloudBaseURL:     getenv("STUDIO_CLOUD_BASE_URL", "http://localhost:8000"),
+		OperatorEmail:    os.Getenv("STUDIO_OPERATOR_EMAIL"),
+		OperatorPassword: os.Getenv("STUDIO_OPERATOR_PASSWORD"),
+		LicenseToken:     os.Getenv("STUDIO_LICENSE_TOKEN"),
 	}, nil
 }
 

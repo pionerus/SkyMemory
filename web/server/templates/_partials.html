@@ -1,0 +1,72 @@
+{{define "admin-rail"}}
+<aside class="sm-rail" style="width:240px">
+  <div style="padding: 20px 18px 18px; border-bottom: 1px solid var(--sm-border)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none">
+        <span class="sm-mark" style="width:22px"></span>
+      </span>
+      <div style="min-width:0">
+        <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
+        <span class="role-chip role-chip--club">Club admin</span>
+      </div>
+    </div>
+  </div>
+  <nav style="padding:12px;display:flex;flex-direction:column;gap:2px;flex:1">
+    <a class="sm-rail-item{{if eq .Active "dash"}} is-active{{end}}" href="/">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Dashboard
+    </a>
+    <a class="sm-rail-item{{if eq .Active "operators-people"}} is-active{{end}}" href="/admin/operators">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Operators
+    </a>
+    <a class="sm-rail-item{{if eq .Active "clients"}} is-active{{end}}" href="/admin/clients">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Clients
+    </a>
+    <a class="sm-rail-item{{if eq .Active "music"}} is-active{{end}}" href="/admin/music-library">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      Music
+    </a>
+    <a class="sm-rail-item{{if eq .Active "brand"}} is-active{{end}}" href="/admin/branding">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z"/><path d="M12 2a10 10 0 0 0 0 20 5 5 0 0 1 0-10 5 5 0 0 0 0-10z"/></svg>
+      Branding
+    </a>
+    <a class="sm-rail-item{{if eq .Active "billing"}} is-active{{end}}" href="/admin/billing">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+      Billing
+    </a>
+    <a class="sm-rail-item{{if eq .Active "settings"}} is-active{{end}}" href="/admin/settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+  </nav>
+  <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
+    <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,rgba(255,200,61,.2),rgba(255,138,61,.2));display:flex;align-items:center;justify-content:center;font-family:var(--sm-display);font-size:12px;font-weight:600;color:var(--sm-brand-hi);flex-shrink:0">{{.TenantInitials}}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}}</div>
+      <div style="font-size:11px;color:var(--sm-text-muted)">{{.PlanLabel}}</div>
+    </div>
+    <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+            style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
+      <span data-theme-icon></span>
+    </button>
+    <form method="POST" action="/auth/logout" style="margin:0">
+      <button type="submit" title="Sign out" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </form>
+  </div>
+</aside>
+<script src="/static/theme-toggle.js" defer></script>
+{{end}}
+
+{{define "admin-topbar"}}
+<header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+  <div style="flex:1">
+    <h1 style="font-size:20px;font-weight:500">{{.TopbarTitle}}</h1>
+    {{if .TopbarSub}}<div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">{{.TopbarSub}}</div>{{end}}
+  </div>
+  {{if .TopbarActions}}{{.TopbarActions}}{{end}}
+</header>
+{{end}}

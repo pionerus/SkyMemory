@@ -39,3 +39,10 @@ coverage.out
 
 # Logs
 *.log
+
+# Claude Code local settings (per-machine harness state)
+.claude/
+
+# Empty installer-staging dirs (populated at build time)
+build/ffmpeg/
+build/windows/

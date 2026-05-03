@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clubs · Skydive Memory · Platform admin</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+/* ===== Skydive Memory — Platform admin clubs (E1) =====
+   1:1 port of screens/superadmin.jsx → ClubsList + AddClubModal. */
+
+html, body { margin: 0; background: var(--sm-bg); color: var(--sm-text); font-family: var(--sm-body); }
+.shell { display: flex; min-height: 100vh; }
+
+/* Left rail — same shape as the club-admin rail but with Super-admin
+   identity + nav. */
+.super-rail {
+  width: 232px;
+  border-right: 1px solid var(--sm-border);
+  background: var(--sm-surface);
+  display: flex; flex-direction: column;
+}
+.super-rail .head {
+  padding: 20px 18px 18px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; align-items: center; gap: 10px;
+}
+.super-rail .head .sm-mark { width: 22px; height: 22px; color: var(--sm-text); }
+.super-rail .head .name {
+  font-family: var(--sm-display);
+  font-size: 14px; font-weight: 600;
+  line-height: 1.1;
+}
+.super-rail .head .badge {
+  font-size: 10px;
+  color: var(--sm-brand-hi);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.15em;
+  margin-top: 2px;
+}
+.super-rail nav { padding: 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.super-rail .nav-item {
+  display: flex; align-items: center; gap: 10px;
+  height: 36px; padding: 0 12px;
+  border-radius: 8px;
+  color: var(--sm-text-muted);
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.super-rail .nav-item:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.super-rail .nav-item.is-active {
+  background: var(--sm-brand-soft);
+  color: var(--sm-text);
+  position: relative;
+}
+.super-rail .nav-item.is-active::before {
+  content: "";
+  position: absolute; left: -16px; top: 50%;
+  width: 3px; height: 16px;
+  background: var(--sm-brand);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+.super-rail .footer {
+  padding: 14px;
+  border-top: 1px solid var(--sm-border);
+  display: flex; align-items: center; gap: 10px;
+}
+.super-rail .footer .avatar {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--sm-brand);
+  color: var(--sm-bg);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--sm-display); font-size: 13px; font-weight: 600;
+}
+.super-rail .footer .who { flex: 1; min-width: 0; }
+.super-rail .footer .name { font-size: 12px; font-weight: 500; }
+.super-rail .footer .role { font-size: 11px; color: var(--sm-text-muted); }
+
+/* Main column */
+main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.topbar {
+  height: 64px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; align-items: center; padding: 0 28px; gap: 12px;
+}
+.topbar .title-block { flex: 1; }
+.topbar h1 { font-size: 20px; font-weight: 500; margin: 0; }
+.topbar .sub { font-size: 12px; color: var(--sm-text-muted); margin-top: 2px; }
+
+/* Search input */
+.search-wrap { position: relative; }
+.search-wrap .ico {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--sm-text-muted);
+}
+.search-wrap .sm-input { padding-left: 36px; height: 38px; width: 260px; font-size: 13px; }
+
+/* Body */
+.body-pad { padding: 20px 28px; overflow: auto; flex: 1; }
+
+/* KPI cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.kpi {
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 14px;
+  padding: 18px;
+}
+.kpi .label {
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.kpi .value {
+  font-size: 28px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+  margin-top: 8px;
+}
+.kpi .value.is-success { color: var(--sm-success); }
+.kpi .value.is-warn { color: var(--sm-warning); }
+.kpi .value.is-brand { color: var(--sm-brand-hi); }
+.kpi .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 4px; }
+
+/* Clubs table */
+.club-head, .club-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 1fr 80px 90px 100px 120px 110px 32px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+}
+.club-head {
+  border-bottom: 1px solid var(--sm-border);
+  font-size: 11px;
+  font-family: var(--sm-mono);
+  color: var(--sm-text-dim);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.club-head .right, .club-row .right { text-align: right; }
+.club-row {
+  border-bottom: 1px solid var(--sm-border);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--sm-text);
+  transition: background 80ms;
+}
+.club-row:hover { background: var(--sm-surface-2); }
+.club-row .name-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.club-row .name-cell .name {
+  font-size: 14px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.club-row .name-cell .joined {
+  font-family: var(--sm-mono);
+  font-size: 11px;
+  color: var(--sm-text-muted);
+}
+.club-row .loc { font-size: 13px; color: var(--sm-text-muted); }
+.club-row .num {
+  font-family: var(--sm-mono);
+  font-size: 13px;
+}
+
+/* Club logo (initials tile) */
+.club-logo {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  font-family: var(--sm-display);
+  font-size: 14px; font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Plan + status pills already styled by sm-pill */
+
+/* Empty state */
+.empty {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--sm-text-muted);
+}
+
+/* ===== Add club modal ===== */
+.modal-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(8,10,16,.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-backdrop.is-open { display: flex; }
+.modal-panel {
+  width: 100%;
+  max-width: 560px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border-strong);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  overflow: hidden;
+  max-height: 90vh;
+  display: flex; flex-direction: column;
+}
+.modal-head {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-head h2 { font-size: 18px; font-weight: 500; }
+.modal-head .close {
+  background: transparent; border: none;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  color: var(--sm-text-muted);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-head .close:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.modal-body {
+  padding: 24px;
+  display: flex; flex-direction: column; gap: 16px;
+  overflow: auto;
+}
+.modal-foot {
+  padding: 16px 24px;
+  border-top: 1px solid var(--sm-border);
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+
+.field-grid-2 { display: grid; grid-template-columns: 1fr 200px; gap: 12px; }
+.field-grid-equal { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.divider {
+  height: 1px;
+  background: var(--sm-border);
+  margin: 4px 0;
+}
+.divider-label {
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+/* Per-jump rate inputs — replaces the abstract "plan tier" picker.
+   Two numeric inputs side-by-side, each with a € prefix glyph. */
+.rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rate-input-wrap {
+  position: relative;
+  display: flex; align-items: center;
+}
+.rate-input-wrap .currency {
+  position: absolute; left: 12px;
+  font-family: var(--sm-mono);
+  font-size: 13px;
+  color: var(--sm-text-muted);
+  pointer-events: none;
+}
+.rate-input-wrap .sm-input {
+  padding-left: 28px;
+  font-family: var(--sm-mono);
+}
+.rate-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  line-height: 1.4;
+}
+.rate-hint .em { color: var(--sm-text); }
+
+.err-box, .ok-box { padding: 10px 14px; border-radius: 10px; font-size: 12px; display: none; margin-top: 10px; }
+.err-box { background: rgba(255,107,122,.10); color: var(--sm-danger); border: 1px solid rgba(255,107,122,.28); }
+.ok-box { background: rgba(91,210,160,.10); color: var(--sm-success); border: 1px solid rgba(91,210,160,.28); }
+.err-box.show, .ok-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Left rail -->
+  <aside class="super-rail">
+    <div class="head">
+      <span class="sm-mark"></span>
+      <div>
+        <div class="name">Skydive Memory</div>
+        <span class="role-chip role-chip--super">Super admin</span>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item" href="/platform/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item is-active" href="/platform/clubs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/></svg>
+        Clubs
+      </a>
+      <a class="nav-item" href="/platform/operators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Operators
+      </a>
+      <a class="nav-item" href="/platform/jumps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Jumps
+      </a>
+      <a class="nav-item" href="/platform/watch-links">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Watch links
+      </a>
+      <a class="nav-item" href="/platform/billing">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Billing
+      </a>
+      <a class="nav-item" href="/platform/settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="footer">
+      <div class="avatar">{{if .AdminName}}{{slice .AdminName 0 1}}{{else}}A{{end}}</div>
+      <div class="who">
+        <div class="name">{{if .AdminName}}{{.AdminName}}{{else}}Platform admin{{end}}</div>
+        <div class="role">Platform owner</div>
+      </div>
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:6px 8px;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
+      <form method="post" action="/platform/logout" style="margin:0;flex:1">
+        <button class="sm-btn is-ghost is-block" style="font-size:11px" title="Sign out">Sign out</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="col">
+    <header class="topbar">
+      <div class="title-block">
+        <h1>Clubs</h1>
+        <div class="sub">{{.TotalClubs}} dropzones · {{.TotalOps}} operators · {{.TotalJumps}} videos · {{.TotalPhotos}} photo orders</div>
+      </div>
+      <div class="search-wrap">
+        <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="sm-input" id="searchInput" placeholder="Search clubs…">
+      </div>
+      <button class="sm-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Filter
+      </button>
+      <button class="sm-btn is-primary" id="openAddClub">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add club
+      </button>
+    </header>
+
+    <div class="body-pad">
+      <!-- KPI strip -->
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="label">Active clubs</div>
+          <div class="value is-success">{{.ActiveCount}}</div>
+          <div class="sub">{{.TotalClubs}} total</div>
+        </div>
+        <div class="kpi">
+          <div class="label">On trial</div>
+          <div class="value is-warn">{{.TrialCount}}</div>
+          <div class="sub">{{.OverdueCount}} overdue</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Operators</div>
+          <div class="value">{{.TotalOps}}</div>
+          <div class="sub">across all clubs</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Videos · all-time</div>
+          <div class="value is-brand">{{.TotalJumps}}</div>
+          <div class="sub">{{.TotalPhotos}} photo orders</div>
+        </div>
+      </div>
+
+      {{if .Clubs}}
+      <!-- Header -->
+      <div class="club-head">
+        <div>Club</div>
+        <div>Location</div>
+        <div class="right">Ops</div>
+        <div class="right">Videos</div>
+        <div class="right">Photos</div>
+        <div>Plan</div>
+        <div>Status</div>
+        <div></div>
+      </div>
+      <div id="clubList">
+        {{range .Clubs}}
+        <a class="club-row" href="/platform/clubs/{{.ID}}"
+           data-name="{{.Name}}" data-slug="{{.Slug}}" data-loc="{{.Country}}">
+          <div class="name-cell">
+            <div class="club-logo" style="background:linear-gradient(135deg, hsl({{.ID | printf `%d`}}, 60%, 55%), hsl({{.ID | printf `%d`}}, 60%, 35%))">
+              {{slice .Name 0 1}}{{if gt (len .Name) 1}}{{end}}
+            </div>
+            <div style="min-width:0">
+              <div class="name">{{.Name}}</div>
+              <div class="joined">joined {{.JoinedAt.Format "2006-01-02"}}</div>
+            </div>
+          </div>
+          <div class="loc">
+            {{if .Flag}}<span style="margin-right:6px">{{.Flag}}</span>{{end}}{{.Country}}
+          </div>
+          <div class="num right">{{.OperatorN}}</div>
+          <div class="num right">{{.JumpN}}</div>
+          <div class="num right">{{.PhotoOrderN}}</div>
+          <div>
+            {{if eq .Plan "enterprise"}}<span class="sm-pill is-brand">Enterprise</span>
+            {{else if eq .Plan "pro"}}<span class="sm-pill is-brand">Pro</span>
+            {{else}}<span class="sm-pill">Starter</span>{{end}}
+          </div>
+          <div>
+            {{if eq .Status "active"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Active</span>
+            {{else if eq .Status "trial"}}<span class="sm-pill is-warn">Trial</span>
+            {{else if eq .Status "overdue"}}<span class="sm-pill is-danger">Overdue</span>
+            {{else}}<span class="sm-pill">{{.Status}}</span>{{end}}
+          </div>
+          <div style="text-align:center;color:var(--sm-text-muted)">›</div>
+        </a>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty">
+        <div style="margin-bottom:8px;font-size:16px">No clubs yet.</div>
+        <div style="font-size:13px">Click <strong>Add club</strong> to onboard the first dropzone.</div>
+      </div>
+      {{end}}
+    </div>
+  </main>
+</div>
+
+<!-- ===== Add club modal (E3) ===== -->
+<div class="modal-backdrop" id="addClubModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Add a new club</h2>
+      <button class="close" id="closeAddClub" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="addClubForm" novalidate>
+      <div class="modal-body">
+        <div class="field-grid-2">
+          <div>
+            <label class="sm-label">Club name *</label>
+            <input class="sm-input" name="name" required maxlength="200" placeholder="Aero Club Ural">
+          </div>
+          <div>
+            <label class="sm-label">Country (ISO)</label>
+            <input class="sm-input" name="country_code" maxlength="2" placeholder="RU" style="text-transform:uppercase">
+          </div>
+        </div>
+        <div class="field-grid-equal">
+          <div>
+            <label class="sm-label">City</label>
+            <input class="sm-input" name="city" maxlength="100" placeholder="Yekaterinburg">
+          </div>
+          <div>
+            <label class="sm-label">Slug *</label>
+            <input class="sm-input" name="slug" required maxlength="40" placeholder="aero-club-ural" style="font-family:var(--sm-mono)">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="divider-label">Owner contact</div>
+
+        <div class="field-grid-equal">
+          <div>
+            <label class="sm-label">Owner email *</label>
+            <input class="sm-input" name="owner_email" type="email" required placeholder="owner@aeroclub-ural.ru">
+          </div>
+          <div>
+            <label class="sm-label">Initial password *</label>
+            <input class="sm-input" name="owner_password" type="text" required minlength="8" placeholder="≥ 8 chars">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="divider-label">Pricing — what we charge the club</div>
+
+        <div class="rate-grid">
+          <div>
+            <label class="sm-label">Per-video rate</label>
+            <div class="rate-input-wrap">
+              <span class="currency">€</span>
+              <input class="sm-input" name="video_rate_euros" type="number" min="0" max="100" step="1" value="5">
+            </div>
+            <div class="rate-hint">
+              Charged for each <span class="em">delivered video</span>. Operator's per-jump pay (e.g. €33) is set by the club separately.
+            </div>
+          </div>
+          <div>
+            <label class="sm-label">Per-photo-pack rate</label>
+            <div class="rate-input-wrap">
+              <span class="currency">€</span>
+              <input class="sm-input" name="photo_rate_euros" type="number" min="0" max="100" step="1" value="5">
+            </div>
+            <div class="rate-hint">
+              Charged for each <span class="em">photo pack sold</span> to a jumper. The B2C photo pack price (€15 default) is set by the club.
+            </div>
+          </div>
+        </div>
+
+        <div id="addClubErr" class="err-box"></div>
+        <div id="addClubOk" class="ok-box"></div>
+      </div>
+
+      <div class="modal-foot">
+        <button type="button" class="sm-btn" id="cancelAddClub">Cancel</button>
+        <button type="submit" class="sm-btn is-primary" id="submitAddClub">Create club &amp; owner</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Search filter (client-side, since we render the full list).
+const searchInput = document.getElementById('searchInput');
+const clubList = document.getElementById('clubList');
+if (searchInput && clubList) {
+  searchInput.addEventListener('input', () => {
+    const q = (searchInput.value || '').toLowerCase().trim();
+    clubList.querySelectorAll('.club-row').forEach(row => {
+      const hay = (row.dataset.name + ' ' + row.dataset.slug + ' ' + row.dataset.loc).toLowerCase();
+      row.style.display = (!q || hay.includes(q)) ? '' : 'none';
+    });
+  });
+}
+
+// Modal open/close
+const modal = document.getElementById('addClubModal');
+document.getElementById('openAddClub').addEventListener('click', () => modal.classList.add('is-open'));
+document.getElementById('closeAddClub').addEventListener('click', () => modal.classList.remove('is-open'));
+document.getElementById('cancelAddClub').addEventListener('click', () => modal.classList.remove('is-open'));
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
+
+// Plan radio buttons
+const planCards = document.querySelectorAll('.plan-card');
+planCards.forEach(card => {
+  card.addEventListener('click', () => {
+    planCards.forEach(c => c.classList.remove('is-active'));
+    card.classList.add('is-active');
+    card.querySelector('input').checked = true;
+  });
+});
+
+// Submit
+const form = document.getElementById('addClubForm');
+const errBox = document.getElementById('addClubErr');
+const okBox = document.getElementById('addClubOk');
+const submitBtn = document.getElementById('submitAddClub');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.classList.remove('show'); okBox.classList.remove('show');
+
+  const data = {};
+  for (const [k, v] of new FormData(form).entries()) data[k] = v;
+
+  // Auto-derive slug if empty
+  if (!data.slug && data.name) {
+    data.slug = String(data.name).toLowerCase()
+      .replaceAll(/[^a-z0-9-]+/g, '-')
+      .replaceAll(/^-+|-+$/g, '')
+      .slice(0, 40);
+    form.querySelector('[name=slug]').value = data.slug;
+  }
+
+  submitBtn.disabled = true;
+  const orig = submitBtn.textContent;
+  submitBtn.textContent = 'Creating…';
+
+  try {
+    const res = await fetch('/platform/clubs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    okBox.textContent = 'Created. Redirecting…';
+    okBox.classList.add('show');
+    setTimeout(() => location.href = body.redirect_url || '/platform/clubs', 600);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.classList.add('show');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = orig;
+  }
+});
+</script>
+
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>

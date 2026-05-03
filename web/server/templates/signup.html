@@ -3,84 +3,128 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign up · Freefall</title>
-<style>
-  body {
-    margin: 0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-    background: linear-gradient(135deg, #fbfaf7, #e0d4ff);
-    min-height: 100vh;
-    display: grid; place-items: center;
-    color: #0a0a14;
-  }
-  .card {
-    background: white; width: min(420px, 92vw); padding: 32px;
-    border-radius: 20px; box-shadow: 0 30px 60px rgba(0,0,0,0.08);
-  }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: #777; font-size: 14px; margin-bottom: 24px; }
-  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
-  input {
-    width: 100%; box-sizing: border-box; padding: 10px 12px;
-    border-radius: 10px; border: 1px solid #ddd; font: inherit;
-  }
-  input:focus { outline: 2px solid #4f46e5; border-color: transparent; }
-  button {
-    width: 100%; margin-top: 20px; padding: 12px;
-    border-radius: 10px; background: #4f46e5; color: white;
-    border: none; font: inherit; font-weight: 600; cursor: pointer;
-  }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .swap { text-align: center; font-size: 13px; color: #666; margin-top: 16px; }
-  .swap a { color: #4f46e5; }
-  .err {
-    background: #fee2e2; color: #991b1b;
-    padding: 10px 12px; border-radius: 10px;
-    margin-top: 16px; font-size: 13px; display: none;
-  }
-  .err.show { display: block; }
-  .ok {
-    background: #dcfce7; color: #14532d;
-    padding: 10px 12px; border-radius: 10px;
-    margin-top: 16px; font-size: 13px; display: none;
-  }
-  .ok.show { display: block; }
-</style>
+<title>Create your dropzone · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 </head>
 <body>
-<div class="card">
-  <h1>🪂 Create your club</h1>
-  <p class="sub">First operator becomes the owner. You can invite teammates later.</p>
+<div class="sm-auth-shell">
+  <div class="sm-auth-content" style="max-width:480px">
+    <div style="display:flex;justify-content:center;margin-bottom:24px">
+      <span class="sm-tile" aria-label="Skydive Memory"><span class="sm-mark"></span></span>
+    </div>
+    <div class="sm-card" style="padding:32px">
+      <h2 style="font-size:26px;text-align:center;margin-bottom:6px">Create your dropzone</h2>
+      <p style="color:var(--sm-text-muted);text-align:center;font-size:13px;margin-bottom:24px">First operator becomes the owner. You can invite teammates later.</p>
 
-  <form id="f" novalidate>
-    <label>Club name</label>
-    <input name="tenant_name" placeholder="Skydive Tallinn" required>
+      <form id="f" novalidate>
+        <div style="margin-bottom:14px">
+          <label class="sm-label">Club name</label>
+          <input class="sm-input" name="tenant_name" placeholder="Aero Club Ural" required>
+        </div>
 
-    <label>URL slug <span style="color:#999;font-weight:400">(letters, digits, dashes; 3–40 chars)</span></label>
-    <input name="tenant_slug" placeholder="skydive-tallinn" required pattern="[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])">
+        <div style="margin-bottom:14px">
+          <label class="sm-label">URL slug <span style="color:var(--sm-text-dim);font-weight:400">(letters, digits, dashes; 3–40 chars)</span></label>
+          <input class="sm-input" name="tenant_slug" placeholder="aeroclubural" required pattern="[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])">
+          <p style="margin-top:8px;font-size:12px;color:var(--sm-text-muted)">
+            We'll set up your workspace at
+            <span class="mono" style="color:var(--sm-brand-hi)">&lt;slug&gt;.skydivememory.app</span>
+          </p>
+        </div>
 
-    <label>Your email</label>
-    <input name="email" type="email" required>
+        <div style="margin-bottom:14px">
+          <label class="sm-label">Your email</label>
+          <input class="sm-input" name="email" type="email" required>
+        </div>
 
-    <label>Password <span style="color:#999;font-weight:400">(10+ chars)</span></label>
-    <input name="password" type="password" required minlength="10">
+        <div style="margin-bottom:14px">
+          <label class="sm-label" style="display:flex;justify-content:space-between">
+            <span>Password <span style="color:var(--sm-text-dim);font-weight:400">(10+ chars)</span></span>
+            <span id="pw-strength-label" style="font-size:11px;color:var(--sm-text-dim)">—</span>
+          </label>
+          <div style="position:relative">
+            <input id="pw" class="sm-input" name="password" type="password" required minlength="10" style="padding-right:42px">
+            <button type="button" id="pw-toggle" aria-label="Toggle password visibility"
+                    style="position:absolute;right:6px;top:50%;transform:translateY(-50%);height:32px;width:32px;background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center">
+              <svg id="pw-eye-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg id="pw-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          <div id="pw-strength-meter" style="display:flex;gap:4px;margin-top:8px">
+            <div class="pw-bar" style="flex:1;height:3px;border-radius:2px;background:var(--sm-surface-3);transition:background 120ms"></div>
+            <div class="pw-bar" style="flex:1;height:3px;border-radius:2px;background:var(--sm-surface-3);transition:background 120ms"></div>
+            <div class="pw-bar" style="flex:1;height:3px;border-radius:2px;background:var(--sm-surface-3);transition:background 120ms"></div>
+            <div class="pw-bar" style="flex:1;height:3px;border-radius:2px;background:var(--sm-surface-3);transition:background 120ms"></div>
+            <div class="pw-bar" style="flex:1;height:3px;border-radius:2px;background:var(--sm-surface-3);transition:background 120ms"></div>
+          </div>
+        </div>
 
-    <button type="submit">Create club</button>
-    <div id="err" class="err"></div>
-    <div id="ok" class="ok"></div>
-  </form>
-
-  <div class="swap">Already have an account? <a href="/login">Sign in</a></div>
+        <button type="submit" class="sm-btn is-hero is-block is-lg" style="margin-top:16px">Create dropzone</button>
+        <div id="err" class="sm-pill is-danger" style="display:none;width:100%;justify-content:center;margin-top:14px;height:auto;padding:10px 14px;white-space:normal"></div>
+        <div id="ok" class="sm-pill is-success" style="display:none;width:100%;justify-content:center;margin-top:14px;height:auto;padding:10px 14px;white-space:normal"></div>
+      </form>
+    </div>
+    <p style="text-align:center;margin-top:22px;font-size:13px;color:var(--sm-text-muted)">
+      Already have a dropzone? <a href="/login" style="font-weight:500">Sign in</a>
+    </p>
+  </div>
+  <div class="sm-auth-footer">
+    <span>Skydive Memory · Studio + Admin</span>
+    <span>The 4 minutes you'll never forget.</span>
+  </div>
 </div>
 
 <script>
+// Password visibility toggle
+const pwInput = document.getElementById('pw');
+const pwToggle = document.getElementById('pw-toggle');
+const eyeOn = document.getElementById('pw-eye-on');
+const eyeOff = document.getElementById('pw-eye-off');
+pwToggle.addEventListener('click', () => {
+  const reveal = pwInput.type === 'password';
+  pwInput.type = reveal ? 'text' : 'password';
+  eyeOn.style.display  = reveal ? 'none' : '';
+  eyeOff.style.display = reveal ? '' : 'none';
+});
+
+// Strength meter — heuristic, not auth-grade. Length + char-class diversity.
+const strengthBars = document.querySelectorAll('.pw-bar');
+const strengthLabel = document.getElementById('pw-strength-label');
+const STRENGTH_COLORS = ['var(--sm-surface-3)', 'var(--sm-danger)', 'var(--sm-warning)', 'var(--sm-warning)', 'var(--sm-success)', 'var(--sm-success)'];
+const STRENGTH_TEXT   = ['—', 'too short', 'weak', 'okay', 'strong', 'excellent'];
+const STRENGTH_TEXT_C = ['var(--sm-text-dim)', 'var(--sm-danger)', 'var(--sm-warning)', 'var(--sm-warning)', 'var(--sm-success)', 'var(--sm-success)'];
+
+function scorePassword(pw) {
+  if (!pw) return 0;
+  if (pw.length < 10) return 1;
+  let classes = 0;
+  if (/[a-z]/.test(pw)) classes++;
+  if (/[A-Z]/.test(pw)) classes++;
+  if (/[0-9]/.test(pw)) classes++;
+  if (/[^A-Za-z0-9]/.test(pw)) classes++;
+  let score = 1;
+  if (pw.length >= 10) score = 2;
+  if (pw.length >= 12 && classes >= 2) score = 3;
+  if (pw.length >= 14 && classes >= 3) score = 4;
+  if (pw.length >= 16 && classes >= 4) score = 5;
+  return score;
+}
+
+pwInput.addEventListener('input', () => {
+  const s = scorePassword(pwInput.value);
+  strengthBars.forEach((bar, i) => {
+    bar.style.background = i < s ? STRENGTH_COLORS[s] : 'var(--sm-surface-3)';
+  });
+  strengthLabel.textContent = STRENGTH_TEXT[s];
+  strengthLabel.style.color = STRENGTH_TEXT_C[s];
+});
+
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
   const errEl = document.getElementById('err');
   const okEl = document.getElementById('ok');
-  errEl.classList.remove('show'); okEl.classList.remove('show');
-  const btn = e.target.querySelector('button');
+  errEl.style.display = 'none'; okEl.style.display = 'none';
+  const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
     const res = await fetch('/auth/signup', {
@@ -91,19 +135,26 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     const body = await res.json();
     if (!res.ok) {
       errEl.textContent = body.message || 'Signup failed';
-      errEl.classList.add('show');
+      errEl.style.display = 'flex';
       btn.disabled = false;
       return;
     }
     okEl.textContent = 'Welcome, ' + body.email + '! Loading dashboard…';
-    okEl.classList.add('show');
+    okEl.style.display = 'flex';
     setTimeout(() => location.href = '/', 600);
   } catch (err) {
     errEl.textContent = err.message;
-    errEl.classList.add('show');
+    errEl.style.display = 'flex';
     btn.disabled = false;
   }
 });
 </script>
+
+<button type="button" data-theme-toggle aria-label="Toggle theme"
+        title="Toggle theme"
+        style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.10);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">
+  <span data-theme-icon></span>
+</button>
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

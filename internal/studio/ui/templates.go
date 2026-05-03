@@ -4,12 +4,29 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"io/fs"
+	"net/http"
 
 	"github.com/pionerus/freefall/internal/studio/state"
 )
 
 //go:embed *.html
 var templatesFS embed.FS
+
+//go:embed static/*
+var staticFS embed.FS
+
+// StaticHandler serves the embedded static assets (Skydive Memory CSS + logo)
+// under /static/. Mount on the chi router with:
+//
+//	r.Handle("/static/*", http.StripPrefix("/static/", ui.StaticHandler()))
+func StaticHandler() http.Handler {
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		panic("studio static FS: " + err.Error())
+	}
+	return http.FileServer(http.FS(sub))
+}
 
 // funcMap exposes formatting helpers to studio's HTML templates.
 // Add to this rather than computing in handlers — keeps template code declarative.

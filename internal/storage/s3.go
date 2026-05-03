@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -31,6 +32,22 @@ type Client struct {
 func NewMusicClient(cfg *config.ServerConfig) (*Client, error) {
 	return newClient(cfg.MusicEndpoint, cfg.MusicRegion, cfg.MusicAccessKey,
 		cfg.MusicSecretKey, cfg.MusicBucket, cfg.MusicUsePathStyle)
+}
+
+// NewBrandingClient reuses the same S3-compatible endpoint as the music
+// library — same MinIO instance in dev — but writes to a separate bucket
+// so the namespaces don't collide.
+func NewBrandingClient(cfg *config.ServerConfig) (*Client, error) {
+	return newClient(cfg.MusicEndpoint, cfg.MusicRegion, cfg.MusicAccessKey,
+		cfg.MusicSecretKey, cfg.BrandingBucket, cfg.MusicUsePathStyle)
+}
+
+// NewDeliverablesClient holds rendered videos and photos uploaded by studio
+// after every successful render. Same MinIO/S3 credentials, separate bucket
+// — per-tenant prefixes inside the bucket keep namespaces clean.
+func NewDeliverablesClient(cfg *config.ServerConfig) (*Client, error) {
+	return newClient(cfg.MusicEndpoint, cfg.MusicRegion, cfg.MusicAccessKey,
+		cfg.MusicSecretKey, cfg.DeliverablesBucket, cfg.MusicUsePathStyle)
 }
 
 func newClient(endpoint, region, ak, sk, bucket string, usePathStyle bool) (*Client, error) {
@@ -126,6 +143,51 @@ func (c *Client) PresignGet(ctx context.Context, key string, ttl time.Duration) 
 		return "", fmt.Errorf("presign GET %q: %w", key, err)
 	}
 	return out.URL, nil
+}
+
+// PresignPut returns a time-limited PUT URL — used for studio uploads of
+// rendered deliverables (Phase 7.1). The URL signs (bucket, key, content-type),
+// so the studio MUST pass the same Content-Type header on its PUT or the
+// signature will mismatch.
+func (c *Client) PresignPut(ctx context.Context, key, contentType string, ttl time.Duration) (string, error) {
+	put := &s3.PutObjectInput{
+		Bucket: aws.String(c.Bucket),
+		Key:    aws.String(key),
+	}
+	if contentType != "" {
+		put.ContentType = aws.String(contentType)
+	}
+	out, err := c.Presign.PresignPutObject(ctx, put, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("presign PUT %q: %w", key, err)
+	}
+	return out.URL, nil
+}
+
+// HeadETag returns the S3 ETag for an object (sans surrounding quotes). Used
+// as a content-version stamp by clients that want to cache downloaded blobs
+// across runs — when the ETag changes, the cached copy is stale.
+//
+// Returns "" + nil error if the object doesn't exist (404), so callers can
+// distinguish "missing slot" from "S3 unreachable".
+func (c *Client) HeadETag(ctx context.Context, key string) (string, error) {
+	out, err := c.S3.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(c.Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var resp *smithyhttp.ResponseError
+		if errors.As(err, &resp) && resp.HTTPStatusCode() == 404 {
+			return "", nil
+		}
+		return "", fmt.Errorf("head %q: %w", key, err)
+	}
+	if out.ETag == nil {
+		return "", nil
+	}
+	// S3 ETags arrive wrapped in quotes — "\"abc123\"". Strip them so callers
+	// can use the value as a flat string.
+	return strings.Trim(*out.ETag, `"`), nil
 }
 
 // =====================================================================

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Platform · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .stat-card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .stat-label { font-size: 12px; color: var(--sm-text-muted); }
+  .stat-row { display: flex; align-items: baseline; justify-content: space-between; }
+  .stat-value { font-size: 30px; font-family: var(--sm-display); font-weight: 500; letter-spacing: -0.02em; }
+  .placeholder {
+    background: var(--sm-surface);
+    border: 1px dashed var(--sm-border-strong);
+    border-radius: 16px;
+    padding: 48px;
+    text-align: center;
+    color: var(--sm-text-muted);
+    font-size: 13px;
+  }
+  .placeholder strong { color: var(--sm-text); }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  <!-- Platform rail — same `.super-rail` markup as platform_clubs /
+       platform_club_detail / platform_stub so the menu stays identical
+       across every super-admin section (only `is-active` moves). -->
+  <aside class="super-rail">
+    <div class="head">
+      <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none;background:var(--sm-gradient-hero)">
+        <span class="sm-mark" style="width:22px;color:#0B0E14"></span>
+      </span>
+      <div style="min-width:0">
+        <div class="name">Skydive Memory</div>
+        <span class="role-chip role-chip--super">Super admin</span>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item is-active" href="/platform/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="/platform/clubs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/></svg>
+        Clubs
+      </a>
+      <a class="nav-item" href="/platform/operators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Operators
+      </a>
+      <a class="nav-item" href="/platform/jumps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Jumps
+      </a>
+      <a class="nav-item" href="/platform/watch-links">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Watch links
+      </a>
+      <a class="nav-item" href="/platform/billing">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Billing
+      </a>
+      <a class="nav-item" href="/platform/settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--sm-gradient-hero);display:flex;align-items:center;justify-content:center;font-family:var(--sm-display);font-size:12px;font-weight:600;color:var(--sm-bg);flex-shrink:0">YS</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.AdminName}}</div>
+        <div style="font-size:11px;color:var(--sm-text-muted)">Platform admin</div>
+      </div>
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:4px;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
+      <form method="POST" action="/platform/logout" style="margin:0">
+        <button type="submit" title="Sign out" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;padding:4px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </form>
+    </div>
+  </aside>
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Platform dashboard</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Cross-tenant · last 30 days</div>
+      </div>
+    </header>
+
+    <div style="padding:28px;overflow:auto;flex:1">
+      <!-- Top stats row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px">
+        <div class="stat-card">
+          <div class="stat-label">Active clubs</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.Clubs}}</div>
+            <span class="sm-pill">total</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Operators</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.Operators}}</div>
+            <span class="sm-pill">across all clubs</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Jumps rendered (30d)</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.Jumps30d}}</div>
+            <span class="sm-pill is-success">all time {{.Stats.JumpsTotal}}</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Watch link clicks (30d)</div>
+          <div class="stat-row">
+            <div class="stat-value">{{.Stats.WatchClicks30d}}</div>
+            <span class="sm-pill">unique sessions</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="placeholder">
+        <strong>Phase 10</strong> · Cross-tenant tables (recent jumps, top clubs by revenue, MRR breakdown, watch link analytics)<br>
+        will land here once the queries are wired. Current build only has the skeleton + auth.
+      </div>
+
+      <div style="margin-top:24px;font-size:11px;color:var(--sm-text-dim);text-align:center">
+        Diagnostics: <a href="/auth/me">/auth/me</a> · <a href="/healthz">/healthz</a>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>

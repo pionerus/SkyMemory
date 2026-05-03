@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Operators · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+.search-wrap { position: relative; }
+.search-wrap .ico {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  pointer-events: none; color: var(--sm-text-muted);
+}
+.search-wrap .sm-input { padding-left: 36px; height: 38px; width: 280px; font-size: 13px; }
+
+.kpi-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin-bottom: 18px;
+}
+.kpi {
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.kpi .label {
+  font-size: 11px; color: var(--sm-text-muted);
+  font-family: var(--sm-mono); letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.kpi .value {
+  font-size: 26px; font-family: var(--sm-display); font-weight: 500;
+  margin-top: 6px;
+}
+.kpi .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+
+.op-head, .op-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1.6fr) 100px 110px 110px 110px 32px;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 14px;
+}
+.op-head {
+  border-bottom: 1px solid var(--sm-border);
+  font-size: 11px; font-family: var(--sm-mono); color: var(--sm-text-dim);
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.op-row { border-bottom: 1px solid var(--sm-border); }
+.op-row:hover { background: var(--sm-surface-2); }
+.op-avatar {
+  width: 30px; height: 30px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: 12px; font-weight: 600;
+  font-family: var(--sm-display);
+  background: linear-gradient(135deg, #4F8EFF, #8E5BFF);
+}
+.op-avatar.is-owner { background: linear-gradient(135deg, #FFB169, #C44A6E); }
+.op-name { font-size: 13px; font-weight: 500; }
+.op-sub  { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+.op-num  { font-family: var(--sm-mono); font-size: 13px; }
+
+.row-more {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--sm-text-muted);
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+.row-more:hover { color: var(--sm-danger); background: rgba(255,107,122,.10); }
+
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--sm-text-muted); font-size: 13px;
+}
+
+/* Modal */
+.modal-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(8,10,16,0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-backdrop.is-open { display: flex; }
+.modal-panel {
+  width: 100%; max-width: 460px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border-strong);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.modal-head {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-head h2 { font-size: 17px; font-weight: 500; }
+.modal-head .close {
+  background: transparent; border: none;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  color: var(--sm-text-muted); cursor: pointer;
+}
+.modal-head .close:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.modal-body { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.modal-foot {
+  padding: 14px 22px;
+  border-top: 1px solid var(--sm-border);
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+
+.role-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.role-card {
+  padding: 10px 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.role-card.is-active {
+  border-color: var(--sm-brand);
+  background: var(--sm-brand-soft);
+}
+.role-card .k { font-size: 13px; font-weight: 500; }
+.role-card .s { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+
+.err-box, .ok-box {
+  padding: 10px 14px; border-radius: 10px;
+  font-size: 12px; display: none;
+}
+.err-box { background: rgba(255,107,122,.10); color: var(--sm-danger); border: 1px solid rgba(255,107,122,.28); }
+.ok-box { background: rgba(91,210,160,.10); color: var(--sm-success); border: 1px solid rgba(91,210,160,.28); }
+.err-box.show, .ok-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  {{template "admin-rail" .}}
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:12px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Operators</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">
+          {{.OwnerCount}} owner{{if ne .OwnerCount 1}}s{{end}} ·
+          {{.OperatorCount}} operator{{if ne .OperatorCount 1}}s{{end}} ·
+          {{.UnassignedClubClients}} unassigned client{{if ne .UnassignedClubClients 1}}s{{end}}
+        </div>
+      </div>
+      <div class="search-wrap">
+        <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="sm-input" id="searchInput" placeholder="Search by email…">
+      </div>
+      <button class="sm-btn is-primary" id="openAddBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add operator
+      </button>
+    </header>
+
+    <div style="padding:20px 28px;overflow:auto;flex:1">
+
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="label">Owners</div>
+          <div class="value">{{.OwnerCount}}</div>
+          <div class="sub">manage operators &amp; tokens</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Operators</div>
+          <div class="value">{{.OperatorCount}}</div>
+          <div class="sub">film jumps for clients</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Unassigned clients</div>
+          <div class="value" {{if .UnassignedClubClients}}style="color:var(--sm-danger)"{{end}}>{{.UnassignedClubClients}}</div>
+          <div class="sub">need operator assignment</div>
+        </div>
+      </div>
+
+      {{if .Operators}}
+      <div class="op-head">
+        <div></div>
+        <div>Person</div>
+        <div>Role</div>
+        <div>Last login</div>
+        <div style="text-align:right">Clients</div>
+        <div style="text-align:right">Jumps</div>
+        <div></div>
+      </div>
+      <div id="opList">
+        {{range .Operators}}
+        <div class="op-row" data-id="{{.ID}}" data-email="{{.Email}}">
+          <div class="op-avatar {{if eq .Role "owner"}}is-owner{{end}}" title="{{.Role}}">
+            {{.HumanInitials}}
+          </div>
+          <div>
+            <div class="op-name">{{.Email}}</div>
+            <div class="op-sub">since {{.CreatedAt.Format "Jan 2, 2006"}}</div>
+          </div>
+          <div>
+            {{if eq .Role "owner"}}<span class="sm-pill is-brand">Owner</span>
+            {{else}}<span class="sm-pill">Operator</span>{{end}}
+          </div>
+          <div style="font-size:12px;color:var(--sm-text-muted)">
+            {{if .LastLoginAt}}{{.LastLoginAt.Format "Jan 2 · 15:04"}}{{else}}<span style="color:var(--sm-text-dim)">never</span>{{end}}
+          </div>
+          <div class="op-num" style="text-align:right">{{.ClientCount}}</div>
+          <div class="op-num" style="text-align:right">{{.JumpCount}}</div>
+          <div>
+            <button class="row-more" type="button" data-delete="{{.ID}}" title="Remove">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty">
+        <div style="font-size:16px;margin-bottom:8px">No operators yet.</div>
+        <div>Click <strong>Add operator</strong> to create the first camera operator account.</div>
+      </div>
+      {{end}}
+    </div>
+  </main>
+</div>
+
+<!-- Add operator modal -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Add operator</h2>
+      <button class="close" id="closeAddBtn" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="addForm" novalidate>
+      <div class="modal-body">
+        <div>
+          <label class="sm-label">Email *</label>
+          <input class="sm-input" name="email" type="email" required placeholder="andrey@aeroclub.ru">
+        </div>
+        <div>
+          <label class="sm-label">Initial password *</label>
+          <input class="sm-input" name="password" type="text" required minlength="8" placeholder="≥ 8 chars">
+        </div>
+        <div>
+          <label class="sm-label">Role</label>
+          <div class="role-pick">
+            <label class="role-card is-active" data-role="operator">
+              <input type="radio" name="role" value="operator" checked style="display:none">
+              <div class="k">Operator</div>
+              <div class="s">Films jumps · sees assigned clients</div>
+            </label>
+            <label class="role-card" data-role="owner">
+              <input type="radio" name="role" value="owner" style="display:none">
+              <div class="k">Owner</div>
+              <div class="s">Full admin · manages operators</div>
+            </label>
+          </div>
+        </div>
+        <div id="addErr" class="err-box"></div>
+        <div id="addOk" class="ok-box"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="sm-btn" id="cancelAddBtn">Cancel</button>
+        <button type="submit" class="sm-btn is-primary" id="submitAddBtn">Create operator</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Search
+const list = document.getElementById('opList');
+const search = document.getElementById('searchInput');
+if (list && search) {
+  search.addEventListener('input', () => {
+    const q = (search.value || '').toLowerCase().trim();
+    list.querySelectorAll('.op-row').forEach(r => {
+      const match = !q || r.dataset.email.toLowerCase().includes(q);
+      r.style.display = match ? '' : 'none';
+    });
+  });
+}
+
+// Delete
+list && list.querySelectorAll('[data-delete]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.delete;
+    const row = btn.closest('.op-row');
+    const email = row && row.dataset.email;
+    if (!confirm('Remove operator ' + email + '? Their clients will be unassigned.')) return;
+    try {
+      const res = await fetch('/admin/operators/' + id, {
+        method: 'DELETE', credentials: 'same-origin',
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+      row && row.remove();
+    } catch (e) {
+      alert('Delete failed: ' + e.message);
+    }
+  });
+});
+
+// Modal
+const modal = document.getElementById('addModal');
+document.getElementById('openAddBtn').addEventListener('click', () => modal.classList.add('is-open'));
+document.getElementById('closeAddBtn').addEventListener('click', () => modal.classList.remove('is-open'));
+document.getElementById('cancelAddBtn').addEventListener('click', () => modal.classList.remove('is-open'));
+modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
+
+document.querySelectorAll('.role-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.role-card').forEach(c => c.classList.remove('is-active'));
+    card.classList.add('is-active');
+    card.querySelector('input').checked = true;
+  });
+});
+
+const form = document.getElementById('addForm');
+const errBox = document.getElementById('addErr');
+const okBox = document.getElementById('addOk');
+const submitBtn = document.getElementById('submitAddBtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.classList.remove('show'); okBox.classList.remove('show');
+  const data = {};
+  for (const [k, v] of new FormData(form).entries()) data[k] = v;
+  submitBtn.disabled = true;
+  const orig = submitBtn.textContent;
+  submitBtn.textContent = 'Creating…';
+  try {
+    const res = await fetch('/admin/operators', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    okBox.textContent = 'Created ' + body.email + '. Reloading…';
+    okBox.classList.add('show');
+    setTimeout(() => location.reload(), 700);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.classList.add('show');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = orig;
+  }
+});
+</script>
+
+</body>
+</html>

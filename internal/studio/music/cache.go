@@ -56,29 +56,31 @@ func (c *Cache) Ensure(ctx context.Context, trackID int64) (string, error) {
 // (which 302-redirects to a 30-min presigned URL). Writes to dst path atomically
 // (temp file + rename) so a half-fetched download doesn't poison the cache.
 //
-// We do the redirect MANUALLY — first GET to cloud (with Bearer token),
-// expecting 302; second GET to the Location (NO auth, NO carryover headers)
-// because S3-presigned URLs sign the host header and mismatched Authorization
-// can confuse strict S3 implementations like MinIO. The default Go redirect
-// handler isn't quite strict enough about stripping bespoke headers.
+// We do the redirect MANUALLY — first GET to cloud (carries the session
+// cookie via c.hc.Jar), expecting 302; second GET to the Location
+// (different host, no cookie auto-attaches by jar scoping) — because
+// S3-presigned URLs sign the host header and any extra Authorization
+// would collide. The default Go redirect handler isn't strict enough
+// about stripping cookies cross-host so we redirect by hand.
 func (c *Client) Download(ctx context.Context, trackID int64, dst string) error {
 	if trackID <= 0 {
 		return errors.New("trackID must be > 0")
 	}
 	apiURL := c.baseURL + "/api/v1/music/" + strconv.FormatInt(trackID, 10) + "/file"
 
-	// Step 1: ask cloud where the file is.
+	// Step 1: ask cloud where the file is. Reuse the SAME cookie jar
+	// as c.hc so the operator's session cookie attaches automatically.
 	noFollow := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // tell client not to follow; return 302 as-is
+			return http.ErrUseLastResponse
 		},
 		Timeout: c.hc.Timeout,
+		Jar:     c.hc.Jar,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := noFollow.Do(req)
 	if err != nil {

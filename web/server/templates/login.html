@@ -3,77 +3,77 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · Freefall</title>
-<style>
-  body {
-    margin: 0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-    background: linear-gradient(135deg, #fbfaf7, #c5deff);
-    min-height: 100vh;
-    display: grid; place-items: center;
-    color: #0a0a14;
-  }
-  .card {
-    background: white; width: min(420px, 92vw); padding: 32px;
-    border-radius: 20px; box-shadow: 0 30px 60px rgba(0,0,0,0.08);
-  }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: #777; font-size: 14px; margin-bottom: 24px; }
-  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
-  input {
-    width: 100%; box-sizing: border-box; padding: 10px 12px;
-    border-radius: 10px; border: 1px solid #ddd; font: inherit;
-  }
-  input:focus { outline: 2px solid #4f46e5; border-color: transparent; }
-  button {
-    width: 100%; margin-top: 20px; padding: 12px;
-    border-radius: 10px; background: #4f46e5; color: white;
-    border: none; font: inherit; font-weight: 600; cursor: pointer;
-  }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .swap { text-align: center; font-size: 13px; color: #666; margin-top: 16px; }
-  .swap a { color: #4f46e5; }
-  .err {
-    background: #fee2e2; color: #991b1b;
-    padding: 10px 12px; border-radius: 10px;
-    margin-top: 16px; font-size: 13px; display: none;
-  }
-  .err.show { display: block; }
-  .hint { color: #999; font-weight: 400; font-size: 12px; }
-</style>
+<title>Sign in · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
 </head>
 <body>
-<div class="card">
-  <h1>🪂 Sign in</h1>
-  <p class="sub">Welcome back.</p>
+<div class="sm-auth-shell">
+  <div class="sm-auth-content">
+    <div style="display:flex;justify-content:center;margin-bottom:32px">
+      <span class="sm-tile" aria-label="Skydive Memory"><span class="sm-mark"></span></span>
+    </div>
+    <div class="sm-card" style="padding:32px">
+      <h2 style="font-size:26px;text-align:center;margin-bottom:6px">Welcome back</h2>
+      <p style="color:var(--sm-text-muted);text-align:center;font-size:13px;margin-bottom:28px">Sign in to your dropzone.</p>
 
-  <form id="f" novalidate>
-    <label>Email</label>
-    <input name="email" type="email" required autofocus>
+      <form id="f" novalidate>
+        <div style="margin-bottom:16px">
+          <label class="sm-label">Email</label>
+          <input class="sm-input" name="email" type="email" required autofocus placeholder="you@dropzone.com">
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="sm-label" style="display:flex;justify-content:space-between">
+            <span>Password</span>
+            <a href="#" style="font-size:12px">Forgot?</a>
+          </label>
+          <div style="position:relative">
+            <input id="pw" class="sm-input" name="password" type="password" required style="padding-right:42px">
+            <button type="button" id="pw-toggle" aria-label="Toggle password visibility"
+                    style="position:absolute;right:6px;top:50%;transform:translateY(-50%);height:32px;width:32px;background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center">
+              <svg id="pw-eye-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg id="pw-eye-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="sm-label">Tenant slug <span style="color:var(--sm-text-dim);font-weight:400">(optional, only if your email is in multiple clubs)</span></label>
+          <input class="sm-input" name="tenant_slug" placeholder="aeroclubural">
+        </div>
 
-    <label>Password</label>
-    <input name="password" type="password" required>
-
-    <label style="margin-top:18px">
-      Tenant slug <span class="hint">(only if your email is in multiple clubs)</span>
-    </label>
-    <input name="tenant_slug" placeholder="optional">
-
-    <button type="submit">Sign in</button>
-    <div id="err" class="err"></div>
-  </form>
-
-  <div class="swap">No account yet? <a href="/signup">Create a club</a></div>
+        <button type="submit" class="sm-btn is-primary is-block is-lg" style="margin-top:20px">Sign in</button>
+        <div id="err" class="sm-pill is-danger" style="display:none;width:100%;justify-content:center;margin-top:16px;height:auto;padding:10px 14px;white-space:normal"></div>
+      </form>
+    </div>
+    <p style="text-align:center;margin-top:22px;font-size:13px;color:var(--sm-text-muted)">
+      No account yet? <a href="/signup" style="font-weight:500">Create a dropzone</a>
+    </p>
+  </div>
+  <div class="sm-auth-footer">
+    <span>Skydive Memory · Studio + Admin</span>
+    <span>The 4 minutes you'll never forget.</span>
+  </div>
 </div>
 
 <script>
+// Password visibility toggle
+const pwInput = document.getElementById('pw');
+const pwToggle = document.getElementById('pw-toggle');
+const eyeOn = document.getElementById('pw-eye-on');
+const eyeOff = document.getElementById('pw-eye-off');
+pwToggle.addEventListener('click', () => {
+  const reveal = pwInput.type === 'password';
+  pwInput.type = reveal ? 'text' : 'password';
+  eyeOn.style.display  = reveal ? 'none' : '';
+  eyeOff.style.display = reveal ? '' : 'none';
+});
+
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = Object.fromEntries(new FormData(e.target));
   if (!data.tenant_slug) delete data.tenant_slug;
   const errEl = document.getElementById('err');
-  errEl.classList.remove('show');
-  const btn = e.target.querySelector('button');
+  errEl.style.display = 'none';
+  const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
     const res = await fetch('/auth/login', {
@@ -84,17 +84,25 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     const body = await res.json();
     if (!res.ok) {
       errEl.textContent = body.message || 'Login failed';
-      errEl.classList.add('show');
+      errEl.style.display = 'flex';
       btn.disabled = false;
       return;
     }
-    location.href = '/';
+    // Route by role: owners → club admin (/), operators → operator portal.
+    location.href = body.role === 'owner' ? '/' : '/operator/';
   } catch (err) {
     errEl.textContent = err.message;
-    errEl.classList.add('show');
+    errEl.style.display = 'flex';
     btn.disabled = false;
   }
 });
 </script>
+
+<button type="button" data-theme-toggle aria-label="Toggle theme"
+        title="Toggle theme"
+        style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.10);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">
+  <span data-theme-icon></span>
+</button>
+<script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

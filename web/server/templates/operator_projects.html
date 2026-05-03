@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My projects · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+.status-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.status-strip .sm-pill { height: 26px; padding: 0 12px; font-size: 12px; }
+
+.j-head, .j-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1.5fr) 130px 110px 110px 80px;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 14px;
+}
+.j-head {
+  border-bottom: 1px solid var(--sm-border);
+  font-size: 11px; font-family: var(--sm-mono); color: var(--sm-text-dim);
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.j-row { border-bottom: 1px solid var(--sm-border); }
+.j-row:hover { background: var(--sm-surface-2); }
+.j-code { font-family: var(--sm-mono); font-size: 12px; color: var(--sm-brand-hi); letter-spacing: 0.05em; }
+.j-name { font-size: 13px; font-weight: 500; }
+.j-when { font-family: var(--sm-mono); font-size: 12px; color: var(--sm-text-muted); }
+.j-size { font-family: var(--sm-mono); font-size: 12px; color: var(--sm-text-muted); text-align: right; }
+.empty { text-align: center; padding: 60px 20px; color: var(--sm-text-muted); }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  <aside class="sm-rail" style="width:240px">
+    <div style="padding:20px 18px 18px;border-bottom:1px solid var(--sm-border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none">
+          <span class="sm-mark" style="width:22px"></span>
+        </span>
+        <div style="min-width:0">
+          <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
+          <span class="role-chip role-chip--operator">Operator · web</span>
+        </div>
+      </div>
+    </div>
+    <nav style="padding:12px;display:flex;flex-direction:column;gap:2px;flex:1">
+      <a class="sm-rail-item" href="/operator/"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Dashboard</a>
+      <a class="sm-rail-item is-active" href="/operator/projects"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>Projects</a>
+      <a class="sm-rail-item" href="/operator/clients"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Clients</a>
+      <a class="sm-rail-item" href="/operator/storage"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>Storage</a>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border)">
+      <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.OperatorEmail}}</div>
+      <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}} · {{.OperatorRole}}</div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button type="button" data-theme-toggle class="sm-btn is-sm" title="Toggle theme" style="flex:0 0 auto;padding:0 10px"><span data-theme-icon></span></button>
+        <form method="POST" action="/auth/logout" style="margin:0;flex:1"><button type="submit" class="sm-btn is-sm is-block">Sign out</button></form>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">{{.PageTitle}}</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">{{.PageSub}}</div>
+      </div>
+      <a href="http://localhost:8080" target="_blank" class="sm-btn is-primary">Open Studio →</a>
+    </header>
+
+    <div style="padding:20px 28px;overflow:auto;flex:1">
+      {{if .StatusBreak}}
+      <div class="status-strip">
+        <span class="sm-pill is-brand">All · {{len .Jumps}}</span>
+        {{range $k, $v := .StatusBreak}}<span class="sm-pill">{{$k}} · {{$v}}</span>{{end}}
+      </div>
+      {{end}}
+
+      {{if .Jumps}}
+      <div class="j-head">
+        <div>Code</div>
+        <div>Client</div>
+        <div>When</div>
+        <div>Status</div>
+        <div></div>
+        <div style="text-align:right">Output</div>
+      </div>
+      {{range .Jumps}}
+      <div class="j-row">
+        <div class="j-code">{{.AccessCode}}</div>
+        <div class="j-name">{{.ClientName}}</div>
+        <div class="j-when">{{.CreatedAt.Format "Jan 2 · 15:04"}}</div>
+        <div>
+          {{if eq .Status "delivered"}}<span class="sm-pill is-success">delivered</span>
+          {{else if eq .Status "ready"}}<span class="sm-pill is-success">ready</span>
+          {{else if eq .Status "encoding"}}<span class="sm-pill is-warn">encoding</span>
+          {{else if eq .Status "uploading"}}<span class="sm-pill is-warn">uploading</span>
+          {{else if eq .Status "editing"}}<span class="sm-pill is-warn">editing</span>
+          {{else if eq .Status "draft"}}<span class="sm-pill">draft</span>
+          {{else if eq .Status "failed"}}<span class="sm-pill is-danger">failed</span>
+          {{else}}<span class="sm-pill">{{.Status}}</span>{{end}}
+        </div>
+        <div></div>
+        <div class="j-size">
+          {{if .HasArtifact}}{{bytesHuman .ArtifactSize}}{{else}}<span style="color:var(--sm-text-dim)">—</span>{{end}}
+        </div>
+      </div>
+      {{end}}
+      {{else}}
+      <div class="empty">
+        <div style="font-size:16px;margin-bottom:8px">No jumps yet.</div>
+        <div>Open studio.exe → New project → Register jump and it'll show up here.</div>
+      </div>
+      {{end}}
+    </div>
+  </main>
+</div>
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>

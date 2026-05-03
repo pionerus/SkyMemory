@@ -1,6 +1,7 @@
 // Package jump owns the studio<->cloud calls for jump records — register,
-// fetch status, complete (later). All requests carry the studio's license
-// token in the Authorization header.
+// fetch status, complete (later). Auth is via the shared cookie-jar
+// http.Client built in internal/studio/session — every request carries
+// the operator's session cookie automatically.
 package jump
 
 import (
@@ -19,16 +20,15 @@ import (
 // Client wraps HTTP calls to the cloud server. Construct once per studio process.
 type Client struct {
 	baseURL string
-	token   string
 	hc      *http.Client
 }
 
-func NewClient(baseURL, token string) *Client {
-	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		hc:      &http.Client{Timeout: 10 * time.Second},
+// NewClient takes the cookie-jar-backed http.Client from session.Manager.
+func NewClient(baseURL string, hc *http.Client) *Client {
+	if hc == nil {
+		hc = &http.Client{Timeout: 10 * time.Second}
 	}
+	return &Client{baseURL: baseURL, hc: hc}
 }
 
 // APIError is returned when cloud responds with a non-2xx and a JSON {code, message}.
@@ -57,7 +57,6 @@ func (c *Client) Register(ctx context.Context, req v1.JumpRegisterRequest) (*v1.
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := c.hc.Do(httpReq)
 	if err != nil {

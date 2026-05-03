@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Club.Name}} · Platform admin · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+/* ===== Skydive Memory — Platform admin club detail (E2)
+   1:1 port of screens/superadmin.jsx → ClubDetail. */
+
+html, body { margin: 0; background: var(--sm-bg); color: var(--sm-text); font-family: var(--sm-body); }
+.shell { display: flex; min-height: 100vh; }
+
+/* Reuse rail styles inline so this template stays self-contained */
+.super-rail {
+  width: 232px;
+  border-right: 1px solid var(--sm-border);
+  background: var(--sm-surface);
+  display: flex; flex-direction: column;
+}
+.super-rail .head {
+  padding: 20px 18px 18px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; align-items: center; gap: 10px;
+}
+.super-rail .head .sm-mark { width: 22px; height: 22px; color: var(--sm-text); }
+.super-rail .head .name { font-family: var(--sm-display); font-size: 14px; font-weight: 600; line-height: 1.1; }
+.super-rail .head .badge { font-size: 10px; color: var(--sm-brand-hi); font-family: var(--sm-mono); letter-spacing: 0.15em; margin-top: 2px; }
+.super-rail nav { padding: 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.super-rail .nav-item {
+  display: flex; align-items: center; gap: 10px;
+  height: 36px; padding: 0 12px;
+  border-radius: 8px;
+  color: var(--sm-text-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+.super-rail .nav-item:hover { background: var(--sm-surface-2); color: var(--sm-text); }
+.super-rail .nav-item.is-active {
+  background: var(--sm-brand-soft);
+  color: var(--sm-text);
+  position: relative;
+}
+.super-rail .nav-item.is-active::before {
+  content: ""; position: absolute; left: -16px; top: 50%;
+  width: 3px; height: 16px; background: var(--sm-brand);
+  border-radius: 2px; transform: translateY(-50%);
+}
+
+/* Topbar */
+main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.topbar {
+  height: 64px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; align-items: center; padding: 0 28px; gap: 12px;
+}
+.topbar .crumb { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.topbar .crumb a { color: var(--sm-text-muted); text-decoration: none; font-weight: 400; }
+.topbar .crumb a:hover { color: var(--sm-text); }
+.topbar .crumb .sep { color: var(--sm-text-dim); }
+.topbar .crumb .here { font-family: var(--sm-display); font-size: 18px; font-weight: 500; color: var(--sm-text); }
+.topbar .actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* Layout */
+.body-pad {
+  padding: 20px 28px 28px;
+  overflow: auto;
+  flex: 1;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* Hero card */
+.hero-card {
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex; gap: 24px; align-items: center;
+}
+.hero-logo {
+  width: 84px; height: 84px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  font-family: var(--sm-display);
+  font-size: 32px; font-weight: 600;
+  flex-shrink: 0;
+}
+.hero-info { flex: 1; min-width: 0; }
+.hero-info .name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-info h2 { font-size: 24px; font-family: var(--sm-display); font-weight: 500; }
+.hero-info .meta {
+  font-size: 13px; color: var(--sm-text-muted);
+  margin-top: 6px;
+  display: flex; gap: 18px; flex-wrap: wrap;
+}
+.hero-info .meta .mono { font-family: var(--sm-mono); }
+
+.hero-stats { display: flex; gap: 32px; flex-shrink: 0; }
+.hero-stats .stat { text-align: right; }
+.hero-stats .stat .v {
+  font-size: 28px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+}
+.hero-stats .stat .l {
+  font-size: 11px;
+  color: var(--sm-text-muted);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* 2-col block: contacts + activity */
+.two-col {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: 14px;
+  padding: 22px;
+}
+.panel h3 { font-size: 14px; font-weight: 500; margin-bottom: 14px; }
+
+/* Owner panel */
+.owner-card { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.owner-card .avatar {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: var(--sm-surface-2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--sm-display); font-weight: 600; font-size: 15px;
+}
+.owner-card .name { font-size: 14px; font-weight: 500; }
+.owner-card .role { font-size: 12px; color: var(--sm-text-muted); }
+
+.contact-rows { display: flex; flex-direction: column; gap: 0; }
+.contact-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0;
+}
+.contact-row + .contact-row { border-top: 1px solid var(--sm-border); }
+.contact-row .ico { color: var(--sm-text-muted); flex-shrink: 0; }
+.contact-row .lbl {
+  font-size: 11px; color: var(--sm-text-dim);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  width: 64px; flex-shrink: 0;
+}
+.contact-row .val { font-size: 13px; flex: 1; min-width: 0; word-break: break-all; }
+
+/* Activity bar chart */
+.bar-chart {
+  display: flex; align-items: flex-end;
+  height: 180px;
+  gap: 10px;
+}
+.bar-col {
+  flex: 1;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bar {
+  width: 100%;
+  background: var(--sm-surface-3);
+  border-radius: 4px;
+  position: relative;
+  min-height: 2px;
+}
+.bar.is-current { background: var(--sm-brand); }
+.bar .num {
+  position: absolute;
+  top: -22px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; font-family: var(--sm-mono);
+  color: var(--sm-brand-hi);
+}
+.bar-label {
+  font-size: 10px;
+  color: var(--sm-text-dim);
+  font-family: var(--sm-mono);
+}
+
+.activity-stats {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.activity-stats .l {
+  font-size: 11px; color: var(--sm-text-muted);
+  font-family: var(--sm-mono);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.activity-stats .v {
+  font-size: 18px;
+  font-family: var(--sm-display);
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+/* Recent jumps panel */
+.recent-panel { padding: 0; overflow: hidden; }
+.recent-head {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--sm-border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.recent-head h3 { margin: 0; }
+.recent-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 1fr 1fr 110px;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 22px;
+  font-size: 13px;
+  border-top: 1px solid var(--sm-border);
+}
+.recent-row:first-of-type { border-top: none; }
+.recent-row .code {
+  font-family: var(--sm-mono);
+  color: var(--sm-brand-hi);
+  letter-spacing: 0.04em;
+}
+.recent-row .muted { color: var(--sm-text-muted); }
+
+.empty-msg { padding: 30px; text-align: center; color: var(--sm-text-muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="super-rail">
+    <div class="head">
+      <span class="sm-mark"></span>
+      <div>
+        <div class="name">Skydive Memory</div>
+        <span class="role-chip role-chip--super">Super admin</span>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item" href="/platform/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item is-active" href="/platform/clubs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/></svg>
+        Clubs
+      </a>
+      <a class="nav-item" href="/platform/operators">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Operators
+      </a>
+      <a class="nav-item" href="/platform/jumps">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Jumps
+      </a>
+      <a class="nav-item" href="/platform/watch-links">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Watch links
+      </a>
+      <a class="nav-item" href="/platform/billing">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Billing
+      </a>
+      <a class="nav-item" href="/platform/settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:8px;align-items:center">
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:6px 8px;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
+      <form method="post" action="/platform/logout" style="margin:0;flex:1">
+        <button class="sm-btn is-ghost is-block" style="font-size:11px" title="Sign out">Sign out</button>
+      </form>
+    </div>
+  </aside>
+
+  <main class="col">
+    <header class="topbar">
+      <div class="crumb">
+        <a href="/platform/clubs">Clubs</a>
+        <span class="sep">›</span>
+        <span class="here">{{.Club.Name}}</span>
+      </div>
+      <div class="actions">
+        <a class="sm-btn" href="/platform/clubs">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Back to clubs
+        </a>
+        <button type="button" class="sm-btn is-ghost" data-theme-toggle title="Toggle theme" aria-label="Toggle theme">
+          <span data-theme-icon></span>
+        </button>
+        <a class="sm-btn" href="mailto:{{.OwnerEmail}}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Contact owner
+        </a>
+      </div>
+    </header>
+
+    <div class="body-pad">
+
+      <!-- Hero card -->
+      <div class="hero-card">
+        <div class="hero-logo" style="background:linear-gradient(135deg, hsl({{.Club.ID | printf `%d`}}, 60%, 55%), hsl({{.Club.ID | printf `%d`}}, 60%, 35%))">
+          {{slice .Club.Name 0 1}}
+        </div>
+        <div class="hero-info">
+          <div class="name-row">
+            <h2>{{.Club.Name}}</h2>
+            {{if eq .Club.Status "active"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Active</span>
+            {{else if eq .Club.Status "trial"}}<span class="sm-pill is-warn">Trial</span>
+            {{else if eq .Club.Status "overdue"}}<span class="sm-pill is-danger">Overdue</span>
+            {{else}}<span class="sm-pill">{{.Club.Status}}</span>{{end}}
+            {{if eq .Club.Plan "enterprise"}}<span class="sm-pill is-brand">Enterprise</span>
+            {{else if eq .Club.Plan "pro"}}<span class="sm-pill is-brand">Pro</span>
+            {{else}}<span class="sm-pill">Starter</span>{{end}}
+          </div>
+          <div class="meta">
+            {{if .Club.Flag}}<span>{{.Club.Flag}} {{.Club.Country}}</span><span>·</span>{{end}}
+            <span>Joined {{.Club.JoinedAt.Format "Jan 2, 2006"}}</span>
+            {{if .Club.Slug}}<span>·</span><span class="mono">/{{.Club.Slug}}</span>{{end}}
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div class="stat"><div class="v">{{.Club.OperatorN}}</div><div class="l">Operators</div></div>
+          <div class="stat"><div class="v">{{.Club.JumpN}}</div><div class="l">Videos</div></div>
+          <div class="stat"><div class="v">{{.Club.PhotoOrderN}}</div><div class="l">Photos</div></div>
+        </div>
+      </div>
+
+      <!-- 2-col: contacts + activity -->
+      <div class="two-col">
+        <div class="panel">
+          <h3>Owner &amp; contact</h3>
+          <div class="owner-card">
+            <div class="avatar">
+              {{if .OwnerName}}{{slice .OwnerName 0 1}}{{else}}?{{end}}
+            </div>
+            <div>
+              <div class="name">{{if .OwnerName}}{{.OwnerName}}{{else}}—{{end}}</div>
+              <div class="role">Owner · since {{.OwnerJoined.Format "Jan 2006"}}</div>
+            </div>
+          </div>
+          <div class="contact-rows">
+            <div class="contact-row">
+              <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              <div class="lbl">Email</div>
+              <div class="val">{{if .OwnerEmail}}{{.OwnerEmail}}{{else}}—{{end}}</div>
+            </div>
+            {{if .Club.City}}
+            <div class="contact-row">
+              <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              <div class="lbl">City</div>
+              <div class="val">{{.Club.City}}{{if .Club.CountryCode}}, {{.Club.CountryCode}}{{end}}</div>
+            </div>
+            {{end}}
+            <div class="contact-row">
+              <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <div class="lbl">Slug</div>
+              <div class="val mono" style="font-family:var(--sm-mono)">{{if .Club.Slug}}{{.Club.Slug}}{{else}}—{{end}}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+            <h3 style="margin:0">Activity · last 12 months</h3>
+            <div class="mono" style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.1em">VIDEOS DELIVERED</div>
+          </div>
+          {{if .Series}}
+          <div class="bar-chart">
+            {{range $i, $v := .Series}}
+            <div class="bar-col">
+              <div class="bar {{if eq $i (sub (len $.Series) 1)}}is-current{{end}}"
+                   style="height:{{barPct $v $.MaxSeries 140}}px">
+                {{if eq $i (sub (len $.Series) 1)}}<div class="num">{{$v}}</div>{{end}}
+              </div>
+              <div class="bar-label">{{index $.MonthLabels $i}}</div>
+            </div>
+            {{end}}
+          </div>
+          <div class="activity-stats">
+            <div>
+              <div class="l">Avg / month</div>
+              <div class="v">{{.AvgPerMonth}}</div>
+            </div>
+            <div>
+              <div class="l">Best month</div>
+              <div class="v">{{if .BestMonth}}{{.MaxSeries}} · {{.BestMonth}}{{else}}—{{end}}</div>
+            </div>
+            <div>
+              <div class="l">Total · 12mo</div>
+              <div class="v">{{.Club.JumpN}}</div>
+            </div>
+          </div>
+          {{else}}
+          <div class="empty-msg">No activity yet — this club hasn't shipped any jumps.</div>
+          {{end}}
+        </div>
+      </div>
+
+      <!-- Recent jumps -->
+      <div class="panel recent-panel">
+        <div class="recent-head">
+          <h3>Recent jumps</h3>
+          <span class="mono" style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.1em">{{len .RecentJumps}} of {{.Club.JumpN}}</span>
+        </div>
+        {{if .RecentJumps}}
+        {{range .RecentJumps}}
+        <div class="recent-row">
+          <div class="code">{{.AccessCode}}</div>
+          <div>{{.ClientName}}</div>
+          <div class="muted">op: {{if .OperatorEm}}{{.OperatorEm}}{{else}}—{{end}}</div>
+          <div class="muted">{{.When.Format "Jan 2 · 15:04"}}</div>
+          <div>
+            {{if eq .Status "delivered"}}<span class="sm-pill is-success">delivered</span>
+            {{else if eq .Status "ready"}}<span class="sm-pill is-success">ready</span>
+            {{else if eq .Status "sent"}}<span class="sm-pill is-success">sent</span>
+            {{else if eq .Status "failed"}}<span class="sm-pill is-danger">failed</span>
+            {{else if eq .Status "encoding"}}<span class="sm-pill is-warn">encoding</span>
+            {{else if eq .Status "uploading"}}<span class="sm-pill is-warn">uploading</span>
+            {{else if eq .Status "editing"}}<span class="sm-pill is-warn">editing</span>
+            {{else}}<span class="sm-pill">{{.Status}}</span>{{end}}
+          </div>
+        </div>
+        {{end}}
+        {{else}}
+        <div class="empty-msg">No jumps yet.</div>
+        {{end}}
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>
