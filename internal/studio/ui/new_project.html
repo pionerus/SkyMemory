@@ -15,27 +15,155 @@
   .topbar h1 { font-size: 16px; }
   .topbar .meta { color: var(--sm-text-muted); font-size: 12px; }
   .topbar .right { margin-left: auto; }
-  .check-card {
-    display:flex; align-items:flex-start; gap:12px;
-    padding: 14px 16px;
-    background: var(--sm-surface-2);
+
+  /* Two-column layout per design: client | outputs, then full-width CTA */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    max-width: 1080px;
+    margin: 32px auto;
+    padding: 0 24px;
+  }
+  .grid > .full { grid-column: 1 / -1; }
+
+  .eyebrow {
+    font-size: 11px;
+    color: var(--sm-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-bottom: 4px;
+  }
+  .h2 { font-size: 18px; margin-bottom: 18px; }
+
+  /* Client picker — radio-style cards */
+  .client-list {
+    display: flex; flex-direction: column;
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 4px;
+    margin: 0 -4px;
+  }
+  .client-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
     border: 1px solid var(--sm-border);
     border-radius: 12px;
-    margin-bottom: 10px;
     cursor: pointer;
-    transition: border-color 80ms;
+    transition: border-color 80ms, background 80ms;
+    background: var(--sm-surface-2);
   }
-  .check-card:hover { border-color: var(--sm-border-strong); }
-  .check-card.checked { border-color: var(--sm-brand); background: var(--sm-brand-soft); }
-  .check-card input { margin-top: 4px; accent-color: var(--sm-brand); }
-  .check-card .label { font-weight: 600; font-size: 14px; }
-  .check-card .desc { color: var(--sm-text-muted); font-size: 12px; margin-top: 2px; }
-  .check-card.nested { margin-left: 24px; }
+  .client-card:hover { border-color: var(--sm-border-strong); }
+  .client-card.is-active {
+    border-color: var(--sm-brand);
+    background: rgba(255,200,61,.06);
+  }
+  .client-card .ck {
+    width: 18px; height: 18px;
+    border: 1.5px solid var(--sm-border-strong);
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .client-card.is-active .ck {
+    border-color: var(--sm-brand);
+    background: var(--sm-brand);
+  }
+  .client-card.is-active .ck::after {
+    content: ""; width: 6px; height: 6px; border-radius: 50%; background: #0B0E14;
+  }
+  .client-card .info { flex: 1; min-width: 0; }
+  .client-card .name { font-size: 14px; font-weight: 500; }
+  .client-card .sub  { font-size: 12px; color: var(--sm-text-muted);
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .client-card .code { font-family: var(--sm-mono); font-size: 11px;
+                       color: var(--sm-brand-hi); letter-spacing: .04em; }
+  .client-empty {
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--sm-text-muted);
+    font-size: 13px;
+    border: 1px dashed var(--sm-border-strong);
+    border-radius: 12px;
+  }
+  .picker-tabs {
+    display: flex; gap: 6px; margin-bottom: 14px;
+    background: var(--sm-surface-2);
+    border-radius: 10px;
+    padding: 4px;
+  }
+  .picker-tabs button {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: var(--sm-text-muted);
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .picker-tabs button.is-active {
+    background: var(--sm-surface);
+    color: var(--sm-text);
+    box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+
+  /* Output checkbox cards */
+  .out-list { display: flex; flex-direction: column; gap: 10px; }
+  .out-card {
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--sm-border);
+    background: var(--sm-surface-2);
+    display: flex; align-items: center; gap: 14px;
+    cursor: pointer;
+    position: relative;
+  }
+  .out-card.checked {
+    border-color: var(--sm-brand);
+    background: rgba(255,200,61,.06);
+  }
+  .out-card .icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--sm-bg);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--sm-text-muted);
+    flex-shrink: 0;
+  }
+  .out-card.checked .icon { color: var(--sm-brand-hi); }
+  .out-card .info { flex: 1; min-width: 0; }
+  .out-card .label { font-size: 14px; font-weight: 500; }
+  .out-card .desc  { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+  .out-card .check {
+    width: 22px; height: 22px; border-radius: 6px;
+    border: 1.5px solid var(--sm-border-strong);
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .out-card.checked .check {
+    background: var(--sm-brand);
+    border-color: var(--sm-brand);
+    color: #0B0E14;
+  }
+  .out-card input[type=checkbox] { display: none; }
+
+  .err-banner {
+    padding: 12px 14px;
+    background: rgba(255,107,122,.08);
+    border: 1px solid rgba(255,107,122,.25);
+    border-radius: 10px;
+    color: var(--sm-text);
+    font-size: 13px;
+    margin-top: 14px;
+    display: none;
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
+  <a href="/" class="sm-btn is-ghost is-sm">←</a>
   <span class="sm-tile" style="width:36px;height:36px;border-radius:10px;box-shadow:none">
     <span class="sm-mark" style="width:24px"></span>
   </span>
@@ -43,138 +171,322 @@
     <h1>New project</h1>
     <div class="meta">{{.License.TenantName}} · {{.License.OperatorEmail}}</div>
   </div>
-  <div class="right"><a href="/" class="sm-btn is-ghost is-sm">← Cancel</a></div>
+  <div class="right">
+    <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+            style="background:transparent;border:1px solid var(--sm-border);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center">
+      <span data-theme-icon></span>
+    </button>
+  </div>
 </div>
 
-<main style="max-width:760px;margin:32px auto;padding:0 24px">
-  <div class="sm-card" style="padding:28px">
-    <h2 style="font-size:24px;margin-bottom:6px">Tell us about the jumper</h2>
-    <p style="color:var(--sm-text-muted);font-size:13px;margin-bottom:24px">
-      We'll register the project in the cloud and return an access code the client uses to watch their video.
-    </p>
+<form id="f" novalidate>
+  <div class="grid">
 
-    <form id="f" novalidate>
-      <div style="margin-bottom:14px">
-        <label class="sm-label">Client name *</label>
-        <input class="sm-input" name="client_name" type="text" required autofocus maxlength="200" placeholder="Anna Volkova">
+    <!-- ========== CLIENT PICKER ========== -->
+    <section class="sm-card" style="padding:24px">
+      <div class="eyebrow">Client</div>
+      <h2 class="h2">Who's jumping?</h2>
+
+      <div class="picker-tabs">
+        <button type="button" id="tab-assigned" class="is-active">Assigned to me</button>
+        <button type="button" id="tab-walkin">Walk-in</button>
       </div>
 
-      <div style="margin-bottom:14px">
-        <label class="sm-label">Client email <span style="color:var(--sm-text-dim);font-weight:400">(optional, used to send the watch link)</span></label>
-        <input class="sm-input" name="client_email" type="email" placeholder="anna@example.com">
+      <!-- Assigned: list of clients pulled from cloud -->
+      <div id="pane-assigned">
+        <div id="client-list" class="client-list">
+          <div class="client-empty">Loading…</div>
+        </div>
+        <div style="margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
+          Don't see your jumper? Ask the club admin to assign them on
+          <span class="mono">/admin/clients</span>, or use Walk-in.
+        </div>
       </div>
 
-      <div style="margin-bottom:14px">
-        <label class="sm-label">Phone <span style="color:var(--sm-text-dim);font-weight:400">(optional)</span></label>
-        <input class="sm-input" name="client_phone" type="tel" placeholder="+372 555 1234">
+      <!-- Walk-in: free-form name/email/phone -->
+      <div id="pane-walkin" style="display:none">
+        <div style="margin-bottom:12px">
+          <label class="sm-label">Name *</label>
+          <input class="sm-input" name="walkin_name" autocomplete="off" placeholder="Anna Volkova">
+        </div>
+        <div style="margin-bottom:12px">
+          <label class="sm-label">Email <span style="color:var(--sm-text-dim);font-weight:400">· optional</span></label>
+          <input class="sm-input" name="walkin_email" type="email" placeholder="anna@example.com">
+        </div>
+        <div>
+          <label class="sm-label">Phone <span style="color:var(--sm-text-dim);font-weight:400">· optional</span></label>
+          <input class="sm-input" name="walkin_phone" type="tel" placeholder="+372 555 1234">
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== OUTPUT FORMATS ========== -->
+    <section class="sm-card" style="padding:24px">
+      <div class="eyebrow">Deliverables</div>
+      <h2 class="h2">What should we render?</h2>
+
+      <div class="out-list">
+        <label class="out-card checked">
+          <input type="checkbox" name="output_1080p" checked>
+          <div class="icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><polyline points="10 9 15 12 10 15"/></svg>
+          </div>
+          <div class="info">
+            <div class="label">Client video · 1080p horizontal</div>
+            <div class="desc">The main MP4 your client gets in their email link.</div>
+          </div>
+          <div class="check">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </label>
+
+        <label class="out-card checked">
+          <input type="checkbox" name="output_4k" checked>
+          <div class="icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 16V8M11 16V8l4 4"/></svg>
+          </div>
+          <div class="info">
+            <div class="label">Client video · 4K horizontal</div>
+            <div class="desc">For clients who want maximum quality. Source must be ≥ 4K.</div>
+          </div>
+          <div class="check">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </label>
+
+        <label class="out-card checked">
+          <input type="checkbox" name="output_vertical" checked>
+          <div class="icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </div>
+          <div class="info">
+            <div class="label">Instagram vertical · 1080×1920</div>
+            <div class="desc">Center-cropped reel for Stories &amp; Reels.</div>
+          </div>
+          <div class="check">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </label>
+
+        <label class="out-card checked">
+          <input type="checkbox" name="output_photos" checked>
+          <div class="icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </div>
+          <div class="info">
+            <div class="label">Photo pack</div>
+            <div class="desc">15 high-res frames pulled from freefall.</div>
+          </div>
+          <div class="check">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </label>
+
+        <label class="out-card" style="padding-left:38px">
+          <input type="checkbox" name="has_operator_uploaded_photos">
+          <div class="info">
+            <div class="label" style="font-size:13px">I'll upload my own DSLR photos</div>
+            <div class="desc">Skips auto-screenshots. Drop JPGs in the next step.</div>
+          </div>
+          <div class="check">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </label>
       </div>
 
-      <div style="margin-top:24px;margin-bottom:8px">
-        <span class="sm-label">Outputs</span>
+      <div style="margin-top:18px;padding:12px;background:var(--sm-surface-2);border-radius:10px;font-size:12px;color:var(--sm-text-muted);display:flex;gap:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <span>If the client has an email on file, we'll send the watch link automatically when render finishes.</span>
       </div>
+    </section>
 
-      <label class="check-card checked">
-        <input type="checkbox" name="output_1080p" checked>
-        <div>
-          <div class="label">Client video · 1080p horizontal</div>
-          <div class="desc">The main MP4 your client gets in their email link.</div>
-        </div>
-      </label>
-
-      <label class="check-card">
-        <input type="checkbox" name="output_4k">
-        <div>
-          <div class="label">Client video · 4K horizontal</div>
-          <div class="desc">For clients who want maximum quality. Source clips must be ≥ 4K.</div>
-        </div>
-      </label>
-
-      <label class="check-card">
-        <input type="checkbox" name="output_vertical">
-        <div>
-          <div class="label">Instagram vertical · 1080×1920</div>
-          <div class="desc">Center-cropped reel for social.</div>
-        </div>
-      </label>
-
-      <label class="check-card">
-        <input type="checkbox" name="output_photos">
-        <div>
-          <div class="label">Photos</div>
-          <div class="desc">15 auto-screenshots from freefall, unless you upload your own DSLR photos below.</div>
-        </div>
-      </label>
-
-      <label class="check-card nested">
-        <input type="checkbox" name="has_operator_uploaded_photos">
-        <div>
-          <div class="label">I'll upload my own photos (DSLR)</div>
-          <div class="desc">Skips auto-screenshots. Drop JPGs in the next step.</div>
-        </div>
-      </label>
-
-      <div style="display:flex;gap:12px;align-items:center;margin-top:24px">
-        <button type="submit" id="submitBtn" class="sm-btn is-hero is-lg">Create project & get access code</button>
-        <a href="/" class="sm-btn">Cancel</a>
+    <!-- ========== CTA ========== -->
+    <div class="full">
+      <button type="submit" id="submitBtn" class="sm-btn is-hero is-lg is-block" style="height:56px;font-size:15px">
+        Create project &amp; start uploading clips
+      </button>
+      <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--sm-text-muted)">
+        Next stop: clip board. Drop your clips, trim, pick music.
       </div>
+      <div id="err" class="err-banner"></div>
+    </div>
 
-      <div id="err" class="sm-pill is-danger" style="display:none;width:100%;justify-content:center;margin-top:16px;height:auto;padding:10px 14px;white-space:normal"></div>
-    </form>
   </div>
-</main>
+</form>
 
 <script>
-// Sync checked-state visual on the cards
-document.querySelectorAll('.check-card input[type=checkbox]').forEach(cb => {
-  const card = cb.closest('.check-card');
+// ============================================================
+// Tab switching
+// ============================================================
+const tabAssigned = document.getElementById('tab-assigned');
+const tabWalkin   = document.getElementById('tab-walkin');
+const paneAssigned = document.getElementById('pane-assigned');
+const paneWalkin   = document.getElementById('pane-walkin');
+let mode = 'assigned';
+function setMode(m) {
+  mode = m;
+  tabAssigned.classList.toggle('is-active', m === 'assigned');
+  tabWalkin.classList.toggle('is-active', m === 'walkin');
+  paneAssigned.style.display = m === 'assigned' ? '' : 'none';
+  paneWalkin.style.display   = m === 'walkin'   ? '' : 'none';
+}
+tabAssigned.addEventListener('click', () => setMode('assigned'));
+tabWalkin.addEventListener('click',   () => setMode('walkin'));
+
+// ============================================================
+// Client picker — fetch /clients.json then render selectable cards
+// ============================================================
+let selectedClientID = null;
+const list = document.getElementById('client-list');
+
+(async function loadClients() {
+  try {
+    const res = await fetch('/clients.json', { credentials: 'same-origin' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      list.innerHTML = `<div class="client-empty">Couldn't load clients: ${body.message || ('HTTP ' + res.status)}</div>`;
+      return;
+    }
+    const { clients } = await res.json();
+    if (!clients || clients.length === 0) {
+      list.innerHTML = `<div class="client-empty">No clients assigned to you yet.<br>
+        Ask your club admin to assign jumpers, or switch to <b>Walk-in</b>.</div>`;
+      return;
+    }
+    list.innerHTML = '';
+    for (const c of clients) {
+      // Optional: skip clients that already have a delivered jump
+      const hadJump = c.jump_count > 0;
+      const card = document.createElement('div');
+      card.className = 'client-card';
+      card.dataset.id    = c.id;
+      card.dataset.name  = c.name;
+      card.dataset.email = c.email || '';
+      card.dataset.phone = c.phone || '';
+      card.innerHTML = `
+        <div class="ck"></div>
+        <div class="info">
+          <div class="name">${escapeHTML(c.name)}</div>
+          <div class="sub">${escapeHTML(c.email || c.phone || '—')}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="code">${escapeHTML(c.access_code)}</div>
+          <div style="font-size:10px;color:var(--sm-text-dim);margin-top:2px">${hadJump ? c.jump_count + ' jump' + (c.jump_count > 1 ? 's' : '') : 'No jumps'}</div>
+        </div>`;
+      card.addEventListener('click', () => {
+        selectedClientID = c.id;
+        for (const el of list.querySelectorAll('.client-card')) el.classList.remove('is-active');
+        card.classList.add('is-active');
+      });
+      list.appendChild(card);
+    }
+    // Pre-select first
+    list.querySelector('.client-card')?.click();
+  } catch (e) {
+    list.innerHTML = `<div class="client-empty">Network error: ${escapeHTML(e.message)}</div>`;
+  }
+})();
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============================================================
+// Output cards — toggle visual state on checkbox change
+// ============================================================
+document.querySelectorAll('.out-card input[type=checkbox]').forEach(cb => {
+  const card = cb.closest('.out-card');
   const sync = () => card.classList.toggle('checked', cb.checked);
   cb.addEventListener('change', sync); sync();
 });
 
+// ============================================================
+// Submit
+// ============================================================
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const fd = new FormData(e.target);
-  const payload = {
-    client_name:                  (fd.get('client_name') || '').trim(),
-    client_email:                 (fd.get('client_email') || '').trim(),
-    client_phone:                 (fd.get('client_phone') || '').trim(),
-    output_1080p:                 fd.get('output_1080p')   === 'on',
-    output_4k:                    fd.get('output_4k')      === 'on',
-    output_vertical:              fd.get('output_vertical')=== 'on',
-    output_photos:                fd.get('output_photos')  === 'on',
-    has_operator_uploaded_photos: fd.get('has_operator_uploaded_photos') === 'on'
-  };
   const errEl = document.getElementById('err');
   errEl.style.display = 'none';
+  const fd = new FormData(e.target);
+
+  const payload = {
+    output_1080p:                 fd.get('output_1080p')    === 'on',
+    output_4k:                    fd.get('output_4k')       === 'on',
+    output_vertical:              fd.get('output_vertical') === 'on',
+    output_photos:                fd.get('output_photos')   === 'on',
+    has_operator_uploaded_photos: fd.get('has_operator_uploaded_photos') === 'on',
+  };
+
+  if (mode === 'assigned') {
+    if (!selectedClientID) {
+      errEl.textContent = 'Pick a client first, or switch to Walk-in.';
+      errEl.style.display = 'block';
+      return;
+    }
+    const card = list.querySelector('.client-card.is-active');
+    payload.existing_client_id = Number(selectedClientID);
+    payload.client_name        = card?.dataset.name  || '';
+    payload.client_email       = card?.dataset.email || '';
+    payload.client_phone       = card?.dataset.phone || '';
+  } else {
+    payload.client_name  = (fd.get('walkin_name')  || '').toString().trim();
+    payload.client_email = (fd.get('walkin_email') || '').toString().trim();
+    payload.client_phone = (fd.get('walkin_phone') || '').toString().trim();
+    if (!payload.client_name) {
+      errEl.textContent = 'Walk-in needs at least a name.';
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+
+  if (!payload.output_1080p && !payload.output_4k && !payload.output_vertical && !payload.output_photos) {
+    errEl.textContent = 'Pick at least one deliverable.';
+    errEl.style.display = 'block';
+    return;
+  }
+
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
+  btn.textContent = 'Creating…';
   try {
     const res = await fetch('/projects', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     });
-    if (res.ok) {
-      const html = await res.text();
-      document.open(); document.write(html); document.close();
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.redirect) {
+      location.href = body.redirect;
       return;
     }
-    let msg = 'HTTP ' + res.status;
-    try { const body = await res.json(); if (body.message) msg = body.message; } catch {}
-    errEl.textContent = msg;
-    errEl.style.display = 'flex';
-    btn.disabled = false;
+    errEl.textContent = body.message || ('HTTP ' + res.status);
+    errEl.style.display = 'block';
   } catch (e) {
     errEl.textContent = e.message;
-    errEl.style.display = 'flex';
-    btn.disabled = false;
+    errEl.style.display = 'block';
   }
+  btn.disabled = false;
+  btn.textContent = 'Create project & start uploading clips';
 });
+
+// ============================================================
+// Pre-select client from ?client_id=N (deep-link from dashboard "Start project")
+// ============================================================
+(function deepLink() {
+  const u = new URL(location.href);
+  const id = u.searchParams.get('client_id');
+  if (!id) return;
+  // Wait until clients load, then click the matching card
+  const tryPick = () => {
+    const card = list.querySelector(`.client-card[data-id="${id}"]`);
+    if (card) { card.click(); return true; }
+    return false;
+  };
+  if (tryPick()) return;
+  const obs = new MutationObserver(() => { if (tryPick()) obs.disconnect(); });
+  obs.observe(list, { childList: true });
+})();
 </script>
-<button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
-        style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.10);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">
-  <span data-theme-icon></span>
-</button>
 <script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

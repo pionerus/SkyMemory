@@ -18,7 +18,12 @@ const (
 
 // JumpRegisterRequest creates the cloud-side jump record before any uploads happen.
 type JumpRegisterRequest struct {
-	// Client identity
+	// ExistingClientID > 0 → reuse this row (set by club admin via /admin/clients).
+	// When set, ClientName/Email/Phone are ignored — cloud reads them from the
+	// existing row. When 0, cloud INSERTs a fresh client (walk-in path).
+	ExistingClientID int64 `json:"existing_client_id,omitempty"`
+
+	// Client identity (ignored if ExistingClientID > 0)
 	ClientName  string `json:"client_name"`
 	ClientEmail string `json:"client_email,omitempty"`
 	ClientPhone string `json:"client_phone,omitempty"`

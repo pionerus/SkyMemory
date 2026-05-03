@@ -43,6 +43,47 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("cloud %d %s: %s", e.HTTPStatus, e.Code, e.Message)
 }
 
+// AssignedClient mirrors a row from /api/v1/operator/clients — clients that
+// the club admin has assigned to this operator. Drives the "pick client"
+// dropdown on the studio's new-project flow. Status follows the canonical
+// 5-step lifecycle: new → assigned → in_progress → sent → downloaded.
+type AssignedClient struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Email        string    `json:"email,omitempty"`
+	Phone        string    `json:"phone,omitempty"`
+	AccessCode   string    `json:"access_code"`
+	LatestJumpAt time.Time `json:"latest_jump_at,omitempty"`
+	Status       string    `json:"status"`
+	JumpCount    int       `json:"jump_count"`
+}
+
+// AssignedClients fetches /api/v1/operator/clients. On 401 the caller should
+// trigger a session refresh and retry — handled at the session layer in main.
+func (c *Client) AssignedClients(ctx context.Context) ([]AssignedClient, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/api/v1/operator/clients", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := c.hc.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("get: %w", err)
+	}
+	defer resp.Body.Close()
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("cloud returned %d: %s", resp.StatusCode, string(respBytes))
+	}
+	var out struct {
+		Clients []AssignedClient `json:"clients"`
+	}
+	if err := json.Unmarshal(respBytes, &out); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return out.Clients, nil
+}
+
 // Register POSTs to /api/v1/jumps/register. Returns the new jump_id, client_id,
 // and human-formatted access_code.
 func (c *Client) Register(ctx context.Context, req v1.JumpRegisterRequest) (*v1.JumpRegisterResponse, error) {

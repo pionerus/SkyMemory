@@ -541,7 +541,7 @@
   .step-rail .arrow { color: var(--sm-text-dim); }
 
   /* main content: drop the auto-margin so the topbar stretches full width */
-  body > main { max-width: none; padding: 28px; margin: 0 auto; }
+  .sm-page main { max-width: none; padding: 28px; margin: 0 auto; }
 
   /* Section header */
   .section-h {
@@ -1064,6 +1064,82 @@
 </head>
 <body>
 
+<div class="sm-page">
+
+<aside class="sm-rail" style="width:240px">
+  <div style="padding:20px 18px 14px;border-bottom:1px solid var(--sm-border)">
+    <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+      <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none">
+        <span class="sm-mark" style="width:22px"></span>
+      </span>
+      <div style="min-width:0">
+        <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
+        <span class="role-chip role-chip--studio">Operator · studio</span>
+      </div>
+    </a>
+    <div style="font-size:10px;color:var(--sm-text-dim);font-family:var(--sm-mono);margin-top:8px;letter-spacing:.08em;text-transform:uppercase">
+      Project · {{.P.AccessCode}}
+    </div>
+  </div>
+
+  <nav style="padding:12px;display:flex;flex-direction:column;gap:2px">
+    <a class="sm-rail-item" href="/">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      All projects
+    </a>
+    <a class="sm-rail-item is-active" href="/projects/{{.P.ID}}/clips">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      Clip board
+    </a>
+    <a class="sm-rail-item" href="/projects/{{.P.ID}}/generate">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Generate &amp; send
+    </a>
+    <a class="sm-rail-item" href="{{.CloudBaseURL}}/watch/{{.AccessCodeCanonical}}" target="_blank">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      Watch link
+    </a>
+  </nav>
+
+  <div style="flex:1"></div>
+
+  <nav style="padding:0 12px;display:flex;flex-direction:column;gap:2px">
+    <div style="height:1px;background:var(--sm-border);margin:0 4px 6px"></div>
+    <a class="sm-rail-item" href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+    <form method="POST" action="/license/refresh" style="margin:0">
+      <button type="submit" class="sm-rail-item" title="Re-authenticate using credentials from .env" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Re-sign in
+      </button>
+    </form>
+  </nav>
+
+  <div style="padding:14px;border-top:1px solid var(--sm-border);margin-top:8px">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:4px">
+      {{if .License.Valid}}
+        <span class="sm-dot" style="color:var(--sm-success)"></span><span>Signed in</span>
+      {{else}}
+        <span class="sm-dot" style="color:var(--sm-danger)"></span><span>Auth issue</span>
+      {{end}}
+    </div>
+    {{if .License.Valid}}
+    <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.OperatorEmail}}</div>
+    <div style="font-size:11px;color:var(--sm-text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.License.TenantName}}</div>
+    {{end}}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
+      <span class="mono">Studio</span>
+      <button type="button" data-theme-toggle title="Toggle theme" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:0;display:flex;align-items:center">
+        <span data-theme-icon></span>
+      </button>
+    </div>
+  </div>
+</aside>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
 <!-- Sticky topbar — replaces old header -->
 <div class="sticky-topbar">
   <a href="/" class="back-btn" title="All projects">
@@ -1199,7 +1275,7 @@
     </div>
 
     <div id="music-err" class="err"></div>
-  </div>
+  </section>
 
   <section style="margin-bottom:28px">
     <div class="section-h">
@@ -1425,6 +1501,9 @@
     </div>
   </div>
 </main>
+
+</div><!-- /flex:1 main column -->
+</div><!-- /.sm-page -->
 
 <script>
 const PROJECT_ID = {{.P.ID}};

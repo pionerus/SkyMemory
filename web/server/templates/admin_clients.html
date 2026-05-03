@@ -293,16 +293,11 @@
             {{end}}
           </div>
           <div>
-            {{if eq .LatestStatus "ready"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Ready</span>
+            {{if eq .LatestStatus "downloaded"}}<span class="sm-pill is-success" style="font-weight:700;letter-spacing:.05em">DOWNLOADED</span>
             {{else if eq .LatestStatus "sent"}}<span class="sm-pill is-success">Sent</span>
-            {{else if eq .LatestStatus "delivered"}}<span class="sm-pill is-success">Delivered</span>
-            {{else if eq .LatestStatus "encoding"}}<span class="sm-pill is-warn">Encoding</span>
-            {{else if eq .LatestStatus "uploading"}}<span class="sm-pill is-warn">Uploading</span>
-            {{else if eq .LatestStatus "editing"}}<span class="sm-pill is-warn">In edit</span>
-            {{else if eq .LatestStatus "draft"}}<span class="sm-pill">Draft</span>
-            {{else if eq .LatestStatus "failed"}}<span class="sm-pill is-danger">Failed</span>
-            {{else if .LatestStatus}}<span class="sm-pill">{{.LatestStatus}}</span>
-            {{else}}<span class="sm-pill is-danger">No jump</span>{{end}}
+            {{else if eq .LatestStatus "in_progress"}}<span class="sm-pill is-warn">In progress</span>
+            {{else if eq .LatestStatus "assigned"}}<span class="sm-pill is-brand">Assigned</span>
+            {{else}}<span class="sm-pill">New</span>{{end}}
           </div>
           <div class="row-more">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>

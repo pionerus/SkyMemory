@@ -157,6 +157,69 @@ func (h *Handlers) Render(w http.ResponseWriter, r *http.Request) {
 	_ = h.Templates.ExecuteTemplate(w, "watch.html", data)
 }
 
+// TrackDownload handles POST /watch/{access_code}/download — fired by
+// watch.html JS when the visitor clicks any "Download" button. Idempotently
+// stamps jumps.download_clicked_at on the first hit; subsequent clicks
+// no-op. Drives the canonical "downloaded" status in v_client_status.
+//
+// Access_code in the URL IS the bearer — same trust model as Render.
+// Returns 204 on success, 404 if the code maps to nothing.
+func (h *Handlers) TrackDownload(w http.ResponseWriter, r *http.Request) {
+	raw := chi.URLParam(r, "access_code")
+	canon := canonicalAccessCode(raw)
+	if !validateAccessCode(canon) {
+		http.NotFound(w, r)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	// Find the most-recent jump for this access_code. Use the same
+	// scoping as Render so an old/rotated code can't be retroactively
+	// "downloaded".
+	var jumpID int64
+	err := h.DB.QueryRow(ctx, `
+		SELECT j.id
+		FROM clients c
+		JOIN jumps   j ON j.client_id = c.id
+		WHERE c.access_code = $1
+		ORDER BY j.created_at DESC
+		LIMIT 1`,
+		canon,
+	).Scan(&jumpID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// First-click-wins: COALESCE preserves the original timestamp on
+	// repeat downloads so the lifecycle reads as "first opened at X".
+	_, _ = h.DB.Exec(ctx, `
+		UPDATE jumps
+		   SET download_clicked_at = COALESCE(download_clicked_at, NOW())
+		 WHERE id = $1`,
+		jumpID,
+	)
+
+	// Also drop a watch_event so platform analytics can break it down.
+	go func(jumpID int64, ua, ref, ip string) {
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel2()
+		_, _ = h.DB.Exec(ctx2, `
+			INSERT INTO watch_events (jump_id, artifact_kind, referrer, user_agent, ip, session_hash)
+			VALUES ($1, 'download', NULLIF($2,''), NULLIF($3,''), $4::inet, $5)`,
+			jumpID, ref, ua, ip, sessionHashFor(ua, ip),
+		)
+	}(jumpID, r.UserAgent(), r.Referer(), clientIPFor(r))
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // operatorNameFor turns "andrey@aeroclub.ru" into "Andrey". The operators
 // table doesn't carry a display name yet (Phase 11+ will add it), so we
 // derive a friendly form from the local-part of the email. Falls back to

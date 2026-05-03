@@ -43,7 +43,9 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 	req.ClientEmail = strings.TrimSpace(strings.ToLower(req.ClientEmail))
 	req.ClientPhone = strings.TrimSpace(req.ClientPhone)
 
-	if req.ClientName == "" || len(req.ClientName) > 200 {
+	// When picking an existing client (assigned by club admin), name comes
+	// from the DB row — only walk-ins need a typed name on the request.
+	if req.ExistingClientID == 0 && (req.ClientName == "" || len(req.ClientName) > 200) {
 		writeError(w, http.StatusBadRequest, "INVALID_CLIENT_NAME", "Client name is required and must be ≤200 chars.")
 		return
 	}
@@ -62,35 +64,59 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Generate a unique access_code. UNIQUE constraint can collide on rare 1-in-10^12
-	// duplicates; retry up to 3 times before giving up.
 	var (
 		clientID         int64
 		canonical, formatted string
 	)
-	const maxAttempts = 3
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		canonical, formatted, err = NewAccessCode()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "RAND_ERROR", err.Error())
+
+	if req.ExistingClientID > 0 {
+		// Existing client — pull their access_code so studio can stash it
+		// alongside the jump locally. Tenant scoping prevents cross-tenant ID guesses.
+		err = tx.QueryRow(ctx,
+			`SELECT id, access_code FROM clients
+			 WHERE id = $1 AND tenant_id = $2`,
+			req.ExistingClientID, s.TenantID,
+		).Scan(&clientID, &canonical)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "CLIENT_NOT_FOUND", "Client not found in your tenant.")
 			return
 		}
-
-		err = tx.QueryRow(ctx,
-			`INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by)
-			 VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6)
-			 RETURNING id`,
-			s.TenantID, req.ClientName, req.ClientEmail, req.ClientPhone, canonical, s.OperatorID,
-		).Scan(&clientID)
-
-		if err == nil {
-			break // got a unique access_code
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
 		}
-		if isUniqueViolation(err, "clients_access_code_key") && attempt < maxAttempts {
-			continue // try again with a new random code
+		if len(canonical) == 8 {
+			formatted = canonical[:4] + "-" + canonical[4:]
+		} else {
+			formatted = canonical
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
-		return
+	} else {
+		// Walk-in: insert a new client. UNIQUE on access_code can collide on
+		// rare 1-in-10^12 duplicates; retry up to 3 times before giving up.
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			canonical, formatted, err = NewAccessCode()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "RAND_ERROR", err.Error())
+				return
+			}
+
+			err = tx.QueryRow(ctx,
+				`INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by)
+				 VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6)
+				 RETURNING id`,
+				s.TenantID, req.ClientName, req.ClientEmail, req.ClientPhone, canonical, s.OperatorID,
+			).Scan(&clientID)
+
+			if err == nil {
+				break // got a unique access_code
+			}
+			if isUniqueViolation(err, "clients_access_code_key") && attempt < maxAttempts {
+				continue // try again with a new random code
+			}
+			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
 	}
 
 	// Snapshot tenant.photo_pack_price_cents at jump-create time so subsequent

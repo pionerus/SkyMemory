@@ -6,6 +6,68 @@
 <title>Operator · Skydive Memory</title>
 <link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    padding: 20px;
+  }
+  .kpi .label { font-size: 11px; color: var(--sm-text-muted);
+                text-transform: uppercase; letter-spacing: .08em;
+                margin-bottom: 12px; }
+  .kpi .value {
+    font-size: 30px; font-family: var(--sm-display); font-weight: 500;
+    letter-spacing: -0.02em; line-height: 1;
+  }
+  .kpi .sub { font-size: 11px; color: var(--sm-text-dim); margin-top: 8px; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .card {
+    background: var(--sm-surface);
+    border: 1px solid var(--sm-border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .card .head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--sm-border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card .head .title { font-size: 14px; font-weight: 500; }
+  .card .head .sub   { font-size: 11px; color: var(--sm-text-muted); }
+
+  .row {
+    display: grid; gap: 12px; align-items: center;
+    padding: 12px 18px;
+    border-top: 1px solid var(--sm-border);
+    font-size: 13px;
+  }
+  .row.queue { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 100px 130px; }
+  .row.recent { grid-template-columns: 110px minmax(0, 1.5fr) 120px 110px; }
+  .row .name  { font-weight: 500; }
+  .row .email { color: var(--sm-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .code  { font-family: var(--sm-mono); font-size: 12px; color: var(--sm-brand-hi); letter-spacing: .04em; }
+  .row .when  { font-family: var(--sm-mono); font-size: 11px; color: var(--sm-text-muted); }
+  .row .action { text-align: right; }
+
+  .empty {
+    padding: 36px 18px;
+    text-align: center;
+    color: var(--sm-text-muted);
+    font-size: 13px;
+  }
+
   .placeholder {
     background: var(--sm-surface);
     border: 1px dashed var(--sm-border-strong);
@@ -51,18 +113,25 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         Storage
       </a>
-    </nav>
-    <div style="padding:14px;border-top:1px solid var(--sm-border)">
-      <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.OperatorEmail}}</div>
-      <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}} · {{.OperatorRole}}</div>
-      <div style="display:flex;gap:6px;margin-top:10px">
-        <button type="button" data-theme-toggle class="sm-btn is-sm" title="Toggle theme" aria-label="Toggle theme" style="flex:0 0 auto;padding:0 10px">
-          <span data-theme-icon></span>
+
+      <div style="height:1px;background:var(--sm-border);margin:8px 4px"></div>
+
+      <form method="POST" action="/auth/logout" style="margin:0">
+        <button type="submit" class="sm-rail-item" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign out
         </button>
-        <form method="POST" action="/auth/logout" style="margin:0;flex:1">
-          <button type="submit" class="sm-btn is-sm is-block">Sign out</button>
-        </form>
+      </form>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.OperatorEmail}}</div>
+        <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}} · {{.OperatorRole}}</div>
       </div>
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
+        <span data-theme-icon></span>
+      </button>
     </div>
   </aside>
 
@@ -78,33 +147,93 @@
     </header>
 
     <div style="padding:28px;overflow:auto;flex:1">
+
       {{if eq .Active "dashboard"}}
-      <div class="placeholder">
-        <strong>Phase 9</strong> · Operator portal home. Recent jumps, client roster, and storage health will land here as a single overview.
-        <ul>
-          <li><strong>Recent jumps:</strong> latest 10 you filmed, with status and watch links</li>
-          <li><strong>Storage health:</strong> drive quota, expiring tokens, last sync</li>
-          <li><strong>Tasks:</strong> jumps awaiting upload / re-edit</li>
-        </ul>
+      <!-- KPI strip -->
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="label">Assigned to me</div>
+          <div class="value">{{.KPI.AssignedTotal}}</div>
+          <div class="sub">{{.KPI.AssignedNoJumps}} still need a jump</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Jumps this week</div>
+          <div class="value">{{.KPI.JumpsThisWeek}}</div>
+          <div class="sub">{{.KPI.JumpsAllTime}} all-time</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Delivered</div>
+          <div class="value">{{.KPI.Delivered}}</div>
+          <div class="sub">video uploaded to cloud</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Pending</div>
+          <div class="value">{{sub .KPI.JumpsAllTime .KPI.Delivered}}</div>
+          <div class="sub">jumps without a final upload</div>
+        </div>
       </div>
-      {{else if eq .Active "projects"}}
-      <div class="placeholder">
-        <strong>Phase 9.2</strong> · Web mirror of your studio.exe state. Browse every project you started locally, plus the per-deliverable links once they hit the cloud.
-        <ul>
-          <li>Read-only — editing still happens in studio.exe</li>
-          <li>Per-deliverable download links (1080p / Reel / Wow)</li>
-          <li>Watch-link preview &amp; copy</li>
-        </ul>
+
+      <div class="grid-2">
+        <!-- Today's queue -->
+        <div class="card">
+          <div class="head">
+            <div>
+              <div class="title">Today's queue</div>
+              <div class="sub">Assigned to me · no jump yet</div>
+            </div>
+            <a href="/operator/clients" style="font-size:12px;color:var(--sm-brand-hi);text-decoration:none">All clients →</a>
+          </div>
+          {{if .Queue}}
+            {{range .Queue}}
+            <div class="row queue">
+              <div class="name">{{.Name}}</div>
+              <div class="email">{{if .Email}}{{.Email}}{{else if .Phone}}{{.Phone}}{{else}}—{{end}}</div>
+              <div class="code">{{.AccessCode}}</div>
+              <div class="action">
+                <a class="sm-btn is-sm is-primary" href="http://localhost:8080/projects/new?client_id={{.ID}}" target="_blank">▶ Start in Studio</a>
+              </div>
+            </div>
+            {{end}}
+          {{else}}
+            <div class="empty">
+              No clients waiting. Ask your club admin to assign jumpers on
+              <span class="mono">/admin/clients</span>.
+            </div>
+          {{end}}
+        </div>
+
+        <!-- Recent jumps -->
+        <div class="card">
+          <div class="head">
+            <div>
+              <div class="title">Recent jumps</div>
+              <div class="sub">Latest 5 you registered</div>
+            </div>
+            <a href="/operator/projects" style="font-size:12px;color:var(--sm-brand-hi);text-decoration:none">All jumps →</a>
+          </div>
+          {{if .Recent}}
+            {{range .Recent}}
+            <div class="row recent">
+              <div class="code">{{.AccessCode}}</div>
+              <div class="name">{{.ClientName}}</div>
+              <div class="when">{{.CreatedAt.Format "Jan 2 · 15:04"}}</div>
+              <div class="action">
+                {{if eq .Status "ready"}}<span class="sm-pill is-success">delivered</span>
+                {{else if eq .Status "delivered"}}<span class="sm-pill is-success">delivered</span>
+                {{else if eq .Status "failed"}}<span class="sm-pill is-danger">failed</span>
+                {{else if eq .Status "draft"}}<span class="sm-pill">draft</span>
+                {{else}}<span class="sm-pill is-warn">{{.Status}}</span>{{end}}
+              </div>
+            </div>
+            {{end}}
+          {{else}}
+            <div class="empty">
+              No jumps registered yet. Open Studio and start a project.
+            </div>
+          {{end}}
+        </div>
       </div>
-      {{else if eq .Active "clients"}}
-      <div class="placeholder">
-        <strong>Phase 9.3</strong> · Personal client roster. Every jumper you've filmed, ordered by latest jump.
-        <ul>
-          <li>Search by name / email / phone</li>
-          <li>Contact history per client</li>
-          <li>Re-send watch link from this page</li>
-        </ul>
-      </div>
+
       {{else if eq .Active "storage"}}
       <div class="placeholder">
         <strong>Phase 9.4</strong> · Personal storage configuration. Connect a Google Drive / Dropbox / OneDrive account or an S3-compatible bucket — uploaded clips and rendered outputs land there in addition to the cloud copy.
@@ -116,9 +245,6 @@
       </div>
       {{end}}
 
-      <div style="margin-top:24px;font-size:11px;color:var(--sm-text-dim);text-align:center">
-        Today the operator's main surface is studio.exe on localhost:8080.
-      </div>
     </div>
   </main>
 </div>
