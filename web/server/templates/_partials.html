@@ -40,6 +40,15 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Settings
     </a>
+
+    <div style="height:1px;background:var(--sm-border);margin:8px 4px"></div>
+
+    <form method="POST" action="/auth/logout" style="margin:0">
+      <button type="submit" class="sm-rail-item" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sign out
+      </button>
+    </form>
   </nav>
   <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
     <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,rgba(255,200,61,.2),rgba(255,138,61,.2));display:flex;align-items:center;justify-content:center;font-family:var(--sm-display);font-size:12px;font-weight:600;color:var(--sm-brand-hi);flex-shrink:0">{{.TenantInitials}}</div>
@@ -51,11 +60,6 @@
             style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
       <span data-theme-icon></span>
     </button>
-    <form method="POST" action="/auth/logout" style="margin:0">
-      <button type="submit" title="Sign out" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-      </button>
-    </form>
   </div>
 </aside>
 <script src="/static/theme-toggle.js" defer></script>

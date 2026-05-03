@@ -6,67 +6,95 @@
 <title>Skydive Memory Studio</title>
 <link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
-  /* Page-specific tweaks */
-  .proj-card {
+  /* Project list — table style per design (studio.jsx → ProjectList) */
+  .sec-h {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  .sec-h .label {
+    font-size: 13px; font-family: var(--sm-mono);
+    letter-spacing: .15em; text-transform: uppercase;
+  }
+  .sec-h .label.is-today { color: var(--sm-brand-hi); }
+  .sec-h .label.is-past { color: var(--sm-text-muted); }
+  .sec-h .rule {
+    flex: 1; height: 1px; background: var(--sm-border);
+  }
+  .sec-h .who {
+    font-family: var(--sm-mono);
+    font-size: 11px;
+    color: var(--sm-text-dim);
+    letter-spacing: .1em;
+  }
+
+  .row-table {
     background: var(--sm-surface);
     border: 1px solid var(--sm-border);
-    border-radius: 16px;
+    border-radius: 14px;
     overflow: hidden;
-    cursor: pointer;
-    transition: border-color 80ms, transform 80ms;
-    text-decoration: none;
-    color: inherit;
-    display: flex;
-    flex-direction: column;
   }
-  .proj-card:hover { border-color: var(--sm-border-strong); }
-  .proj-thumb {
-    aspect-ratio: 16/9;
-    background-color: #0F1420;
-    background-image:
-      repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 12px),
-      radial-gradient(120% 80% at 30% 20%, rgba(79,142,255,.10), transparent 60%),
-      radial-gradient(140% 90% at 80% 90%, rgba(255,177,105,.08), transparent 60%);
-    border-bottom: 1px solid var(--sm-border);
-    display:flex; align-items:center; justify-content:center;
-    color: var(--sm-text-dim);
-    font-family: var(--sm-mono); font-size: 11px;
-    letter-spacing: 0.12em; text-transform: uppercase;
-    position: relative;
-  }
-  .proj-body { padding: 14px 16px; display:flex; flex-direction:column; gap:8px; }
-  .proj-name { font-weight: 600; font-size: 14px; }
-  .proj-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color: var(--sm-text-muted); }
-  .grid {
+  .row-head, .row {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.4fr) 130px 110px 130px 130px 150px;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 18px;
   }
+  .row-head {
+    background: var(--sm-surface-2);
+    border-bottom: 1px solid var(--sm-border);
+    font-size: 11px; font-family: var(--sm-mono);
+    color: var(--sm-text-dim);
+    letter-spacing: .12em; text-transform: uppercase;
+    padding: 10px 18px;
+  }
+  .row + .row { border-top: 1px solid var(--sm-border); }
+  .row .name { font-size: 13px; font-weight: 500; }
+  .row .email { color: var(--sm-text-muted); font-size: 13px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .when { color: var(--sm-text); font-family: var(--sm-mono); font-size: 12px; }
+  .row .type { color: var(--sm-text-muted); font-size: 13px; }
+  .row .code { color: var(--sm-brand-hi); font-family: var(--sm-mono); font-size: 12px; }
+  .row .code.is-empty { color: var(--sm-text-dim); }
+  .row .action .sm-btn { width: 100%; }
+
   .empty {
-    border: 1px dashed var(--sm-border-strong);
-    border-radius: 16px;
-    padding: 48px 24px;
+    padding: 40px 24px;
     text-align: center;
     color: var(--sm-text-muted);
+    font-size: 13px;
   }
-  .rail-foot {
-    margin-top: auto;
-    padding: 16px;
-    border-top: 1px solid var(--sm-border);
-    font-size: 12px;
-    color: var(--sm-text-muted);
+
+  .err-banner {
+    padding: 14px 18px;
+    background: rgba(255,107,122,.08);
+    border: 1px solid rgba(255,107,122,.25);
+    border-radius: 12px;
+    color: var(--sm-text);
+    font-size: 13px;
+    margin-bottom: 18px;
+    display: flex; gap: 10px; align-items: center;
   }
-  .rail-foot .row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-  .license-banner {
+  .err-banner .sm-btn { margin-left: auto; }
+
+  /* Setup checklist (only when auth fails) */
+  .check-list { list-style: none; padding: 0; margin: 0; }
+  .check-list li { padding: 6px 0; font-size: 13px; color: var(--sm-text-muted); display:flex; align-items:center; gap:8px; }
+  .check-list li.done { color: var(--sm-text); }
+  .check-list li.done::before { content: "✓"; color: var(--sm-success); }
+  .check-list li.fail::before { content: "✕"; color: var(--sm-danger); }
+  .check-list li:not(.done):not(.fail)::before { content: "○"; color: var(--sm-text-dim); }
+
+  .auth-banner {
     background: var(--sm-surface);
     border: 1px solid rgba(255,107,122,.25);
     border-radius: 16px;
     padding: 24px;
     margin-bottom: 24px;
   }
-  .license-banner h2 { font-size: 18px; margin-bottom: 8px; color: var(--sm-danger); }
-  .license-banner p { color: var(--sm-text-muted); font-size: 13px; margin-bottom: 8px; }
-  .license-banner code {
+  .auth-banner h2 { font-size: 18px; margin-bottom: 8px; color: var(--sm-danger); }
+  .auth-banner p { color: var(--sm-text-muted); font-size: 13px; margin-bottom: 8px; }
+  .auth-banner code {
     background: var(--sm-surface-2);
     border: 1px solid var(--sm-border);
     border-radius: 6px;
@@ -75,13 +103,6 @@
     font-size: 12px;
     color: var(--sm-text);
   }
-  /* Checklist (small diagnostics panel) */
-  .check-list { list-style: none; padding: 0; margin: 0; }
-  .check-list li { padding: 6px 0; font-size: 13px; color: var(--sm-text-muted); display:flex; align-items:center; gap:8px; }
-  .check-list li.done { color: var(--sm-text); }
-  .check-list li.done::before { content: "✓"; color: var(--sm-success); }
-  .check-list li.fail::before { content: "✕"; color: var(--sm-danger); }
-  .check-list li:not(.done):not(.fail)::before { content: "○"; color: var(--sm-text-dim); }
 </style>
 </head>
 <body>
@@ -97,6 +118,9 @@
           <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
           <span class="role-chip role-chip--studio">Operator · studio</span>
         </div>
+      </div>
+      <div style="font-size:10px;color:var(--sm-text-dim);font-family:var(--sm-mono);margin-top:8px;letter-spacing:.08em;text-transform:uppercase">
+        Studio · {{.Addr}}
       </div>
     </div>
 
@@ -121,20 +145,34 @@
 
     <div style="flex:1"></div>
 
-    <div style="padding:14px;border-top:1px solid var(--sm-border)">
+    <nav style="padding:0 12px;display:flex;flex-direction:column;gap:2px">
+      <div style="height:1px;background:var(--sm-border);margin:0 4px 6px"></div>
+      <a class="sm-rail-item" href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </a>
+      <form method="POST" action="/license/refresh" style="margin:0">
+        <button type="submit" class="sm-rail-item" title="Re-authenticate with cloud (uses creds from .env)" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Re-sign in
+        </button>
+      </form>
+    </nav>
+
+    <div style="padding:14px;border-top:1px solid var(--sm-border);margin-top:8px">
       <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:4px">
         {{if .License.Valid}}
           <span class="sm-dot" style="color:var(--sm-success)"></span>
-          <span>License OK</span>
-        {{else if .License.Err}}
-          <span class="sm-dot" style="color:var(--sm-warning)"></span>
-          <span>License unverified</span>
+          <span>Signed in</span>
         {{else if not .TokenConfigured}}
           <span class="sm-dot" style="color:var(--sm-danger)"></span>
-          <span>No license token</span>
+          <span>Credentials missing</span>
+        {{else if .License.Err}}
+          <span class="sm-dot" style="color:var(--sm-warning)"></span>
+          <span>Cloud unreachable</span>
         {{else}}
           <span class="sm-dot" style="color:var(--sm-danger)"></span>
-          <span>License invalid</span>
+          <span>Sign-in failed</span>
         {{end}}
       </div>
       {{if .License.Valid}}
@@ -143,112 +181,153 @@
       {{end}}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
         <span class="mono">Studio v{{.Version}}</span>
-        <div style="display:flex;align-items:center;gap:10px">
-          <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
-                  style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:0;display:flex;align-items:center">
-            <span data-theme-icon></span>
-          </button>
-          <a href="#" onclick="document.getElementById('settings-modal').classList.add('show');return false" style="color:var(--sm-text-muted)">Settings</a>
-        </div>
+        <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+                style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;padding:0;display:flex;align-items:center">
+          <span data-theme-icon></span>
+        </button>
       </div>
     </div>
   </aside>
 
-  <div class="sm-main">
-    <div class="sm-page-header">
-      <div>
-        <h1>Projects</h1>
-        <p style="color:var(--sm-text-muted);margin-top:6px;font-size:13px">
-          {{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}}
-          {{if .License.Valid}}· listening on <span class="mono">{{.Addr}}</span>{{end}}
-        </p>
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Projects</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">
+          {{len .AssignedClients}} assigned today · {{len .Projects}} in studio · sorted newest first
+        </div>
       </div>
       {{if .License.Valid}}
-      <a href="/projects/new" class="sm-btn is-hero is-lg">+ New project</a>
+      <a href="/projects/new" class="sm-btn">+ Walk-in project</a>
       {{end}}
-    </div>
+    </header>
 
-    {{if not .License.Valid}}
-    <div class="license-banner">
-      <h2>License required</h2>
-      {{if not .TokenConfigured}}
-        <p>Set <code>STUDIO_LICENSE_TOKEN</code> in <code>.env</code>, then restart this app.</p>
-        <p>Get a token from your club owner — they issue it in the cloud admin under <code>/admin/tokens</code>.</p>
-      {{else if .License.Err}}
-        <p>Token couldn't be verified — cloud server is unreachable.</p>
-        <p>Error: <code>{{.License.Err}}</code></p>
-      {{else}}
-        <p>Token rejected by cloud. Reason: <code>{{.License.Reason}}</code></p>
-        <p>Possible causes: token revoked in admin, tenant deleted, or the token in your <code>.env</code> doesn't match anything on the server.</p>
-      {{end}}
-      <form method="POST" action="/license/refresh" style="margin-top:16px">
-        <button class="sm-btn" type="submit">Re-check now</button>
-      </form>
-    </div>
-    {{end}}
+    <div style="padding:24px 28px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:22px">
 
-    {{if .License.Valid}}
-      {{if .Projects}}
-      <div class="grid" id="proj-grid">
-        {{range .Projects}}
-        <a class="proj-card"
-           href="/projects/{{.ID}}/clips"
-           data-name="{{.ClientName}}"
-           data-code="{{.AccessCode}}"
-           data-status="{{if eq .Status "done"}}done{{else if eq .Status "failed"}}failed{{else}}in_progress{{end}}">
-          <div class="proj-thumb">
-            <span>FREEFALL · {{.AccessCode}}</span>
-          </div>
-          <div class="proj-body">
-            <div class="proj-name">{{.ClientName}}</div>
-            {{if .ClientEmail}}
-            <div style="font-size:12px;color:var(--sm-text-muted)">{{.ClientEmail}}</div>
-            {{end}}
-            <div class="proj-meta">
-              <span class="sm-pill is-mono">{{.AccessCode}}</span>
-              <span class="sm-pill {{if eq .Status "done"}}is-success{{else if eq .Status "failed"}}is-danger{{else}}is-brand{{end}}">{{.Status}}</span>
-            </div>
-            <div class="proj-meta">
-              {{if .Output1080p}}<span class="sm-pill">1080p</span>{{end}}
-              {{if .Output4K}}<span class="sm-pill">4K</span>{{end}}
-              {{if .OutputVertical}}<span class="sm-pill">vertical</span>{{end}}
-              {{if .OutputPhotos}}<span class="sm-pill">photos</span>{{end}}
-            </div>
-            <div style="font-size:11px;color:var(--sm-text-dim);margin-top:auto">
-              Created {{.CreatedAt.Format "Jan 2, 15:04"}}
-            </div>
-          </div>
-        </a>
+      {{if not .License.Valid}}
+      <div class="auth-banner">
+        <h2>Studio is not signed in</h2>
+        {{if not .TokenConfigured}}
+          <p>Set <code>STUDIO_OPERATOR_EMAIL</code> and <code>STUDIO_OPERATOR_PASSWORD</code> in <code>.env</code>, then restart this app.</p>
+          <p>Use the operator credentials your club admin created for you on <code>/admin/operators</code>.</p>
+        {{else if .License.Err}}
+          <p>Cloud server isn't reachable.</p>
+          <p>Error: <code>{{.License.Err}}</code></p>
+        {{else}}
+          <p>Cloud rejected your credentials. Reason: <code>{{.License.Reason}}</code></p>
+          <p>Either the email/password in <code>.env</code> is wrong, or your club admin disabled this operator.</p>
         {{end}}
-      </div>
-      <div id="proj-empty-filter" class="empty" style="display:none">
-        No projects match the current filter.
-      </div>
-      {{else}}
-      <div class="empty">
-        <p style="font-size:14px;margin-bottom:14px">No projects yet.</p>
-        <a href="/projects/new" class="sm-btn is-primary">+ Create your first project</a>
+        <form method="POST" action="/license/refresh" style="margin-top:16px">
+          <button class="sm-btn" type="submit">Re-check now</button>
+        </form>
+        <ul class="check-list" style="margin-top:18px">
+          <li class="done">Studio binary running on <span class="mono">{{.Addr}}</span></li>
+          <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <span class="mono">{{.CloudBaseURL}}</span></li>
+          <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">Operator credentials in <span class="mono">.env</span></li>
+          <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted credentials</li>
+        </ul>
       </div>
       {{end}}
-    {{end}}
 
-    <div class="sm-card" style="padding:24px;margin-top:24px">
-      <h2 style="font-size:16px;margin-bottom:14px">Setup checklist</h2>
-      <ul class="check-list">
-        <li class="done">Studio binary running on <span class="mono">{{.Addr}}</span></li>
-        <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <span class="mono">{{.CloudBaseURL}}</span></li>
-        <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">License token configured (<span class="mono">STUDIO_LICENSE_TOKEN</span>)</li>
-        <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted the license token</li>
-      </ul>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--sm-border);font-size:12px;color:var(--sm-text-muted)">
-        State DB: <span class="mono">{{.StatePath}}</span> ·
-        Health: <a href="/healthz">/healthz</a>
-      </div>
+      {{if .License.Valid}}
+      <!-- TODAY: assigned clients from the cloud -->
+      <section>
+        <div class="sec-h">
+          <span class="label is-today">Today · assigned to you</span>
+          <span class="sm-pill is-brand" style="height:22px;font-size:11px;padding:0 10px">{{len .AssignedClients}}</span>
+          <div class="rule"></div>
+          <span class="who">OPERATOR · {{.License.OperatorEmail}}</span>
+        </div>
+
+        {{if .AssignedClientsErr}}
+        <div class="err-banner">
+          <span>Couldn't fetch assigned clients: <span class="mono">{{.AssignedClientsErr}}</span></span>
+          <button class="sm-btn is-sm" type="button" onclick="location.reload()">Retry</button>
+        </div>
+        {{end}}
+
+        <div class="row-table" id="today-table">
+          <div class="row-head">
+            <div>Client</div><div>Email</div><div>Code</div><div>Jumps</div><div>Latest status</div><div>Phone</div><div></div>
+          </div>
+          {{if .AssignedClients}}
+            {{range .AssignedClients}}
+            <div class="row" data-search="{{.Name}} {{.Email}} {{.AccessCode}}">
+              <div class="name">{{.Name}}</div>
+              <div class="email">{{if .Email}}{{.Email}}{{else}}—{{end}}</div>
+              <div class="code">{{.AccessCode}}</div>
+              <div style="font-size:13px;color:var(--sm-text-muted)">{{.JumpCount}}</div>
+              <div>
+                {{if eq .Status "downloaded"}}<span class="sm-pill is-success" style="font-weight:700;letter-spacing:.05em">DOWNLOADED</span>
+                {{else if eq .Status "sent"}}<span class="sm-pill is-success">Sent</span>
+                {{else if eq .Status "in_progress"}}<span class="sm-pill is-warn">In progress</span>
+                {{else if eq .Status "assigned"}}<span class="sm-pill is-brand">Assigned</span>
+                {{else}}<span class="sm-pill">New</span>{{end}}
+              </div>
+              <div style="font-size:12px;color:var(--sm-text-muted)">{{if .Phone}}{{.Phone}}{{else}}—{{end}}</div>
+              <div class="action">
+                <a class="sm-btn is-sm is-primary" href="/projects/new?client_id={{.ID}}">▶ Start project</a>
+              </div>
+            </div>
+            {{end}}
+          {{else}}
+            <div class="empty">
+              No clients assigned to you yet.<br>
+              Ask your club admin to assign clients on
+              <span class="mono">{{.CloudBaseURL}}/admin/clients</span>.
+            </div>
+          {{end}}
+        </div>
+      </section>
+
+      <!-- PAST: local studio projects -->
+      <section>
+        <div class="sec-h">
+          <span class="label is-past">Past projects · in this studio</span>
+          <div class="rule"></div>
+        </div>
+
+        <div class="row-table" id="past-table">
+          <div class="row-head">
+            <div>Client</div><div>Email</div><div>Code</div><div>Outputs</div><div>Status</div><div>Created</div><div></div>
+          </div>
+          {{if .Projects}}
+            {{range .Projects}}
+            <div class="row"
+                 data-search="{{.ClientName}} {{.ClientEmail}} {{.AccessCode}}"
+                 data-status="{{if eq .Status "done"}}done{{else if eq .Status "failed"}}failed{{else}}in_progress{{end}}">
+              <div class="name">{{.ClientName}}</div>
+              <div class="email">{{if .ClientEmail}}{{.ClientEmail}}{{else}}—{{end}}</div>
+              <div class="code">{{.AccessCode}}</div>
+              <div style="font-size:11px;color:var(--sm-text-muted);display:flex;gap:4px;flex-wrap:wrap">
+                {{if .Output1080p}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">1080p</span>{{end}}
+                {{if .Output4K}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">4K</span>{{end}}
+                {{if .OutputVertical}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">vert</span>{{end}}
+                {{if .OutputPhotos}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">photos</span>{{end}}
+              </div>
+              <div>
+                <span class="sm-pill {{if eq .Status "done"}}is-success{{else if eq .Status "failed"}}is-danger{{else}}is-brand{{end}}">{{.Status}}</span>
+              </div>
+              <div style="font-size:11px;color:var(--sm-text-dim);font-family:var(--sm-mono)">{{.CreatedAt.Format "Jan 2 · 15:04"}}</div>
+              <div class="action">
+                <a class="sm-btn is-sm" href="/projects/{{.ID}}/clips">Open →</a>
+              </div>
+            </div>
+            {{end}}
+          {{else}}
+            <div class="empty">
+              Nothing rendered here yet. Create a walk-in project or start one from the Today queue.
+            </div>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+
     </div>
-  </div>
+  </main>
 </div>
 
-<!-- Settings modal (also reachable from project_detail.html) -->
+<!-- Settings modal -->
 <div id="settings-modal" class="sm-modal-backdrop" style="position:fixed;inset:0;z-index:50;background:rgba(11,14,20,.75);display:none;align-items:center;justify-content:center;padding:24px"
      onclick="if(event.target===this)this.classList.remove('show')">
   <style>#settings-modal.show{display:flex}</style>
@@ -269,27 +348,22 @@
 </div>
 
 <script>
-// Search + filter for project grid
+// Search + filter for both tables
 (function() {
-  const grid = document.getElementById('proj-grid');
-  if (!grid) return;
   const search = document.getElementById('proj-search');
-  const empty  = document.getElementById('proj-empty-filter');
+  const tables = ['#today-table', '#past-table'].map(s => document.querySelector(s)).filter(Boolean);
   let curFilter = 'all';
   function apply() {
     const q = (search?.value || '').toLowerCase().trim();
-    let shown = 0;
-    for (const card of grid.querySelectorAll('.proj-card')) {
-      const name = (card.dataset.name || '').toLowerCase();
-      const code = (card.dataset.code || '').toLowerCase();
-      const stat = card.dataset.status || '';
-      const matchQ = !q || name.includes(q) || code.includes(q);
-      const matchF = curFilter === 'all' || stat === curFilter;
-      const visible = matchQ && matchF;
-      card.style.display = visible ? '' : 'none';
-      if (visible) shown++;
+    for (const t of tables) {
+      for (const row of t.querySelectorAll('.row')) {
+        const data = (row.dataset.search || '').toLowerCase();
+        const stat = row.dataset.status || '';
+        const matchQ = !q || data.includes(q);
+        const matchF = curFilter === 'all' || !stat || stat === curFilter;
+        row.style.display = (matchQ && matchF) ? '' : 'none';
+      }
     }
-    if (empty) empty.style.display = shown === 0 ? 'block' : 'none';
   }
   search?.addEventListener('input', apply);
   document.querySelectorAll('.filter-chip').forEach(chip => {
@@ -335,8 +409,8 @@
     return [
       row('Encoder', `<span style="color:${encColor}">${s.encoder}</span>${s.encoder_detail ? ' · ' + s.encoder_detail : ''}`),
       row('Jobs directory', `<span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.jobs_dir}</span>`),
-      row('License token', `<span class="mono" style="color:var(--sm-text-muted)">${s.token_masked}</span>`,
-          `<button class="sm-btn is-sm" disabled title="Restart studio with a new STUDIO_LICENSE_TOKEN in .env">Rotate</button>`),
+      row('Signed in as', `<span class="mono" style="color:var(--sm-text-muted)">${s.operator_email || '(none)'}</span>`,
+          `<button class="sm-btn is-sm" disabled title="Restart studio with new STUDIO_OPERATOR_EMAIL/PASSWORD in .env">Switch user</button>`),
       row('Studio version', `<span class="mono">v${s.version}</span> · ${s.platform}`),
       row('Cloud', `<span style="color:${s.cloud_reachable ? 'var(--sm-success)' : 'var(--sm-danger)'}">${s.cloud_reachable ? '● reachable' : '✕ unreachable'}</span> · <span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.cloud_url}</span>`)
     ].join('');

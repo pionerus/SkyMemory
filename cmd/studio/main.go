@@ -201,18 +201,38 @@ func main() {
 			log.Printf("WARN: list projects: %v", perr)
 		}
 
+		// Pull "today's queue" from cloud — clients assigned to this operator
+		// by their club admin. Best-effort: if cloud is down or session is
+		// invalid, we still render the local projects list and surface the
+		// error in the empty state.
+		var assigned []jump.AssignedClient
+		var assignedErrMsg string
+		if res.Valid {
+			ctx, cancel := context.WithTimeout(req.Context(), 4*time.Second)
+			defer cancel()
+			ac, aerr := jumpClient.AssignedClients(ctx)
+			if aerr != nil {
+				assignedErrMsg = aerr.Error()
+				log.Printf("WARN: assigned clients: %v", aerr)
+			} else {
+				assigned = ac
+			}
+		}
+
 		data := homeData{
-			Version:          version,
-			Platform:         runtime.GOOS + "/" + runtime.GOARCH,
-			Addr:             cfg.HTTPAddr,
-			Port:             portFromAddr(cfg.HTTPAddr),
-			CloudBaseURL:     cfg.CloudBaseURL,
-			StatePath:        cfg.StatePath,
-			TokenConfigured:  cfg.OperatorEmail != "" && cfg.OperatorPassword != "",
-			License:          res,
-			LicenseCheckedAt: lastAt,
-			CloudReachable:   pingCloud(cfg.CloudBaseURL),
-			Projects:         projects,
+			Version:            version,
+			Platform:           runtime.GOOS + "/" + runtime.GOARCH,
+			Addr:               cfg.HTTPAddr,
+			Port:               portFromAddr(cfg.HTTPAddr),
+			CloudBaseURL:       cfg.CloudBaseURL,
+			StatePath:          cfg.StatePath,
+			TokenConfigured:    cfg.OperatorEmail != "" && cfg.OperatorPassword != "",
+			License:            res,
+			LicenseCheckedAt:   lastAt,
+			CloudReachable:     pingCloud(cfg.CloudBaseURL),
+			Projects:           projects,
+			AssignedClients:    assigned,
+			AssignedClientsErr: assignedErrMsg,
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := ui.Templates.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -250,6 +270,29 @@ func main() {
 			"cloud_url":       cfg.CloudBaseURL,
 			"cloud_reachable": pingCloud(cfg.CloudBaseURL),
 		})
+	})
+
+	// /clients.json — proxies the cloud's assigned-clients list so the
+	// new-project page can populate its picker with operator-assigned
+	// clients without a CORS dance to the cloud origin.
+	r.Get("/clients.json", func(w http.ResponseWriter, req *http.Request) {
+		res, _ := licenseStatus()
+		if !res.Valid {
+			writeStudioJSON(w, http.StatusUnauthorized, map[string]string{
+				"code": "AUTH_INVALID", "message": "Studio is not signed in to cloud.",
+			})
+			return
+		}
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+		clients, err := jumpClient.AssignedClients(ctx)
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadGateway, map[string]string{
+				"code": "CLOUD_UNREACHABLE", "message": err.Error(),
+			})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"clients": clients})
 	})
 
 	// New project flow. GET renders the form, POST sends it through to the cloud
@@ -316,29 +359,27 @@ func main() {
 			HasOperatorPhotos: jr.HasOperatorUploadedPhotos,
 		})
 		if err != nil {
-			// Cloud succeeded; local save failed. Don't fail the request — we have an
-			// access_code to show. Surface a warning so the operator sees the gap.
+			// Cloud succeeded; local save failed. Surface and bail — the
+			// next step needs a local id to navigate to.
 			log.Printf("WARN: cloud register OK but local persist failed: %v", err)
-			localID = 0
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]any{
+				"code":        "LOCAL_PERSIST_FAILED",
+				"message":     err.Error(),
+				"jump_id":     out.JumpID,
+				"client_id":   out.ClientID,
+				"access_code": out.AccessCode,
+			})
+			return
 		}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = ui.Templates.ExecuteTemplate(w, "new_project_done.html", map[string]any{
-			"License":                   res,
-			"CloudBaseURL":              cfg.CloudBaseURL,
-			"LocalID":                   localID,
-			"JumpID":                    out.JumpID,
-			"ClientID":                  out.ClientID,
-			"AccessCode":                out.AccessCode,
-			"AccessCodeCanonical":       strings.ReplaceAll(out.AccessCode, "-", ""),
-			"ClientName":                jr.ClientName,
-			"ClientEmail":               jr.ClientEmail,
-			"ClientPhone":               jr.ClientPhone,
-			"Output1080p":               jr.Output1080p,
-			"Output4K":                  jr.Output4K,
-			"OutputVertical":            jr.OutputVertical,
-			"OutputPhotos":              jr.OutputPhotos,
-			"HasOperatorUploadedPhotos": jr.HasOperatorUploadedPhotos,
+		// Skip the old "access code reveal" interstitial — go straight to
+		// the upload page. The access code is shown in the topbar there.
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"local_id":    localID,
+			"jump_id":     out.JumpID,
+			"client_id":   out.ClientID,
+			"access_code": out.AccessCode,
+			"redirect":    fmt.Sprintf("/projects/%d/clips", localID),
 		})
 	})
 
@@ -1245,6 +1286,12 @@ type homeData struct {
 	LicenseCheckedAt time.Time
 	CloudReachable   bool
 	Projects         []state.Project
+
+	// Today queue: clients the club admin has assigned to this operator.
+	// Pulled from cloud each render. Best-effort — if the cloud is down
+	// the dashboard still renders with the local Projects list only.
+	AssignedClients     []jump.AssignedClient
+	AssignedClientsErr  string
 }
 
 // writeStudioJSON sends a JSON response from a studio handler.

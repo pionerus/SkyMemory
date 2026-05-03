@@ -37,9 +37,10 @@ html, body {
     var(--sm-surface);
 }
 .wt-hero-fade {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 220px;
-  background: linear-gradient(to top, var(--sm-bg) 0%, transparent 100%);
+  position: absolute; left: 0; right: 0; bottom: 0; height: 160px;
+  background: linear-gradient(to top, var(--sm-bg) 60%, transparent 100%);
   pointer-events: none;
+  z-index: 3;
 }
 .wt-hero-video {
   width: 100%; height: 100%;
@@ -48,6 +49,9 @@ html, body {
 }
 /* When video is present, hide the gradient placeholder behind it */
 .wt-hero.has-video .wt-hero-frame { display: none; }
+/* When the video is actively playing, dissolve the fade so it doesn't
+   eat the image; the body section sits BELOW the hero, no overlap. */
+.wt-hero.is-playing .wt-hero-fade { opacity: 0; transition: opacity 200ms; }
 
 /* Overlay header — brand mark + dropzone + access code */
 .wt-hero-header {
@@ -99,12 +103,11 @@ html, body {
 
 /* ===== Below the fold ===== */
 .wt-body {
-  padding: 0 80px 60px;
-  margin-top: -80px;
+  padding: 56px 80px 60px;
   position: relative;
   z-index: 2;
   max-width: 1280px;
-  margin-left: auto; margin-right: auto;
+  margin: 0 auto;
 }
 
 /* Headline */
@@ -351,7 +354,7 @@ html, body {
   .wt-hero { height: 540px; }
   .wt-play-cta { width: 72px; height: 72px; }
   .wt-hero-header { padding: 18px 20px; }
-  .wt-body { padding: 28px 20px 40px; margin-top: -60px; }
+  .wt-body { padding: 36px 20px 40px; }
   .wt-title { font-size: 32px; line-height: 1.05; }
   .wt-headline { text-align: left; margin-bottom: 22px; }
   .wt-byline { font-size: 13px; }
@@ -458,7 +461,7 @@ html, body {
           <div class="wt-dl-detail">1080p{{if .VideoSizeBytes}} · {{bytesHuman .VideoSizeBytes}}{{end}}</div>
           <div class="wt-dl-desc">The complete edit — boarding, freefall, canopy, landing.</div>
           <div class="wt-dl-actions">
-            <a class="sm-btn is-primary" href="{{.VideoURL}}" download>
+            <a class="sm-btn is-primary wt-dl-btn" href="{{.VideoURL}}" download data-track="full">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download
             </a>
@@ -562,14 +565,35 @@ html, body {
 (function() {
   const v   = document.getElementById('wt-video');
   const cta = document.getElementById('wt-play-cta');
+  const hero = document.getElementById('wt-hero');
   if (!v || !cta) return;
   cta.addEventListener('click', () => {
     v.controls = true;
     v.play().catch(() => {});
     cta.classList.add('is-hidden');
   });
-  // If the user uses native controls, hide the overlay too.
-  v.addEventListener('play', () => cta.classList.add('is-hidden'));
+  // While video is playing, dim the bottom fade so it doesn't cover the picture.
+  v.addEventListener('play',  () => { cta.classList.add('is-hidden'); hero?.classList.add('is-playing'); });
+  v.addEventListener('pause', () => { hero?.classList.remove('is-playing'); });
+  v.addEventListener('ended', () => { hero?.classList.remove('is-playing'); });
+})();
+
+// Lifecycle: stamp jumps.download_clicked_at on first download click.
+// Uses sendBeacon when available so the request goes out even if the
+// browser starts the file save and tears down the page mid-flight.
+(function() {
+  const code = {{.AccessCode | js}};
+  const url = '/watch/' + code.replace('-','') + '/download';
+  let pinged = false;
+  function ping() {
+    if (pinged) return;
+    pinged = true;
+    try {
+      if (navigator.sendBeacon) navigator.sendBeacon(url);
+      else fetch(url, { method: 'POST', keepalive: true });
+    } catch {}
+  }
+  document.querySelectorAll('.wt-dl-btn').forEach(a => a.addEventListener('click', ping));
 })();
 </script>
 {{else}}

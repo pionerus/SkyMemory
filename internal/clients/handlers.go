@@ -126,27 +126,21 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.DB.Query(ctx, `
 		SELECT
-			c.id, c.name, COALESCE(c.email, ''), COALESCE(c.phone, ''),
-			c.access_code, c.created_at,
-			COALESCE(latest.created_at, '0001-01-01'::timestamptz),
-			COALESCE(latest.id, 0),
-			COALESCE(latest.status, ''),
-			COALESCE(c.assigned_operator_id, 0),
+			v.client_id, v.name, COALESCE(v.email, ''), COALESCE(v.phone, ''),
+			v.access_code, v.client_created_at,
+			COALESCE(v.jump_created_at, '0001-01-01'::timestamptz),
+			COALESCE(v.jump_id, 0),
+			v.status,
+			COALESCE(v.assigned_operator_id, 0),
 			COALESCE(assigned.email, ''),
 			COALESCE(latestop.email, ''),
-			COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = c.id), 0)
-		FROM clients c
-		LEFT JOIN LATERAL (
-			SELECT j.id, j.status, j.operator_id, j.created_at
-			FROM jumps j
-			WHERE j.client_id = c.id
-			ORDER BY j.created_at DESC
-			LIMIT 1
-		) latest ON true
-		LEFT JOIN operators assigned  ON assigned.id  = c.assigned_operator_id
-		LEFT JOIN operators latestop  ON latestop.id  = latest.operator_id
-		WHERE c.tenant_id = $1
-		ORDER BY COALESCE(latest.created_at, c.created_at) DESC
+			COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = v.client_id), 0)
+		FROM v_client_status v
+		LEFT JOIN operators assigned  ON assigned.id  = v.assigned_operator_id
+		LEFT JOIN jumps latest_j      ON latest_j.id  = v.jump_id
+		LEFT JOIN operators latestop  ON latestop.id  = latest_j.operator_id
+		WHERE v.tenant_id = $1
+		ORDER BY COALESCE(v.jump_created_at, v.client_created_at) DESC
 		LIMIT 500`,
 		s.TenantID,
 	)
@@ -202,8 +196,10 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		if c.AssignedOperatorID == 0 {
 			data.UnassignedCount++
 		}
+		// "Upcoming" = client's project is somewhere mid-flight: assigned
+		// to an operator OR jump is being shot/edited but no email out yet.
 		switch c.LatestStatus {
-		case "draft", "editing", "encoding", "uploading":
+		case "assigned", "in_progress":
 			data.UpcomingCount++
 		}
 	}

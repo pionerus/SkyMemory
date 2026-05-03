@@ -291,7 +291,7 @@ func main() {
 			})
 		}
 	}
-	r.With(sessions.RequireSession).Get("/operator/",         renderOperatorPlaceholder("dashboard", "Operator", "My recent jumps · clients · storage"))
+	r.With(sessions.RequireSession).Get("/operator/",         operatorDashboardHandler(pool))
 	r.With(sessions.RequireSession).Get("/operator/storage",  renderOperatorPlaceholder("storage",   "My storage",  "Personal cloud storage for clips + outputs"))
 
 	r.With(sessions.RequireSession).Get("/operator/clients",  operatorClientsHandler(pool))
@@ -335,6 +335,7 @@ func main() {
 	// API v1 — studio-facing endpoints. Each is gated by RequireLicenseToken.
 	r.With(sessions.RequireSession).Post("/api/v1/jumps/register", jumpH.Register)
 	r.With(sessions.RequireSession).Get("/api/v1/jumps/{id}", jumpH.GetByIDForStudio)
+	r.With(sessions.RequireSession).Get("/api/v1/operator/clients", operatorClientsAPIHandler(pool))
 	r.With(sessions.RequireSession).Put("/api/v1/jumps/{id}/music", jumpH.SetMusic)
 	r.With(sessions.RequireSession).Get("/api/v1/music", musicH.StudioCatalog)
 	r.With(sessions.RequireSession).Post("/api/v1/music/suggest", musicH.StudioSuggest)
@@ -345,6 +346,7 @@ func main() {
 
 	// Public client-facing watch page. No auth — access_code is the bearer.
 	r.Get("/watch/{access_code}", watchH.Render)
+	r.Post("/watch/{access_code}/download", watchH.TrackDownload)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -368,9 +370,8 @@ func main() {
 }
 
 // operatorClientsHandler renders /operator/clients — the camera operator's
-// view of "clients I've been assigned to". Filters clients by
-// `assigned_operator_id = self`. Pulls the latest jump per client to show
-// status/date in the row.
+// view of "clients I've been assigned to". Status comes from
+// v_client_status (canonical 5-step lifecycle).
 func operatorClientsHandler(pool *db.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		s := auth.MustFromContext(req.Context())
@@ -384,24 +385,19 @@ func operatorClientsHandler(pool *db.Pool) http.HandlerFunc {
 			Phone        string
 			AccessCode   string
 			LatestJumpAt time.Time
-			LatestStatus string
+			Status       string
 			JumpCount    int
 		}
 		rows, err := pool.Query(ctx, `
 			SELECT
-				c.id, c.name, COALESCE(c.email, ''), COALESCE(c.phone, ''),
-				c.access_code,
-				COALESCE(latest.created_at, '0001-01-01'::timestamptz),
-				COALESCE(latest.status, ''),
-				COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = c.id), 0)
-			FROM clients c
-			LEFT JOIN LATERAL (
-				SELECT j.created_at, j.status FROM jumps j
-				WHERE j.client_id = c.id
-				ORDER BY j.created_at DESC LIMIT 1
-			) latest ON true
-			WHERE c.tenant_id = $1 AND c.assigned_operator_id = $2
-			ORDER BY COALESCE(latest.created_at, c.created_at) DESC
+				v.client_id, v.name, COALESCE(v.email, ''), COALESCE(v.phone, ''),
+				v.access_code,
+				COALESCE(v.jump_created_at, '0001-01-01'::timestamptz),
+				v.status,
+				COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = v.client_id), 0)
+			FROM v_client_status v
+			WHERE v.tenant_id = $1 AND v.assigned_operator_id = $2
+			ORDER BY COALESCE(v.jump_created_at, v.client_created_at) DESC
 			LIMIT 200`,
 			s.TenantID, s.OperatorID,
 		)
@@ -412,13 +408,13 @@ func operatorClientsHandler(pool *db.Pool) http.HandlerFunc {
 		defer rows.Close()
 
 		out := make([]row, 0, 16)
-		var pending int // clients with no jump yet
+		var pending int // clients with no jump yet (status new/assigned)
 		for rows.Next() {
 			var r row
 			if err := rows.Scan(
 				&r.ID, &r.Name, &r.Email, &r.Phone,
 				&r.AccessCode,
-				&r.LatestJumpAt, &r.LatestStatus,
+				&r.LatestJumpAt, &r.Status,
 				&r.JumpCount,
 			); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -440,6 +436,121 @@ func operatorClientsHandler(pool *db.Pool) http.HandlerFunc {
 			"TenantName":    data_tenantName(ctx, pool, s.TenantID),
 			"Clients":       out,
 			"Pending":       pending,
+		})
+	}
+}
+
+// operatorDashboardHandler renders /operator/ — the operator's home page.
+// Pulls live data instead of the old phase-9 placeholder so the operator
+// can see at a glance: today's assigned clients, this week's jumps,
+// pending uploads. Querying is best-effort — any failure degrades to
+// zeros so a transient DB hiccup doesn't break the whole page.
+func operatorDashboardHandler(pool *db.Pool) http.HandlerFunc {
+	type queueRow struct {
+		ID         int64
+		Name       string
+		Email      string
+		Phone      string
+		AccessCode string
+		JumpCount  int
+	}
+	type recentJumpRow struct {
+		AccessCode string
+		ClientName string
+		Status     string
+		CreatedAt  time.Time
+	}
+	return func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+
+		// KPIs.
+		var (
+			assignedTotal int
+			assignedNoJumps int
+			jumpsAllTime  int
+			jumpsThisWeek int
+			deliveredAllTime int
+		)
+		_ = pool.QueryRow(ctx, `
+			SELECT
+			  (SELECT COUNT(*) FROM clients
+			    WHERE tenant_id = $1 AND assigned_operator_id = $2),
+			  (SELECT COUNT(*) FROM clients c
+			    WHERE c.tenant_id = $1 AND c.assigned_operator_id = $2
+			      AND NOT EXISTS (SELECT 1 FROM jumps j WHERE j.client_id = c.id)),
+			  (SELECT COUNT(*) FROM jumps
+			    WHERE tenant_id = $1 AND operator_id = $2),
+			  (SELECT COUNT(*) FROM jumps
+			    WHERE tenant_id = $1 AND operator_id = $2
+			      AND created_at >= NOW() - INTERVAL '7 days'),
+			  (SELECT COUNT(*) FROM jumps
+			    WHERE tenant_id = $1 AND operator_id = $2
+			      AND status IN ('ready', 'delivered'))`,
+			s.TenantID, s.OperatorID,
+		).Scan(&assignedTotal, &assignedNoJumps, &jumpsAllTime, &jumpsThisWeek, &deliveredAllTime)
+
+		// Today's queue: 5 most recent assigned clients without a jump.
+		queue := make([]queueRow, 0, 5)
+		qrows, qerr := pool.Query(ctx, `
+			SELECT c.id, c.name, COALESCE(c.email,''), COALESCE(c.phone,''),
+			       c.access_code,
+			       COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = c.id), 0)
+			FROM clients c
+			WHERE c.tenant_id = $1 AND c.assigned_operator_id = $2
+			  AND NOT EXISTS (SELECT 1 FROM jumps j WHERE j.client_id = c.id)
+			ORDER BY c.created_at DESC
+			LIMIT 5`,
+			s.TenantID, s.OperatorID,
+		)
+		if qerr == nil {
+			defer qrows.Close()
+			for qrows.Next() {
+				var r queueRow
+				if err := qrows.Scan(&r.ID, &r.Name, &r.Email, &r.Phone, &r.AccessCode, &r.JumpCount); err == nil {
+					queue = append(queue, r)
+				}
+			}
+		}
+
+		// Recent jumps: latest 5 of mine, any status.
+		recent := make([]recentJumpRow, 0, 5)
+		jrows, jerr := pool.Query(ctx, `
+			SELECT c.access_code, c.name, j.status, j.created_at
+			FROM jumps j JOIN clients c ON c.id = j.client_id
+			WHERE j.tenant_id = $1 AND j.operator_id = $2
+			ORDER BY j.created_at DESC
+			LIMIT 5`,
+			s.TenantID, s.OperatorID,
+		)
+		if jerr == nil {
+			defer jrows.Close()
+			for jrows.Next() {
+				var r recentJumpRow
+				if err := jrows.Scan(&r.AccessCode, &r.ClientName, &r.Status, &r.CreatedAt); err == nil {
+					recent = append(recent, r)
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.Templates.ExecuteTemplate(w, "operator_dashboard.html", map[string]any{
+			"Active":        "dashboard",
+			"PageTitle":     "Welcome back",
+			"PageSub":       fmt.Sprintf("%d assigned · %d this week · %d delivered", assignedTotal, jumpsThisWeek, deliveredAllTime),
+			"OperatorEmail": s.OperatorEmail,
+			"OperatorRole":  s.OperatorRole,
+			"TenantName":    data_tenantName(ctx, pool, s.TenantID),
+			"KPI": map[string]int{
+				"AssignedTotal":   assignedTotal,
+				"AssignedNoJumps": assignedNoJumps,
+				"JumpsThisWeek":   jumpsThisWeek,
+				"JumpsAllTime":    jumpsAllTime,
+				"Delivered":       deliveredAllTime,
+			},
+			"Queue":  queue,
+			"Recent": recent,
 		})
 	}
 }
@@ -514,6 +625,64 @@ func operatorProjectsHandler(pool *db.Pool) http.HandlerFunc {
 			"Jumps":         out,
 			"StatusBreak":   statusN,
 		})
+	}
+}
+
+// operatorClientsAPIHandler returns clients assigned to the currently
+// signed-in operator as JSON. Used by studio.exe to populate the
+// "pick a client" dropdown on the new-project flow. The `status` field
+// follows the canonical 5-step lifecycle from v_client_status:
+//   new → assigned → in_progress → sent → downloaded
+func operatorClientsAPIHandler(pool *db.Pool) http.HandlerFunc {
+	type clientRow struct {
+		ID           int64     `json:"id"`
+		Name         string    `json:"name"`
+		Email        string    `json:"email,omitempty"`
+		Phone        string    `json:"phone,omitempty"`
+		AccessCode   string    `json:"access_code"`
+		LatestJumpAt time.Time `json:"latest_jump_at,omitempty"`
+		Status       string    `json:"status"` // canonical 5-step
+		JumpCount    int       `json:"jump_count"`
+	}
+	type response struct {
+		Clients []clientRow `json:"clients"`
+	}
+	return func(w http.ResponseWriter, req *http.Request) {
+		s := auth.MustFromContext(req.Context())
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+		rows, err := pool.Query(ctx, `
+			SELECT
+				v.client_id, v.name, COALESCE(v.email, ''), COALESCE(v.phone, ''),
+				v.access_code,
+				COALESCE(v.jump_created_at, '0001-01-01'::timestamptz),
+				v.status,
+				COALESCE((SELECT COUNT(*) FROM jumps jj WHERE jj.client_id = v.client_id), 0)
+			FROM v_client_status v
+			WHERE v.tenant_id = $1 AND v.assigned_operator_id = $2
+			ORDER BY COALESCE(v.jump_created_at, v.client_created_at) DESC
+			LIMIT 200`,
+			s.TenantID, s.OperatorID,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		out := make([]clientRow, 0, 16)
+		for rows.Next() {
+			var r clientRow
+			if err := rows.Scan(
+				&r.ID, &r.Name, &r.Email, &r.Phone,
+				&r.AccessCode, &r.LatestJumpAt, &r.Status, &r.JumpCount,
+			); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out = append(out, r)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response{Clients: out})
 	}
 }
 
