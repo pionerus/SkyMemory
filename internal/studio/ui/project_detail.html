@@ -367,7 +367,7 @@
   .auto-suggest-row .ai-reason.empty { color: var(--sm-text-muted); }
   .auto-suggest-btn {
     background: var(--sm-gradient-hero);
-    color: var(--sm-bg);
+    color: #0B0E14;
     font-weight: 700;
     border: none;
   }
@@ -375,7 +375,7 @@
   /* Buttons */
   .btn {
     background: var(--sm-brand);
-    color: var(--sm-bg);
+    color: #0B0E14;
     border: 1px solid transparent;
     font-weight: 600;
     border-radius: 10px;
@@ -428,7 +428,7 @@
   .music-row .meta  { color: var(--sm-text-muted); }
   .music-row .pick-btn {
     background: var(--sm-brand);
-    color: var(--sm-bg);
+    color: #0B0E14;
     font-weight: 600;
     border-radius: 8px;
   }
@@ -463,7 +463,7 @@
   }
   #generate-btn {
     background: var(--sm-gradient-hero) !important;
-    color: var(--sm-bg) !important;
+    color: #0B0E14 !important;
     font-weight: 700;
   }
   #cancel-btn {
@@ -535,7 +535,7 @@
   }
   .step-rail .step.is-current .dot {
     background: var(--sm-brand); border-color: var(--sm-brand);
-    color: var(--sm-bg); font-weight: 600;
+    color: #0B0E14; font-weight: 600;
   }
   .step-rail .step.is-current { color: var(--sm-text); }
   .step-rail .arrow { color: var(--sm-text-dim); }
@@ -666,79 +666,278 @@
   .slot.has-file > .trim-panel > video { display: none !important; } /* video is sibling now */
   .trim-controls { margin-top: 0 !important; }
 
-  /* Dual-handle visual: stack two range inputs in same row */
-  .trim-row {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 11px; font-family: var(--sm-mono);
-    margin: 0 !important;
+  /* === Unified trim rail (single track + dual thumbs + inline cuts) === */
+  .trim-rail {
+    position: relative;
+    height: 36px;                   /* 2.5x taller than the old cut-bar */
+    background: var(--sm-surface-3);
+    border: 1px solid var(--sm-border);
+    border-radius: 8px;
+    margin: 8px 0 4px;
+    cursor: crosshair;
+    user-select: none;
+    touch-action: none;             /* let pointer events handle drags */
   }
-  .trim-row label {
-    min-width: 30px !important;
-    color: var(--sm-text-muted) !important;
-    font-weight: 500;
+  .trim-rail-active {
+    /* Filled "kept" region between IN and OUT */
+    position: absolute; top: 0; bottom: 0;
+    background: rgba(255, 200, 61, 0.18);
+    border-left: 2px solid var(--sm-brand);
+    border-right: 2px solid var(--sm-brand);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .trim-rail-cursor {
+    /* Live playhead — moves with video.currentTime */
+    position: absolute; top: -3px; bottom: -3px;
+    width: 2px;
+    background: var(--sm-text);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5);
+    margin-left: -1px;
+    pointer-events: none;
+    z-index: 4;
+    opacity: 0;
+    transition: opacity 100ms;
+  }
+  .trim-rail.is-scrubbing .trim-rail-cursor { opacity: .9; }
+
+  /* Photo-mark mode: rail tinted, cursor changes to "tap to capture". */
+  .trim-rail.is-photo-mark-mode {
+    cursor: copy;
+    background: linear-gradient(180deg, rgba(91,210,160,.10) 0%, var(--sm-surface-3) 100%);
+    border-color: var(--sm-success);
+  }
+  .photo-mark {
+    /* Green dot rendered ABOVE the rail, doesn't conflict with cuts/thumbs. */
+    position: absolute;
+    top: -10px;
+    width: 12px; height: 12px;
+    margin-left: -6px;
+    border-radius: 50%;
+    background: var(--sm-success);
+    border: 2px solid var(--sm-surface);
+    box-shadow: 0 0 0 1px var(--sm-success), 0 2px 6px rgba(0,0,0,.35);
+    cursor: pointer;
+    z-index: 5;
+    transition: transform 120ms;
+  }
+  .photo-mark:hover { transform: scale(1.25); }
+  .photo-mark::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 100%;
+    width: 1px; height: 36px;
+    background: rgba(91,210,160,.4);
+    margin-left: -1px;
+    pointer-events: none;
+  }
+  .photo-mark-btn.is-active {
+    background: var(--sm-success);
+    color: #0B0E14;
+    border-color: var(--sm-success);
+  }
+  .trim-cut {
+    position: absolute; top: 0; bottom: 0;
+    background-color: rgba(255,107,122,.42);
+    background-image: repeating-linear-gradient(45deg,
+      rgba(255,107,122,.55) 0 5px,
+      rgba(255,107,122,.20) 5px 10px);
+    border-top: 1px solid var(--sm-danger);
+    border-bottom: 1px solid var(--sm-danger);
+    cursor: grab;
+    z-index: 2;
+    min-width: 10px;
+    box-sizing: border-box;
+  }
+  .trim-cut.is-dragging { cursor: grabbing; opacity: .85; }
+  .trim-cut-handle {
+    position: absolute;
+    top: -1px; bottom: -1px;
+    width: 8px;
+    background: var(--sm-danger);
+    cursor: ew-resize;
+    z-index: 3;
+  }
+  .trim-cut-handle--l { left: -4px;  border-radius: 4px 0 0 4px; }
+  .trim-cut-handle--r { right: -4px; border-radius: 0 4px 4px 0; }
+  .trim-cut-handle::after {
+    content: ""; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 14px;
+    background: rgba(255,255,255,.7); border-radius: 1px;
+  }
+  .trim-cut-remove {
+    position: absolute; top: -8px; right: -8px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--sm-danger); color: white;
+    border: 2px solid var(--sm-bg);
+    font-size: 12px; font-weight: 700; line-height: 1;
+    padding: 0;
+    display: none;
+    cursor: pointer; z-index: 5;
+    align-items: center; justify-content: center;
+  }
+  .trim-cut:hover .trim-cut-remove { display: flex; }
+  .trim-thumb {
+    position: absolute;
+    top: -5px; bottom: -5px;
+    width: 10px;
+    background: var(--sm-brand);
+    border-radius: 4px;
+    margin-left: -5px;
+    cursor: ew-resize;
+    z-index: 6;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+  }
+  .trim-thumb::before {
+    content: ""; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 2px; height: 18px;
+    background: rgba(0,0,0,.45); border-radius: 1px;
+    box-shadow: 4px 0 0 rgba(0,0,0,.45), -4px 0 0 rgba(0,0,0,.45);
+  }
+  .trim-thumb:hover, .trim-thumb:focus { outline: none; background: var(--sm-brand-hi); }
+  .trim-thumb.is-dragging { background: var(--sm-brand-hi); }
+
+  .trim-rail-times {
+    display: flex; align-items: center; gap: 12px;
+    margin: 0 2px;
     font-size: 11px;
   }
-  .trim-row input[type=range] {
-    flex: 1; accent-color: var(--sm-brand);
+  .trim-rail-times .trim-rail-mid {
+    flex: 1; text-align: center;
+    color: var(--sm-text-muted);
   }
-  .trim-row .val {
-    min-width: 50px; text-align: right;
-    color: var(--sm-brand) !important;
+  .trim-rail-times .keep { color: var(--sm-brand); font-family: var(--sm-mono); }
+  .trim-rail-times .trim-in-val,
+  .trim-rail-times .trim-out-val {
+    color: var(--sm-brand);
     font-family: var(--sm-mono);
-    font-size: 11px !important;
+    font-size: 11px;
+    min-width: 44px;
   }
-  .trim-summary {
-    background: var(--sm-surface-2) !important;
-    border: 1px solid var(--sm-border) !important;
-    color: var(--sm-text-muted) !important;
-    font-size: 11px !important;
-    padding: 6px 10px !important;
-    margin-top: 4px !important;
+  .trim-rail-times .trim-out-val { text-align: right; }
+  .cut-summary-inline.has-cuts { color: var(--sm-danger) !important; font-weight: 500; }
+
+  /* Speech-start marker: vertical accent line on the rail with mic-icon flag.
+     Splits the audio into "music plays" (left of marker) and "interview audio
+     ducks music" (right of marker). */
+  .trim-marker {
+    position: absolute;
+    top: -8px; bottom: -8px;
+    width: 3px;
+    background: var(--sm-success);
+    border-radius: 2px;
+    margin-left: -1.5px;
+    z-index: 5;
+    cursor: ew-resize;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 2px 8px rgba(91,210,160,.5);
   }
-  .trim-summary .keep { color: var(--sm-brand) !important; }
+  .trim-marker::before {
+    /* Top label flag */
+    content: "🎤 speech";
+    position: absolute;
+    top: -22px; left: 50%; transform: translateX(-50%);
+    font-family: var(--sm-mono);
+    font-size: 10px;
+    color: var(--sm-success);
+    background: var(--sm-bg);
+    border: 1px solid var(--sm-success);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .trim-marker.is-dragging { background: var(--sm-warning); }
+  /* Right of marker — visualise where source audio plays + music ducks */
+  .trim-rail-speech-tail {
+    position: absolute; top: 0; bottom: 0;
+    background: rgba(91,210,160,0.10);
+    border-right: 1px dashed transparent;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .speech-detect-btn {
+    background: rgba(91,210,160,.10) !important;
+    color: var(--sm-success) !important;
+    border: 1px solid rgba(91,210,160,.35) !important;
+    font-weight: 600;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    border-radius: 6px !important;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .speech-detect-btn:hover { background: rgba(91,210,160,.18) !important; }
+  .speech-detect-btn[disabled] { opacity: .6; cursor: progress; }
+  .speech-clear-btn {
+    background: transparent; color: var(--sm-text-muted);
+    border: 1px solid var(--sm-border);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px; line-height: 1;
+    padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .speech-clear-btn:hover { color: var(--sm-danger); border-color: var(--sm-danger); }
 
   .auto-suggest-row {
+    display: flex; align-items: center; gap: 10px;
     background: var(--sm-surface-2) !important;
     border: 1px solid rgba(255,209,102,.20) !important;
-    padding: 6px 10px !important;
-    font-size: 11px !important;
-    margin: 6px 0 0 !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+    margin: 8px 0 0 !important;
     border-radius: 8px;
   }
   .auto-suggest-btn {
     background: var(--sm-gradient-hero) !important;
-    color: var(--sm-bg) !important;
+    color: #0B0E14 !important;          /* always dark on yellow gradient */
     font-weight: 700;
     border: none;
-    padding: 4px 10px !important;
-    font-size: 11px !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
     border-radius: 6px !important;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
   }
-  .ai-reason { font-size: 11px !important; }
+  .auto-suggest-btn[disabled] { opacity: .6; cursor: progress; }
+  .ai-reason { font-size: 12px !important; color: var(--sm-text-muted); }
 
   .trim-actions {
-    display: flex !important; gap: 6px !important;
-    margin-top: 6px !important;
+    display: flex !important; gap: 8px !important;
+    margin-top: 10px !important;
     flex-wrap: wrap;
   }
   .trim-actions button {
     background: var(--sm-surface-2);
-    color: var(--sm-text);
-    border: 1px solid var(--sm-border);
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-size: 11px;
+    color: var(--sm-text) !important;
+    border: 1px solid var(--sm-border-strong);
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
+    transition: background 80ms, border-color 80ms;
   }
-  .trim-actions button:hover { background: var(--sm-surface-3); }
+  .trim-actions button:hover { background: var(--sm-surface-3); border-color: var(--sm-border-strong); }
   .trim-actions .save-trim-btn {
-    background: var(--sm-brand);
-    color: var(--sm-bg);
-    border-color: transparent;
-    font-weight: 600;
+    background: var(--sm-brand) !important;
+    color: #0B0E14 !important;          /* dark on yellow */
+    border-color: transparent !important;
+    font-weight: 700;
   }
-  .trim-actions .save-trim-btn:hover { background: var(--sm-brand-hi); }
+  .trim-actions .save-trim-btn:hover { background: var(--sm-brand-hi) !important; }
+  .trim-actions .save-trim-btn:disabled { opacity: .6; cursor: progress; }
   .trim-actions .close-trim-btn { display: none; } /* always-open mode, no close */
+
+  /* Light theme: ensure pill/button text stays dark on light backgrounds */
+  .sm.is-light .auto-suggest-btn { color: #0B0E14 !important; }
+  .sm.is-light .trim-actions .save-trim-btn { color: #0B0E14 !important; }
+  .sm.is-light .trim-actions button { color: #0B0E14 !important; }
 
   /* Right column: status icons + small action buttons */
   .clip-right {
@@ -827,64 +1026,7 @@
     display: flex; flex-direction: column; gap: 8px; align-items: stretch;
   }
 
-  /* === CUT zones (Phase 3.3): clickable bar inside trim panel === */
-  .cut-bar {
-    position: relative;
-    height: 14px;
-    background: var(--sm-surface-3);
-    border-radius: 4px;
-    margin-top: 6px;
-    cursor: crosshair;
-    overflow: visible;
-    border: 1px solid var(--sm-border);
-  }
-  .cut-bar::before {
-    content: "";
-    position: absolute; inset: 0;
-    background: var(--sm-brand-soft);
-    border-radius: 3px;
-    pointer-events: none;
-  }
-  .cut-zone {
-    position: absolute;
-    top: 0; bottom: 0;
-    background-color: rgba(255, 107, 122, .45);
-    background-image: repeating-linear-gradient(45deg,
-      rgba(255,107,122,.55) 0 4px,
-      rgba(255,107,122,.25) 4px 8px);
-    border-left: 1px solid var(--sm-danger);
-    border-right: 1px solid var(--sm-danger);
-    cursor: pointer;
-    z-index: 1;
-    min-width: 4px;
-  }
-  .cut-zone:hover { background-color: rgba(255, 107, 122, .65); }
-  .cut-zone .cut-remove {
-    display: none;
-    position: absolute;
-    top: -7px; right: -7px;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: var(--sm-danger);
-    color: white;
-    border: 1px solid var(--sm-bg);
-    font-size: 10px; line-height: 1;
-    padding: 0;
-    cursor: pointer;
-    z-index: 2;
-  }
-  .cut-zone:hover .cut-remove { display: flex; align-items: center; justify-content: center; }
-  .cut-summary {
-    font-size: 11px;
-    color: var(--sm-text-muted);
-    margin-top: 6px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .cut-summary .sm-pill {
-    height: 18px; font-size: 10px; padding: 0 8px;
-  }
+  /* Legacy .cut-bar styles removed — replaced by unified .trim-rail above. */
 
   /* + Add custom clip button */
   .add-custom-clip {
@@ -899,6 +1041,33 @@
     width: 100%;
   }
   .add-custom-clip:hover { border-color: var(--sm-brand); color: var(--sm-text); }
+
+  /* Drag-and-drop reorder cues. Each .slot is draggable via the new grip
+     handle at top-left; while a drag is in flight we tint the dragged
+     card and show a horizontal accent above the drop target row. */
+  .slot { position: relative; }
+  .slot-grip {
+    position: absolute;
+    top: 14px; left: 12px;
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: grab;
+    color: var(--sm-text-dim);
+    border-radius: 6px;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 120ms, color 120ms, background 120ms;
+  }
+  .slot:hover .slot-grip { opacity: 1; }
+  .slot-grip:hover { color: var(--sm-text); background: var(--sm-surface-2); }
+  .slot-grip:active { cursor: grabbing; }
+  .slot.is-dragging { opacity: .5; transform: scale(.99); transition: opacity 100ms, transform 100ms; }
+  .slot.is-drop-target {
+    box-shadow: 0 -3px 0 0 var(--sm-brand);
+  }
+  .slot.is-drop-target-after {
+    box-shadow: 0 3px 0 0 var(--sm-brand);
+  }
 
   /* ===== Phase 4: Timeline preview — Skydive Memory v2 design pack =====
      Layout matches screens/studio.jsx → <TimelineStrip>:
@@ -1138,7 +1307,9 @@
   </div>
 </aside>
 
-<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="flex:1;min-width:0">
+<!-- block-level wrapper: body scrolls naturally; flex-column would lock the
+     column to the rail's stretched height and clip overflow. -->
 
 <!-- Sticky topbar — replaces old header -->
 <div class="sticky-topbar">
@@ -1292,13 +1463,101 @@
     </div>
     {{end}}
 
+    <!-- Phase 15 — Smart import zone. Visible only on empty projects (no clips yet).
+         Operator drops a whole folder and the server classifies videos into
+         canonical kinds + position-numbered custom slots automatically. -->
+    {{if eq (len .ClipByKind) 0}}
+    <section class="smart-import-zone" id="smart-import-zone" data-state="empty">
+      <!-- Two hidden inputs: file picker (default, shows videos for multi-select)
+           AND a folder picker (webkitdirectory — Windows OS hides files in this mode,
+           you just pick the dir). Drag-and-drop a folder works for both via
+           webkitGetAsEntry. -->
+      <input type="file" multiple accept="video/*"
+             id="smart-import-files-input" hidden>
+      <input type="file" multiple webkitdirectory
+             id="smart-import-folder-input" hidden>
+
+      <div class="si-empty">
+        <div class="si-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            <path d="M12 11v6M9 14h6"></path>
+          </svg>
+        </div>
+        <h3>Drop a folder for instant sorting</h3>
+        <p>We figure out which clip is interview / freefall / landing automatically.
+           Extra videos (clouds, plane shots) become custom slots in their right time-position.</p>
+        <div class="si-buttons">
+          <button type="button" id="smart-import-files-btn" class="sm-btn is-brand">Choose videos…</button>
+          <button type="button" id="smart-import-folder-btn" class="sm-btn">Or pick a folder</button>
+        </div>
+        <p class="si-tip">Tip: drag a folder onto this card to skip the picker entirely.</p>
+      </div>
+
+      <div class="si-progress" hidden>
+        <div class="si-phase">
+          <span class="si-phase-label">Uploading…</span>
+          <span class="si-phase-detail"></span>
+        </div>
+        <progress max="100" value="0" class="si-bar"></progress>
+        <div class="si-current-file"></div>
+      </div>
+
+      <div class="si-done" hidden>
+        <strong>✓ Imported</strong>
+        <span class="si-summary"></span>
+      </div>
+
+      <div class="si-failed" hidden>
+        <span class="si-error-msg"></span>
+        <button type="button" data-si-retry class="sm-btn">Try again</button>
+      </div>
+    </section>
+    <style>
+      .smart-import-zone {
+        margin: 0 0 22px 0;
+        padding: 28px;
+        background: var(--sm-surface);
+        border: 2px dashed var(--sm-border);
+        border-radius: 14px;
+        transition: border-color 120ms, background 120ms;
+      }
+      .smart-import-zone.is-dragover { border-color: var(--sm-brand); background: var(--sm-surface-2); }
+      /* hidden attribute should win over our display:flex/etc on state divs */
+      .smart-import-zone [hidden] { display: none !important; }
+      .si-empty { text-align: center; }
+      .si-icon { color: var(--sm-text-dim); margin-bottom: 8px; }
+      .si-empty h3 { margin: 8px 0 6px; font-size: 18px; color: var(--sm-text); }
+      .si-empty p { color: var(--sm-text-muted); font-size: 13px; max-width: 460px; margin: 0 auto 14px; line-height: 1.45; }
+      .si-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+      .si-tip { font-size: 11px; color: var(--sm-text-dim); margin-top: 12px; }
+      .si-progress { display: flex; flex-direction: column; gap: 10px; }
+      .si-phase { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+      .si-phase-label { color: var(--sm-text); font-weight: 600; }
+      .si-phase-detail { color: var(--sm-text-dim); font-size: 12px; }
+      .si-bar { width: 100%; height: 8px; }
+      .si-current-file { color: var(--sm-text-dim); font-size: 12px; font-family: var(--sm-mono); }
+      .si-done { color: var(--sm-success); font-weight: 600; }
+      .si-done .si-summary { color: var(--sm-text-dim); font-weight: 400; margin-left: 8px; }
+      .si-failed { color: var(--sm-danger); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    </style>
+    {{end}}
+
     <div class="clip-list" id="grid">
       {{range $kind := .CanonicalKinds}}
       {{$clip := index $.ClipByKind $kind}}
       <div class="slot {{if $clip}}has-file{{end}}" data-kind="{{$kind}}"
-           {{if $clip}}data-duration="{{printf "%.3f" $clip.DurationSeconds}}"
+           {{if $clip}}data-clip-id="{{$clip.ID}}"
+                       data-duration="{{printf "%.3f" $clip.DurationSeconds}}"
                        data-trim-in="{{printf "%.3f" $clip.TrimInSeconds}}"
                        data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"{{end}}>
+        <!-- Drag handle for reordering. Always rendered so empty slots
+             (canonical and custom) can be moved before upload. Slots
+             without a clip-id reorder visually only; persistReorder
+             skips them when posting to the server. -->
+        <span class="slot-grip" draggable="true" title="Drag to reorder">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+        </span>
 
         {{if $clip}}
           <!-- Left: kind label + duration + status sub-line -->
@@ -1330,48 +1589,72 @@
           {{if $clip.DurationSeconds}}
           <div class="trim-panel">
             <div class="trim-controls">
-              <div class="trim-row">
-                <label>IN</label>
-                <input type="range" class="trim-in"
-                       min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
-                       value="{{printf "%.3f" $clip.TrimInSeconds}}">
-                <span class="val trim-in-val">{{trimTime $clip.TrimInSeconds}}</span>
-              </div>
-              <div class="trim-row">
-                <label>OUT</label>
-                <input type="range" class="trim-out"
-                       min="0" max="{{printf "%.3f" $clip.DurationSeconds}}" step="0.05"
-                       value="{{printf "%.3f" $clip.EffectiveTrimOut}}">
-                <span class="val trim-out-val">{{trimTime $clip.EffectiveTrimOut}}</span>
-              </div>
+              <!-- Unified rail: one track, dual thumbs (IN/OUT), cuts overlaid as
+                   draggable+resizable boxes. Click empty area to add a cut.
+                   Hidden inputs preserve trim_in/trim_out so save still works. -->
+              <input type="hidden" class="trim-in" value="{{printf "%.3f" $clip.TrimInSeconds}}">
+              <input type="hidden" class="trim-out" value="{{printf "%.3f" $clip.EffectiveTrimOut}}">
 
-              <div class="trim-summary">
-                Keep <span class="keep trim-window-disp">{{trimTime $clip.TrimInSeconds}}–{{trimTime $clip.EffectiveTrimOut}}</span>
-                of {{durationHuman $clip.DurationSeconds}}
-              </div>
-
-              <!-- Cut zones (Phase 3.3): click track to add, hover zone for × -->
-              <div class="cut-bar"
+              <div class="trim-rail"
                    data-clip-id="{{$clip.ID}}"
+                   data-duration="{{printf "%.3f" $clip.DurationSeconds}}"
                    data-trim-in="{{printf "%.3f" $clip.TrimInSeconds}}"
-                   data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"></div>
+                   data-trim-out="{{printf "%.3f" $clip.EffectiveTrimOut}}"
+                   data-speech-start="{{printf "%.3f" $clip.SpeechStartSeconds}}">
+                <div class="trim-rail-active"></div>
+                <!-- cut zones rendered by JS -->
+                <div class="trim-thumb trim-thumb--in"  title="Drag IN"  tabindex="0"></div>
+                <div class="trim-thumb trim-thumb--out" title="Drag OUT" tabindex="0"></div>
+                <div class="trim-rail-cursor"></div>
+                <!-- speech-start marker rendered by JS when value > 0 -->
+              </div>
+
+              <div class="trim-rail-times">
+                <span class="trim-in-val mono">{{trimTime $clip.TrimInSeconds}}</span>
+                <span class="trim-rail-mid">
+                  Keep <span class="keep trim-window-disp">{{trimTime $clip.TrimInSeconds}}–{{trimTime $clip.EffectiveTrimOut}}</span>
+                  of {{durationHuman $clip.DurationSeconds}}
+                  · <span class="cut-summary-inline" style="color:var(--sm-text-dim)">click empty area to add cut</span>
+                </span>
+                <span class="trim-out-val mono">{{trimTime $clip.EffectiveTrimOut}}</span>
+              </div>
+
               <script type="application/json" class="cut-data">[
                 {{- range $i, $cut := index $.CutsByKind $kind -}}
                 {{- if $i -}},{{- end -}}
                 {"id":{{$cut.ID}},"start":{{printf "%.3f" $cut.StartSeconds}},"end":{{printf "%.3f" $cut.EndSeconds}}}
                 {{- end -}}
               ]</script>
-              <div class="cut-summary"></div>
 
               <div class="auto-suggest-row">
-                <button class="auto-suggest-btn">✨ Auto-trim</button>
+                <button class="auto-suggest-btn">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/></svg>
+                  Auto-trim
+                </button>
+                <button class="speech-detect-btn" title="Mark where post-action interview starts. Music ducks under voice from this point.">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  {{if $clip.HasSpeechStart}}Re-detect speech{{else}}Mark speech start{{end}}
+                </button>
+                {{if $clip.HasSpeechStart}}
+                <button class="speech-clear-btn" title="Remove speech-start marker">×</button>
+                {{end}}
+                {{if eq $kind "freefall"}}
+                <button class="photo-mark-btn" title="Tap-to-mark frames for the photo pack. Each green dot becomes one freefall photo. If you mark fewer than 20, the system fills the rest evenly across the body window.">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <span class="photo-mark-label">Photo marks</span>
+                  <span class="photo-mark-count" style="font-family:var(--sm-mono);color:var(--sm-text-dim);margin-left:6px">0/20</span>
+                </button>
+                {{end}}
                 <span class="ai-reason"></span>
               </div>
 
               <div class="trim-actions">
-                <button class="preview-btn">▶ Preview</button>
-                <button class="save-trim-btn">Save</button>
-                <button class="reset-trim-btn">Use full</button>
+                <button class="preview-btn">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px"><polygon points="6 4 20 12 6 20"/></svg>
+                  Preview
+                </button>
+                <button class="save-trim-btn">Save trim</button>
+                <button class="reset-trim-btn">Use full clip</button>
                 <button class="close-trim-btn">Cancel</button>
               </div>
             </div>
@@ -1416,7 +1699,7 @@
       </div>
       {{end}}
 
-      <button class="add-custom-clip" disabled title="Custom clip slots — Phase 16 polish">
+      <button class="add-custom-clip" id="add-custom-slot-btn" title="Add a custom segment between the canonical ones">
         + Add custom clip slot
       </button>
     </div>
@@ -1468,7 +1751,7 @@
   <div class="card" id="generate-card">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Step 4 — review &amp; generate</h2>
-      <a class="btn" href="/projects/{{.P.ID}}/generate" style="background:var(--sm-gradient-hero);color:var(--sm-bg);font-weight:700;text-decoration:none">
+      <a class="btn" href="/projects/{{.P.ID}}/generate" style="background:var(--sm-gradient-hero);color:#0B0E14;font-weight:700;text-decoration:none">
         Continue to generate →
       </a>
       <button class="btn" id="generate-btn" style="background:linear-gradient(135deg,#16a34a,#22c55e);display:none">▶ Generate 1080p</button>
@@ -1545,6 +1828,9 @@ async function uploadFile(slot, file) {
     const res = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind);
+      // Honour operator's auto-trim toggle. Default ON unless explicitly off.
+      const autoTrimOn = localStorage.getItem('studio.autoTrimOnUpload') !== '0';
+      xhr.setRequestHeader('X-Auto-Trim', autoTrimOn ? '1' : '0');
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) bar.style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
       };
@@ -1607,43 +1893,101 @@ function wireTrim(slot) {
   const closeBtn   = panel.querySelector('.close-trim-btn');
   const autoBtn    = panel.querySelector('.auto-suggest-btn');
   const aiReason   = panel.querySelector('.ai-reason');
+  const rail       = panel.querySelector('.trim-rail');
+  const railActive = rail?.querySelector('.trim-rail-active');
+  const railCursor = rail?.querySelector('.trim-rail-cursor');
+  const thumbIn    = rail?.querySelector('.trim-thumb--in');
+  const thumbOut   = rail?.querySelector('.trim-thumb--out');
+
+  const duration = parseFloat(slot.dataset.duration || '0') || 0;
+  if (!rail || !duration) return;
 
   // Track whether the current values came from auto-suggest. Set true on
-  // successful auto-suggest, reset to false the moment the operator drags a slider.
+  // successful auto-suggest, reset to false the moment the operator drags.
   let autoSuggestedNow = false;
 
-  // Sync helpers
-  function refresh() {
-    inVal.textContent  = fmt(parseFloat(inEl.value));
-    outVal.textContent = fmt(parseFloat(outEl.value));
-    winDisp.textContent = fmt(parseFloat(inEl.value)) + '–' + fmt(parseFloat(outEl.value));
+  // ---- helpers --------------------------------------------------------
+  function getIn()  { return parseFloat(inEl.value)  || 0; }
+  function getOut() {
+    const v = parseFloat(outEl.value);
+    return (v > 0 ? v : duration);
   }
+  function pctOf(t) { return Math.max(0, Math.min(100, (t / duration) * 100)); }
+  function timeFromX(clientX) {
+    const rect = rail.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return f * duration;
+  }
+  function refresh() {
+    const a = getIn(), b = getOut();
+    inVal.textContent  = fmt(a);
+    outVal.textContent = fmt(b);
+    if (winDisp) winDisp.textContent = fmt(a) + '–' + fmt(b);
+    railActive.style.left  = pctOf(a) + '%';
+    railActive.style.right = (100 - pctOf(b)) + '%';
+    thumbIn.style.left  = pctOf(a) + '%';
+    thumbOut.style.left = pctOf(b) + '%';
+  }
+  refresh();
 
-  // Slide-in: clamp to < out, seek video to that frame. Manual drag invalidates
-  // the "AI suggested" badge — these are now operator-set values.
-  inEl.addEventListener('input', () => {
-    if (parseFloat(inEl.value) >= parseFloat(outEl.value)) {
-      inEl.value = parseFloat(outEl.value) - 0.1;
+  // Live cursor while video plays — shows current playhead on the rail.
+  video.addEventListener('timeupdate', () => {
+    if (railCursor && video.duration > 0) {
+      railCursor.style.left = pctOf(video.currentTime) + '%';
+      railCursor.style.opacity = video.paused ? '0' : '0.9';
     }
-    if (video.readyState > 0) video.currentTime = parseFloat(inEl.value);
-    refresh();
-    autoSuggestedNow = false;
   });
-  // Slide-out: clamp to > in, seek video to that frame.
-  outEl.addEventListener('input', () => {
-    if (parseFloat(outEl.value) <= parseFloat(inEl.value)) {
-      outEl.value = parseFloat(inEl.value) + 0.1;
-    }
-    if (video.readyState > 0) video.currentTime = parseFloat(outEl.value);
-    refresh();
-    autoSuggestedNow = false;
+  video.addEventListener('seeked', () => {
+    if (railCursor) railCursor.style.left = pctOf(video.currentTime) + '%';
   });
+
+  // ---- IN/OUT thumb drag ----------------------------------------------
+  function dragThumb(thumb, isIn) {
+    let active = false;
+    thumb.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      active = true;
+      thumb.classList.add('is-dragging');
+      rail.classList.add('is-scrubbing');
+      thumb.setPointerCapture(e.pointerId);
+      autoSuggestedNow = false;
+    });
+    thumb.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      let t = timeFromX(e.clientX);
+      if (isIn) {
+        t = Math.max(0, Math.min(t, getOut() - 0.1));
+        inEl.value = t.toFixed(3);
+      } else {
+        t = Math.max(getIn() + 0.1, Math.min(t, duration));
+        outEl.value = t.toFixed(3);
+      }
+      refresh();
+      if (video.readyState > 0) video.currentTime = t;   // scrub
+      if (railCursor) { railCursor.style.left = pctOf(t) + '%'; railCursor.style.opacity = '0.9'; }
+    });
+    thumb.addEventListener('pointerup', (e) => {
+      if (!active) return;
+      active = false;
+      thumb.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+      try { thumb.releasePointerCapture(e.pointerId); } catch {}
+    });
+    thumb.addEventListener('pointercancel', () => {
+      active = false;
+      thumb.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+    });
+  }
+  dragThumb(thumbIn,  true);
+  dragThumb(thumbOut, false);
 
   // Preview window: jump to in, play, auto-pause at out.
   let pauseAt = null;
   previewBtn.addEventListener('click', () => {
-    video.currentTime = parseFloat(inEl.value);
-    pauseAt = parseFloat(outEl.value);
+    video.currentTime = getIn();
+    pauseAt = getOut();
     video.play();
   });
   video.addEventListener('timeupdate', () => {
@@ -1655,7 +1999,7 @@ function wireTrim(slot) {
 
   resetBtn.addEventListener('click', () => {
     inEl.value = 0;
-    outEl.value = parseFloat(slot.dataset.duration || '0');
+    outEl.value = duration;
     refresh();
     if (video.readyState > 0) video.currentTime = 0;
   });
@@ -1716,6 +2060,17 @@ function wireTrim(slot) {
         autoSuggestedNow = true;
         aiReason.textContent = body.reason || 'Suggested by AI heuristic';
         refresh();
+        // If the heuristic also placed a speech-start marker (landing →
+        // post-impact interview), update the rail so music ducks under it.
+        // Server has already persisted; we just need to render.
+        if (body.speech_start && body.speech_start > 0) {
+          rail.dataset.speechStart = String(body.speech_start);
+          // Re-trigger the marker render. wireSpeechMarker reads from dataset
+          // on init only, so re-run its render() by dispatching a synthetic
+          // event the closure listens for — easiest: location.reload() since
+          // server persisted everything anyway.
+          setTimeout(() => location.reload(), 250);
+        }
       } catch (e) {
         aiReason.textContent = e.message;
         autoSuggestedNow = false;
@@ -1992,6 +2347,57 @@ if (musicFilter) {
 }
 
 // =====================================================================
+// Auto-save dirty trim handles before navigating to Generate.
+// Operator complaint: "if I forget to click Save trim and just hit
+// Generate, my dragged values are lost." Intercept clicks on every
+// link/button that leads to /projects/N/generate and PUT all slots
+// where the rail's live trim_in/trim_out differ from the server-rendered
+// data-trim-in/data-trim-out values.
+// =====================================================================
+async function saveAllDirtyTrims() {
+  const slots = document.querySelectorAll('.slot.has-file[data-kind]');
+  const promises = [];
+  for (const slot of slots) {
+    const inEl  = slot.querySelector('input.trim-in');
+    const outEl = slot.querySelector('input.trim-out');
+    if (!inEl || !outEl) continue;
+    const liveIn  = parseFloat(inEl.value);
+    const liveOut = parseFloat(outEl.value);
+    const origIn  = parseFloat(slot.dataset.trimIn || '0');
+    const origOut = parseFloat(slot.dataset.trimOut || '0');
+    if (Math.abs(liveIn - origIn) < 0.01 && Math.abs(liveOut - origOut) < 0.01) continue;
+    promises.push(
+      fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/trim', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ trim_in: liveIn, trim_out: liveOut, auto_suggested: false }),
+      }).catch(e => console.warn('save trim', slot.dataset.kind, e))
+    );
+  }
+  if (promises.length === 0) return;
+  await Promise.all(promises);
+}
+
+document.addEventListener('click', async (e) => {
+  const link = e.target.closest('a[href*="/generate"]');
+  if (!link) return;
+  // Only the project's own generate page — not other links that happen to
+  // contain "generate".
+  const href = link.getAttribute('href') || '';
+  if (!href.includes('/projects/' + PROJECT_ID + '/generate')) return;
+  e.preventDefault();
+  // Disable the link visually so a double-click doesn't double-fire.
+  const orig = link.style.pointerEvents;
+  link.style.pointerEvents = 'none';
+  try {
+    await saveAllDirtyTrims();
+  } finally {
+    link.style.pointerEvents = orig;
+  }
+  window.location.href = href;
+}, true);
+
+// =====================================================================
 // Generate panel: kick off pipeline + poll status until done/failed.
 // =====================================================================
 const generateBtn   = document.getElementById('generate-btn');
@@ -2167,7 +2573,10 @@ function copyAccessCode(e) {
   });
 }
 
-document.querySelectorAll('.slot').forEach(slot => {
+// wireSlot attaches click/drop/file-input handlers + trim/cuts/photo-marks
+// wiring to a .slot element. Called once per slot on initial page load and
+// again from appendEmptySlot() when the operator adds a custom slot at runtime.
+window.wireSlot = function wireSlot(slot) {
   const input = slot.querySelector('input[type=file]');
 
   // Click on slot opens the file picker — but ONLY for empty slots.
@@ -2218,54 +2627,444 @@ document.querySelectorAll('.slot').forEach(slot => {
   // Wire trim controls if the panel is present.
   wireTrim(slot);
 
-  // Wire CUT zones (Phase 3.3) — clickable bar inside trim-panel that lets
-  // the operator paint exclusion ranges. Renders existing cuts from the
-  // <script type=application/json class=cut-data> blob.
-  const cutBar = slot.querySelector('.cut-bar');
-  if (cutBar) wireCuts(slot, cutBar);
-});
+  // Wire CUT zones — overlaid on the same .trim-rail. Cuts can be dragged
+  // (move) or resized via L/R handles. Click empty area inside the trim
+  // window to add a new 1.5s cut. Removed via × on hover.
+  const rail = slot.querySelector('.trim-rail');
+  if (rail) {
+    wireCuts(slot, rail);
+    wireSpeechMarker(slot, rail);
+    wirePhotoMarks(slot, rail);
+  }
+};
+
+document.querySelectorAll('.slot').forEach(window.wireSlot);
 
 // =====================================================================
-// CUT zones — clickable painter inside the trim panel.
+// SMART IMPORT — Phase 15. Folder drop or file-picker → classifier
+// pipeline on the server, polling for progress, location.reload on done.
+// State machine: empty → working → done|failed
 // =====================================================================
-function wireCuts(slot, cutBar) {
-  const clipId = parseInt(cutBar.dataset.clipId, 10);
-  const trimIn = parseFloat(cutBar.dataset.trimIn);
-  const trimOut = parseFloat(cutBar.dataset.trimOut);
-  const trimDur = trimOut - trimIn;
-  if (!clipId || trimDur <= 0) return;
+(function wireSmartImport() {
+  const zone = document.getElementById('smart-import-zone');
+  if (!zone) return; // not visible (project already has clips)
 
-  // Initial cuts come from the embedded JSON blob.
-  let cuts = [];
-  const dataEl = slot.querySelector('script.cut-data');
-  if (dataEl) {
-    try { cuts = JSON.parse(dataEl.textContent.trim() || '[]'); } catch (e) { cuts = []; }
+  const filesInput  = document.getElementById('smart-import-files-input');
+  const folderInput = document.getElementById('smart-import-folder-input');
+  const filesBtn    = document.getElementById('smart-import-files-btn');
+  const folderBtn   = document.getElementById('smart-import-folder-btn');
+  const empty = zone.querySelector('.si-empty');
+  const prog  = zone.querySelector('.si-progress');
+  const done  = zone.querySelector('.si-done');
+  const fail  = zone.querySelector('.si-failed');
+  const phaseLabel  = zone.querySelector('.si-phase-label');
+  const phaseDetail = zone.querySelector('.si-phase-detail');
+  const bar         = zone.querySelector('.si-bar');
+  const currentFile = zone.querySelector('.si-current-file');
+  const doneSummary = zone.querySelector('.si-summary');
+  const errMsg      = zone.querySelector('.si-error-msg');
+  const retry       = zone.querySelector('[data-si-retry]');
+
+  function setState(name) {
+    zone.dataset.state = name;
+    empty.hidden = name !== 'empty';
+    prog.hidden  = name !== 'working';
+    done.hidden  = name !== 'done';
+    fail.hidden  = name !== 'failed';
   }
 
-  const summaryEl = slot.querySelector('.cut-summary');
+  // Click handlers — each button opens its own picker. Files-mode shows
+  // individual videos for multi-select (familiar UX). Folder-mode is a
+  // directory picker (Windows hides files in this view by design).
+  filesBtn.addEventListener('click', () => filesInput.click());
+  folderBtn.addEventListener('click', () => folderInput.click());
+  retry.addEventListener('click', () => setState('empty'));
 
+  // Drag-and-drop a folder
+  zone.addEventListener('dragover', (e) => {
+    if (zone.dataset.state !== 'empty') return;
+    e.preventDefault();
+    zone.classList.add('is-dragover');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('is-dragover'));
+  zone.addEventListener('drop', async (e) => {
+    if (zone.dataset.state !== 'empty') return;
+    e.preventDefault();
+    zone.classList.remove('is-dragover');
+    const files = await collectDroppedFiles(e.dataTransfer);
+    if (files.length > 0) startImport(files);
+  });
+
+  filesInput.addEventListener('change', () => {
+    const files = Array.from(filesInput.files || []);
+    if (files.length > 0) startImport(files);
+  });
+  folderInput.addEventListener('change', () => {
+    // webkitdirectory returns ALL files inside the picked folder, not just videos.
+    // Filter client-side so we only ship videos to the server.
+    const all = Array.from(folderInput.files || []);
+    const vids = all.filter(f =>
+      f.type.startsWith('video/') || /\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(f.name)
+    );
+    if (vids.length > 0) startImport(vids);
+    else if (all.length > 0) showFail('No video files in that folder.');
+  });
+
+  // Recursively walk webkitGetAsEntry for folder drops; flat-map files only.
+  async function collectDroppedFiles(dt) {
+    const files = [];
+    const items = dt.items;
+    if (!items) return files;
+    const entries = [];
+    for (const it of items) {
+      if (it.kind === 'file') {
+        const ent = it.webkitGetAsEntry?.();
+        if (ent) entries.push(ent);
+      }
+    }
+    for (const ent of entries) {
+      await walk(ent, files);
+    }
+    return files;
+  }
+
+  function walk(entry, out) {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file((f) => {
+          if (f.type.startsWith('video/') || /\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(f.name)) {
+            out.push(f);
+          }
+          resolve();
+        }, () => resolve());
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readBatch = () => {
+          reader.readEntries(async (ents) => {
+            if (ents.length === 0) { resolve(); return; }
+            for (const e of ents) await walk(e, out);
+            readBatch();
+          }, () => resolve());
+        };
+        readBatch();
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async function startImport(files) {
+    setState('working');
+    phaseLabel.textContent = 'Uploading ' + files.length + ' video' + (files.length === 1 ? '' : 's') + '…';
+    phaseDetail.textContent = '';
+    currentFile.textContent = '';
+    bar.removeAttribute('value'); // indeterminate while uploading
+    bar.value = 0;
+
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f, f.name);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/projects/' + PROJECT_ID + '/clips/smart-import');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        bar.max = 100;
+        bar.value = Math.round((e.loaded / e.total) * 100);
+        phaseDetail.textContent = formatBytes(e.loaded) + ' / ' + formatBytes(e.total);
+      }
+    };
+    xhr.onerror = () => showFail('Network error during upload.');
+    xhr.onload = () => {
+      if (xhr.status === 202) {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          beginPolling(body.job_id, body.total_files);
+        } catch (e) {
+          showFail('Server returned malformed response.');
+        }
+      } else {
+        let msg = 'HTTP ' + xhr.status;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          msg = body.message || msg;
+        } catch (_) {}
+        showFail(msg);
+      }
+    };
+    xhr.send(fd);
+  }
+
+  function beginPolling(jobID, totalFiles) {
+    bar.removeAttribute('value');
+    phaseLabel.textContent = 'Analyzing audio…';
+    phaseDetail.textContent = '';
+    currentFile.textContent = '';
+
+    const poll = async () => {
+      try {
+        const res = await fetch('/projects/' + PROJECT_ID + '/clips/smart-import/' + jobID);
+        if (!res.ok) {
+          showFail('Could not read job status (HTTP ' + res.status + ').');
+          return;
+        }
+        const s = await res.json();
+        renderPhase(s, totalFiles);
+        if (s.failed) {
+          showFail(s.error || 'Smart import failed.');
+          return;
+        }
+        if (s.done) {
+          finishOK(s);
+          return;
+        }
+        setTimeout(poll, 500);
+      } catch (e) {
+        showFail('Polling error: ' + e.message);
+      }
+    };
+    poll();
+  }
+
+  function renderPhase(s, total) {
+    switch (s.phase) {
+      case 'analyzing_audio':
+        phaseLabel.textContent = 'Analyzing audio (' + s.current + ' / ' + s.total + ')';
+        phaseDetail.textContent = '';
+        bar.max = s.total;
+        bar.value = s.current;
+        currentFile.textContent = s.current_file || '';
+        break;
+      case 'classifying':
+        phaseLabel.textContent = 'Figuring out the layout…';
+        phaseDetail.textContent = '';
+        bar.removeAttribute('value');
+        currentFile.textContent = '';
+        break;
+      case 'creating_clips':
+        phaseLabel.textContent = 'Creating clip slots (' + s.current + ' / ' + s.total + ')';
+        phaseDetail.textContent = '';
+        bar.max = s.total;
+        bar.value = s.current;
+        currentFile.textContent = s.current_file || '';
+        break;
+      case 'saving':
+      default:
+        phaseLabel.textContent = 'Preparing…';
+        bar.removeAttribute('value');
+        break;
+    }
+  }
+
+  function finishOK(s) {
+    setState('done');
+    const total = (s.assignments || []).length;
+    const customCount = (s.assignments || []).filter(a => /^custom:/.test(a.kind)).length;
+    const canonCount = total - customCount;
+    let summary = canonCount + ' canonical';
+    if (customCount > 0) summary += ' + ' + customCount + ' custom';
+    summary += ' slot' + (total === 1 ? '' : 's');
+    if (s.freefall_confidence === 'low' || s.freefall_confidence === 'medium') {
+      summary += ' · check freefall (confidence: ' + s.freefall_confidence + ')';
+    }
+    doneSummary.textContent = '— ' + summary;
+    setTimeout(() => location.reload(), 1500);
+  }
+
+  function showFail(msg) {
+    setState('failed');
+    errMsg.textContent = msg;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  }
+})();
+
+// =====================================================================
+// PHOTO MARKS — operator-curated timestamps that drive the photo pack.
+// Renders as green dots above the trim rail. Click-to-toggle the
+// .photo-mark-btn arms the rail; clicks on rail then add marks. Click
+// existing dot to delete. Re-fetches `count` for the button label.
+// =====================================================================
+function wirePhotoMarks(slot, rail) {
+  const btn = slot.querySelector('.photo-mark-btn');
+  if (!btn) return; // freefall-only — other slots don't get the button
+  const clipId   = parseInt(rail.dataset.clipId, 10);
+  const duration = parseFloat(rail.dataset.duration || '0');
+  if (!clipId || duration <= 0) return;
+  const kind     = slot.dataset.kind;
+  const countEl  = btn.querySelector('.photo-mark-count');
+
+  let marks = []; // {id, t_seconds}
+  let armed = false;
+
+  // Render dots from the current `marks` state. Idempotent — wipes prior
+  // dots before drawing so a refresh doesn't double-stamp.
+  function render() {
+    rail.querySelectorAll('.photo-mark').forEach(el => el.remove());
+    for (const m of marks) {
+      const dot = document.createElement('div');
+      dot.className = 'photo-mark';
+      dot.style.left = (m.t_seconds / duration * 100) + '%';
+      dot.dataset.id = String(m.id);
+      dot.title = '📷 photo @ ' + formatTime(m.t_seconds) + ' · click to remove';
+      dot.addEventListener('click', (e) => { e.stopPropagation(); removeMark(m.id); });
+      rail.appendChild(dot);
+    }
+    countEl.textContent = marks.length + '/20';
+    if (marks.length > 20) countEl.style.color = 'var(--sm-warning)';
+    else countEl.style.color = '';
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + kind + '/photo-marks');
+      if (!res.ok) return;
+      const body = await res.json();
+      marks = (body.marks || []).map(m => ({ id: m.ID || m.id, t_seconds: m.TSeconds || m.t_seconds }));
+      render();
+    } catch (e) { console.warn('photo-marks load:', e); }
+  }
+
+  async function addMark(t) {
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + kind + '/photo-marks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ t_seconds: t }),
+      });
+      if (res.status === 409) return; // duplicate — silently ignore
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const body = await res.json();
+      marks.push({ id: body.id, t_seconds: body.t_seconds });
+      marks.sort((a, b) => a.t_seconds - b.t_seconds);
+      render();
+    } catch (e) { console.warn('photo-marks add:', e); }
+  }
+
+  async function removeMark(id) {
+    try {
+      const res = await fetch('/photo-marks/' + id, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
+      marks = marks.filter(m => m.id !== id);
+      render();
+    } catch (e) { console.warn('photo-marks delete:', e); }
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = (s - m * 60).toFixed(1);
+    return m + ':' + sec.padStart(4, '0');
+  }
+
+  // Toggle the photo-mark mode. While armed: rail's tile is greenish, click
+  // on rail = add mark; clicking on cuts/thumbs is suppressed by event
+  // ordering (we add the listener with capture so we run first).
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    armed = !armed;
+    btn.classList.toggle('is-active', armed);
+    rail.classList.toggle('is-photo-mark-mode', armed);
+  });
+
+  // Capture-phase click handler so we can intercept BEFORE the cut-add
+  // logic when armed. When not armed, fall through to default behaviour.
+  rail.addEventListener('click', (e) => {
+    if (!armed) return;
+    // Ignore clicks on existing dots / thumbs — those have their own handlers.
+    if (e.target.closest('.photo-mark, .trim-thumb')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const r = rail.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    addMark(+(frac * duration).toFixed(2));
+  }, true);
+
+  load();
+}
+
+// =====================================================================
+// CUT zones — overlaid on the same unified .trim-rail as the IN/OUT thumbs.
+// Each cut renders as a draggable, resizable box. Cuts read trim window
+// from input.trim-in / .trim-out so they always match the live thumb pos.
+// =====================================================================
+function wireCuts(slot, rail) {
+  const clipId   = parseInt(rail.dataset.clipId, 10);
+  const duration = parseFloat(rail.dataset.duration || '0');
+  if (!clipId || duration <= 0) return;
+
+  const panel    = slot.querySelector('.trim-panel');
+  const inEl     = panel.querySelector('input.trim-in');
+  const outEl    = panel.querySelector('input.trim-out');
+  const video    = slot.querySelector('video');
+  const summary  = panel.querySelector('.cut-summary-inline');
+  const railCursor = rail.querySelector('.trim-rail-cursor');
+  const dataEl   = slot.querySelector('script.cut-data');
+
+  let cuts = [];
+  if (dataEl) {
+    try { cuts = JSON.parse(dataEl.textContent.trim() || '[]'); } catch { cuts = []; }
+  }
+
+  function getTrimIn()  { return parseFloat(inEl.value)  || 0; }
+  function getTrimOut() {
+    const v = parseFloat(outEl.value);
+    return (v > 0 ? v : duration);
+  }
+  function pctOf(t) { return Math.max(0, Math.min(100, (t / duration) * 100)); }
   function fmtSec(t) {
     t = Math.max(0, t);
     const m = Math.floor(t / 60), s = Math.floor(t % 60);
     return m + ':' + String(s).padStart(2, '0');
   }
+  function timeFromX(clientX) {
+    const r = rail.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    return f * duration;
+  }
+  function showCursorAt(t) {
+    if (!railCursor) return;
+    railCursor.style.left = pctOf(t) + '%';
+    railCursor.style.opacity = '0.9';
+  }
 
+  function updateSummary() {
+    if (!summary) return;
+    if (cuts.length === 0) {
+      summary.classList.remove('has-cuts');
+      summary.textContent = 'click empty area to add cut';
+    } else {
+      const total = cuts.reduce((s, c) => s + (c.end - c.start), 0);
+      summary.classList.add('has-cuts');
+      summary.textContent = '−' + cuts.length + ' cut' + (cuts.length === 1 ? '' : 's') +
+                            ' · ' + total.toFixed(1) + 's removed';
+    }
+  }
+
+  // ---- render --------------------------------------------------------
   function renderZones() {
-    cutBar.querySelectorAll('.cut-zone').forEach(z => z.remove());
+    rail.querySelectorAll('.trim-cut').forEach(z => z.remove());
+    cuts.sort((a, b) => a.start - b.start);
     cuts.forEach(c => {
-      const zone = document.createElement('div');
-      zone.className = 'cut-zone';
-      zone.dataset.cutId = c.id;
-      const leftPct = ((c.start - trimIn) / trimDur) * 100;
-      const widPct  = ((c.end - c.start) / trimDur) * 100;
-      zone.style.left  = leftPct + '%';
-      zone.style.width = widPct  + '%';
-      zone.title = `Cut ${fmtSec(c.start)} → ${fmtSec(c.end)} (${(c.end - c.start).toFixed(1)}s)`;
+      const z = document.createElement('div');
+      z.className = 'trim-cut';
+      z.dataset.cutId = c.id;
+      z.style.left  = pctOf(c.start) + '%';
+      z.style.width = pctOf(c.end - c.start) + '%';
+      z.title = `Cut ${fmtSec(c.start)} → ${fmtSec(c.end)} (${(c.end - c.start).toFixed(1)}s) — drag to move, edges to resize`;
 
-      const x = document.createElement('button');
-      x.className = 'cut-remove';
-      x.textContent = '×';
+      const hL = document.createElement('div'); hL.className = 'trim-cut-handle trim-cut-handle--l';
+      const hR = document.createElement('div'); hR.className = 'trim-cut-handle trim-cut-handle--r';
+      const x  = document.createElement('button'); x.type = 'button'; x.className = 'trim-cut-remove'; x.textContent = '×';
+      // Stop pointerdown so the parent .trim-cut's drag handler doesn't
+      // setPointerCapture and swallow the click → without this nothing
+      // happens because the drag handler eats the event first.
+      x.addEventListener('pointerdown', (e) => e.stopPropagation());
+      x.addEventListener('mousedown',   (e) => e.stopPropagation());
       x.addEventListener('click', async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         try {
           const res = await fetch('/cuts/' + c.id, { method: 'DELETE' });
@@ -2273,69 +3072,306 @@ function wireCuts(slot, cutBar) {
           cuts = cuts.filter(cc => cc.id !== c.id);
           renderZones();
           updateSummary();
-        } catch (err) { /* ignore */ }
+          syncCutDataBlob();
+        } catch {}
       });
-      zone.appendChild(x);
-      cutBar.appendChild(zone);
+
+      z.appendChild(hL);
+      z.appendChild(hR);
+      z.appendChild(x);
+      rail.appendChild(z);
+
+      attachDrag(z, c, 'move');
+      attachDrag(hL, c, 'resize-l');
+      attachDrag(hR, c, 'resize-r');
     });
   }
 
-  function updateSummary() {
-    if (!summaryEl) return;
-    if (cuts.length === 0) {
-      summaryEl.innerHTML = '<span style="color:var(--sm-text-dim)">Click track to mark a piece as cut (1.5s default)</span>';
-      return;
-    }
-    const totalCut = cuts.reduce((s, c) => s + (c.end - c.start), 0);
-    summaryEl.innerHTML =
-      '<span class="sm-pill is-danger">−' + cuts.length + ' cut' +
-      (cuts.length === 1 ? '' : 's') + ' · ' + totalCut.toFixed(1) + 's removed</span>' +
-      '<span style="color:var(--sm-text-dim)">Click empty area to add another</span>';
+  function syncCutDataBlob() {
+    if (!dataEl) return;
+    dataEl.textContent = JSON.stringify(cuts.map(c => ({id: c.id, start: c.start, end: c.end})));
   }
 
-  // Click on the bar (but not on a zone) → add cut zone.
-  cutBar.addEventListener('click', async (e) => {
-    if (e.target.classList.contains('cut-remove')) return;
-    if (e.target.classList.contains('cut-zone')) return;
+  // ---- drag/resize ---------------------------------------------------
+  function attachDrag(handle, cut, mode) {
+    let active = false;
+    let startT = 0, origStart = 0, origEnd = 0;
+    handle.addEventListener('pointerdown', (e) => {
+      // For body-drag (mode='move') the cut element is also the parent of
+      // the L/R handles + remove button. Bubbled pointerdowns from those
+      // children must not start a body drag — skip when target is one of them.
+      if (mode === 'move' && e.target !== handle) return;
+      e.preventDefault();
+      e.stopPropagation();
+      active = true;
+      startT = timeFromX(e.clientX);
+      origStart = cut.start;
+      origEnd = cut.end;
+      handle.setPointerCapture(e.pointerId);
+      const z = handle.classList.contains('trim-cut') ? handle : handle.parentElement;
+      z.classList.add('is-dragging');
+      rail.classList.add('is-scrubbing');
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      const tNow = timeFromX(e.clientX);
+      const delta = tNow - startT;
+      const tIn = getTrimIn(), tOut = getTrimOut();
+      const len = origEnd - origStart;
 
-    const rect = cutBar.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const fraction = Math.max(0, Math.min(1, x / rect.width));
-    const center = trimIn + fraction * trimDur;
+      let ns = origStart, ne = origEnd;
+      if (mode === 'move') {
+        ns = origStart + delta;
+        ne = ns + len;
+        if (ns < tIn)  { ns = tIn;  ne = ns + len; }
+        if (ne > tOut) { ne = tOut; ns = ne - len; }
+      } else if (mode === 'resize-l') {
+        ns = Math.max(tIn, Math.min(origStart + delta, origEnd - 0.2));
+      } else if (mode === 'resize-r') {
+        ne = Math.min(tOut, Math.max(origEnd + delta, origStart + 0.2));
+      }
+      // Reject overlap with siblings
+      for (const c of cuts) {
+        if (c.id === cut.id) continue;
+        if (!(ne <= c.start || ns >= c.end)) return;   // overlap → skip update
+      }
+      cut.start = ns;
+      cut.end = ne;
+      const z = handle.classList.contains('trim-cut') ? handle : handle.parentElement;
+      z.style.left  = pctOf(ns) + '%';
+      z.style.width = pctOf(ne - ns) + '%';
+      z.title = `Cut ${fmtSec(ns)} → ${fmtSec(ne)} (${(ne - ns).toFixed(1)}s)`;
+      // Scrub video so the operator sees what's about to be cut.
+      const scrubT = (mode === 'resize-r') ? ne : ns;
+      if (video.readyState > 0) video.currentTime = scrubT;
+      showCursorAt(scrubT);
+    });
+    handle.addEventListener('pointerup', async (e) => {
+      if (!active) return;
+      active = false;
+      const z = handle.classList.contains('trim-cut') ? handle : handle.parentElement;
+      z.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+      try { handle.releasePointerCapture(e.pointerId); } catch {}
+      // Persist to cloud
+      try {
+        const res = await fetch('/cuts/' + cut.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start: cut.start, end: cut.end }),
+        });
+        if (!res.ok) {
+          // revert to original
+          cut.start = origStart;
+          cut.end = origEnd;
+          renderZones();
+        }
+      } catch {
+        cut.start = origStart;
+        cut.end = origEnd;
+        renderZones();
+      }
+      updateSummary();
+      syncCutDataBlob();
+    });
+    handle.addEventListener('pointercancel', () => {
+      active = false;
+      const z = handle.classList.contains('trim-cut') ? handle : handle.parentElement;
+      z.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+    });
+  }
+
+  // ---- click empty area → new cut ------------------------------------
+  rail.addEventListener('click', async (e) => {
+    // Ignore clicks that started inside a cut, thumb, or handle.
+    const blocked = e.target.closest('.trim-cut, .trim-thumb, .trim-cut-handle, .trim-cut-remove');
+    if (blocked) return;
+
+    const tIn = getTrimIn(), tOut = getTrimOut();
+    const trimDur = tOut - tIn;
+    if (trimDur <= 0.5) return;
+
+    const center = timeFromX(e.clientX);
+    if (center < tIn || center > tOut) return;
+
     const wantWidth = Math.min(1.5, trimDur * 0.15);
-
-    let start = Math.max(trimIn, center - wantWidth / 2);
-    let end   = Math.min(trimOut, start + wantWidth);
-    start = Math.max(trimIn, end - wantWidth);   // re-clamp if we hit the right edge
-
+    let start = Math.max(tIn, center - wantWidth / 2);
+    let end   = Math.min(tOut, start + wantWidth);
+    start = Math.max(tIn, end - wantWidth);
     if (end - start < 0.2) return;
 
-    // Reject if the new zone overlaps an existing one.
     for (const c of cuts) {
-      const overlaps = !(end <= c.start || start >= c.end);
-      if (overlaps) return;
+      if (!(end <= c.start || start >= c.end)) return; // overlap → silently skip
     }
 
     try {
       const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/cuts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ start: start, end: end, reason: 'manual' }),
+        body: JSON.stringify({ start, end, reason: 'manual' }),
       });
       const body = await res.json();
-      if (!res.ok) {
-        console.warn('add cut failed:', body.message || res.status);
-        return;
-      }
+      if (!res.ok) { console.warn('add cut failed:', body.message || res.status); return; }
       cuts.push({ id: body.id, start: body.start, end: body.end });
-      cuts.sort((a, b) => a.start - b.start);
       renderZones();
       updateSummary();
-    } catch (err) { /* ignore */ }
+      syncCutDataBlob();
+    } catch {}
   });
 
   renderZones();
   updateSummary();
+}
+
+// =====================================================================
+// SPEECH-START marker — single draggable line on the same trim rail.
+// Splits clip audio into two halves at render time:
+//   • before marker → silent (music plays at full volume)
+//   • after marker  → source audio kept, music ducks via sidechain
+// =====================================================================
+function wireSpeechMarker(slot, rail) {
+  const panel    = slot.querySelector('.trim-panel');
+  if (!panel) return;
+  const inEl     = panel.querySelector('input.trim-in');
+  const outEl    = panel.querySelector('input.trim-out');
+  const video    = slot.querySelector('video');
+  const detectBtn= panel.querySelector('.speech-detect-btn');
+  const clearBtn = panel.querySelector('.speech-clear-btn');
+  const aiReason = panel.querySelector('.ai-reason');
+  const duration = parseFloat(rail.dataset.duration || '0');
+  if (!duration) return;
+
+  let speechStart = parseFloat(rail.dataset.speechStart || '0') || 0;
+  let marker = null;
+  let tail   = null;
+
+  function pctOf(t) { return Math.max(0, Math.min(100, (t / duration) * 100)); }
+  function getTrimIn()  { return parseFloat(inEl.value) || 0; }
+  function getTrimOut() {
+    const v = parseFloat(outEl.value);
+    return (v > 0 ? v : duration);
+  }
+  function timeFromX(clientX) {
+    const r = rail.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    return f * duration;
+  }
+  function fmtSec(t) {
+    t = Math.max(0, t);
+    const m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function render() {
+    if (marker) { marker.remove(); marker = null; }
+    if (tail)   { tail.remove();   tail = null;   }
+    if (speechStart <= 0) return;
+
+    // Tail: tinted region from marker to trim-out — visualises the
+    // "interview / music ducks" portion.
+    const tOut = getTrimOut();
+    tail = document.createElement('div');
+    tail.className = 'trim-rail-speech-tail';
+    tail.style.left  = pctOf(speechStart) + '%';
+    tail.style.right = (100 - pctOf(tOut)) + '%';
+    rail.appendChild(tail);
+
+    // The marker itself.
+    marker = document.createElement('div');
+    marker.className = 'trim-marker';
+    marker.style.left = pctOf(speechStart) + '%';
+    marker.title = `Speech starts at ${fmtSec(speechStart)} — drag to move`;
+    rail.appendChild(marker);
+
+    attachDrag(marker);
+  }
+
+  function attachDrag(handle) {
+    let active = false;
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      active = true;
+      handle.classList.add('is-dragging');
+      handle.setPointerCapture(e.pointerId);
+      rail.classList.add('is-scrubbing');
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      const t = Math.max(getTrimIn() + 0.1, Math.min(timeFromX(e.clientX), getTrimOut() - 0.1));
+      speechStart = t;
+      handle.style.left = pctOf(t) + '%';
+      if (tail) tail.style.left = pctOf(t) + '%';
+      if (video.readyState > 0) video.currentTime = t;
+    });
+    handle.addEventListener('pointerup', async (e) => {
+      if (!active) return;
+      active = false;
+      handle.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+      try { handle.releasePointerCapture(e.pointerId); } catch {}
+      await persist(speechStart);
+    });
+    handle.addEventListener('pointercancel', () => {
+      active = false;
+      handle.classList.remove('is-dragging');
+      rail.classList.remove('is-scrubbing');
+    });
+  }
+
+  async function persist(t) {
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/speech-start', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speech_start: t }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (aiReason) aiReason.textContent = '✗ ' + (body.message || ('HTTP ' + res.status));
+        return;
+      }
+      rail.dataset.speechStart = String(t);
+    } catch (e) {
+      if (aiReason) aiReason.textContent = '✗ ' + e.message;
+    }
+  }
+
+  detectBtn?.addEventListener('click', async () => {
+    detectBtn.disabled = true;
+    const orig = detectBtn.innerHTML;
+    detectBtn.textContent = 'Detecting…';
+    try {
+      const res = await fetch('/projects/' + PROJECT_ID + '/clips/' + slot.dataset.kind + '/speech-start/auto', {
+        method: 'POST',
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        if (aiReason) aiReason.textContent = '✗ ' + (body.message || ('HTTP ' + res.status));
+        return;
+      }
+      speechStart = body.speech_start;
+      if (aiReason) aiReason.textContent = '✨ ' + (body.reason || 'detected');
+      render();
+      await persist(speechStart);
+    } catch (e) {
+      if (aiReason) aiReason.textContent = '✗ ' + e.message;
+    } finally {
+      detectBtn.disabled = false;
+      detectBtn.innerHTML = orig.replace('Mark speech start', 'Re-detect speech');
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    speechStart = 0;
+    render();
+    await persist(0);
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (aiReason) aiReason.textContent = 'Marker removed';
+  });
+
+  render();
 }
 
 // ===== Phase 4: Timeline preview + walk-through player =====
@@ -2560,6 +3596,52 @@ function tlPlayBtnClick() {
   else tlStart();
 }
 
+// Click-to-seek on the gradient strip — the operator can jump to any clip
+// without playing through. Without this, the preview can only play
+// linearly from the start, which the operator was reasonably calling
+// "can't scrub the timeline".
+(function tlWireSeek() {
+  const strip = document.getElementById('tl-strip');
+  if (!strip) return;
+  strip.addEventListener('click', (e) => {
+    if (!TL_STATE.clips.length) return;
+    const rect = strip.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetEff = f * TL_STATE.totalEff;
+
+    // Walk clips/segments to find which clip+seg this lands in.
+    let acc = 0;
+    for (let ci = 0; ci < TL_STATE.clips.length; ci++) {
+      const clip = TL_STATE.clips[ci];
+      if (targetEff <= acc + clip.effDur) {
+        let inClipT = targetEff - acc;
+        let segIdx = 0;
+        let segOffset = inClipT;
+        for (let si = 0; si < clip.segs.length; si++) {
+          const segLen = clip.segs[si][1] - clip.segs[si][0];
+          if (segOffset <= segLen) { segIdx = si; break; }
+          segOffset -= segLen;
+        }
+        // Start playback from this clip if not already playing, otherwise
+        // jump in place.
+        if (!TL_STATE.playing) tlStart();
+        TL_STATE.clipIdx = ci;
+        TL_STATE.segIdx = segIdx;
+        TL_STATE.elapsedBefore = acc;
+        const seg = clip.segs[segIdx];
+        const v = document.getElementById('tl-video');
+        try { v.currentTime = seg[0] + segOffset; } catch {}
+        // Reload the underlying source if we switched clips.
+        if (typeof tlLoadCurrent === 'function') tlLoadCurrent();
+        return;
+      }
+      acc += clip.effDur;
+    }
+  });
+  strip.style.cursor = 'pointer';
+  strip.title = 'Click to seek';
+})();
+
 function tlStart() {
   TL_STATE.playing = true;
   TL_STATE.clipIdx = 0;
@@ -2683,13 +3765,167 @@ function tlOnEnded() {
   v.addEventListener('timeupdate', tlOnTimeUpdate);
   v.addEventListener('ended', tlOnEnded);
 })();
+
+// =====================================================================
+// CUSTOM SLOT — operator clicks "+ Add custom clip slot", types a label,
+// frontend appends an empty slot card with kind=custom:<sanitized>. The
+// upload then targets POST /projects/{id}/clips/custom:<label> like any
+// canonical kind. No DB row exists until first upload.
+// =====================================================================
+function sanitizeSlotLabel(s) {
+  s = String(s || '').toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  return s.slice(0, 40);
+}
+
+(function wireAddCustomSlot() {
+  const btn = document.getElementById('add-custom-slot-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const raw = prompt('Custom segment name:\n(letters, digits, dashes — e.g. "extra-jump", "exit-cam")', '');
+    if (raw === null) return;
+    const label = sanitizeSlotLabel(raw);
+    if (!label) { alert('Empty label after sanitising. Use a-z, 0-9, dash.'); return; }
+    const kind = 'custom:' + label;
+
+    // Refuse duplicates — both for canonical kinds and existing custom slots.
+    if (document.querySelector('.slot[data-kind="' + cssEsc(kind) + '"]')) {
+      alert('A slot for "' + kind + '" already exists.');
+      return;
+    }
+    appendEmptySlot(kind, raw);
+  });
+})();
+
+// CSS.escape polyfill — older browsers (and chrome's MCP) need it for
+// data-attribute selectors with colons.
+function cssEsc(s) {
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
+// appendEmptySlot clones the empty-slot template that the existing
+// per-kind upload code already wires into; we just need a DOM node with
+// data-kind matching the new custom kind. The page handles drag-and-drop
+// uploads via a global delegate keyed off .slot[data-kind].
+function appendEmptySlot(kind, displayLabel) {
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+  // Find an existing empty slot to use as a structural template; bail
+  // if every slot is filled (rare — operator filled every canonical first).
+  const tmpl = grid.querySelector('.slot:not(.has-file)');
+  if (!tmpl) {
+    alert('Refresh the page first — every canonical slot is filled and we need an empty template to clone.');
+    return;
+  }
+  const clone = tmpl.cloneNode(true);
+  clone.setAttribute('data-kind', kind);
+  clone.removeAttribute('data-clip-id');
+  const customName = 'Custom: ' + displayLabel;
+  // Update every label that the empty-state template renders. .name is the
+  // top label; .hint contains the "Drop X clip here, or click to upload"
+  // text — the cloned hint still reads from the source slot's kind, so we
+  // rebuild its text node while keeping the upload icon SVG intact.
+  clone.querySelectorAll('.kind-label, .name').forEach(el => {
+    el.textContent = customName;
+  });
+  const hint = clone.querySelector('.hint');
+  if (hint) {
+    const svg = hint.querySelector('svg');
+    hint.innerHTML = '';
+    if (svg) {
+      hint.appendChild(svg);
+      hint.appendChild(document.createElement('br'));
+    }
+    hint.appendChild(document.createTextNode('Drop ' + customName + ' clip here, or click to upload'));
+  }
+  grid.appendChild(clone);
+  // Re-wire upload handlers on the clone so dropping a file targets it.
+  if (typeof wireSlot === 'function') wireSlot(clone);
+  clone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// =====================================================================
+// REORDER — HTML5 drag-and-drop on .slot-grip handles. On drop we collect
+// data-clip-id from the visible slot order and POST /clips/reorder.
+// Slots without a clip-id (empty canonical / new custom) are skipped —
+// they reorder visually only and get a real position when uploaded.
+// =====================================================================
+(function wireSlotReorder() {
+  const grid = document.getElementById('grid');
+  if (!grid) return;
+  let dragging = null;
+
+  grid.addEventListener('dragstart', (e) => {
+    const grip = e.target.closest('.slot-grip');
+    if (!grip) { e.preventDefault(); return; }
+    const slot = grip.closest('.slot');
+    if (!slot) return;
+    dragging = slot;
+    slot.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Some browsers need data set on the transfer to consider it a real drag.
+    try { e.dataTransfer.setData('text/plain', slot.getAttribute('data-kind') || ''); } catch {}
+  });
+
+  grid.addEventListener('dragend', () => {
+    if (dragging) dragging.classList.remove('is-dragging');
+    grid.querySelectorAll('.is-drop-target, .is-drop-target-after').forEach(el => {
+      el.classList.remove('is-drop-target', 'is-drop-target-after');
+    });
+    dragging = null;
+  });
+
+  grid.addEventListener('dragover', (e) => {
+    if (!dragging) return;
+    const target = e.target.closest('.slot');
+    if (!target || target === dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    grid.querySelectorAll('.is-drop-target, .is-drop-target-after').forEach(el => {
+      if (el !== target) el.classList.remove('is-drop-target', 'is-drop-target-after');
+    });
+    // Decide above/below based on cursor Y relative to the target's centre.
+    const r = target.getBoundingClientRect();
+    const isBelow = (e.clientY - r.top) > r.height / 2;
+    target.classList.toggle('is-drop-target',       !isBelow);
+    target.classList.toggle('is-drop-target-after',  isBelow);
+  });
+
+  grid.addEventListener('drop', async (e) => {
+    if (!dragging) return;
+    const target = e.target.closest('.slot');
+    if (!target || target === dragging) return;
+    e.preventDefault();
+    const isBelow = target.classList.contains('is-drop-target-after');
+    if (isBelow) target.after(dragging);
+    else         target.before(dragging);
+    target.classList.remove('is-drop-target', 'is-drop-target-after');
+    dragging.classList.remove('is-dragging');
+    await persistReorder();
+    dragging = null;
+  });
+
+  async function persistReorder() {
+    const ids = [];
+    grid.querySelectorAll('.slot[data-clip-id]').forEach(s => {
+      const n = parseInt(s.getAttribute('data-clip-id'), 10);
+      if (n > 0) ids.push(n);
+    });
+    if (ids.length === 0) return;
+    try {
+      await fetch('/projects/' + PROJECT_ID + '/clips/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: ids }),
+      });
+    } catch (e) { console.warn('reorder failed', e); }
+  }
+})();
 </script>
 
-<!-- Theme toggle (sticky top-right) — uses /static/theme-toggle.js -->
-<button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
-        style="position:fixed;top:18px;right:18px;background:rgba(0,0,0,.45);border:1px solid var(--sm-border);color:var(--sm-text-muted);width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:50">
-  <span data-theme-icon></span>
-</button>
+<!-- Theme toggle now lives in the studio rail (left aside, footer area) —
+     the old fixed top-right copy was overlapping the "Generate & send"
+     button after the rail layout was added. Removed. -->
 <script src="/static/theme-toggle.js" defer></script>
 </body>
 </html>

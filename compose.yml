@@ -51,6 +51,15 @@ services:
       timeout: 5s
       retries: 5
 
+  # Local SMTP catcher. Email sender points at smtp://localhost:51025 in dev;
+  # MailHog UI at http://localhost:58025 shows everything that would have been sent.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: freefall-mailhog
+    ports:
+      - "51025:1025"   # SMTP
+      - "58025:8025"   # Web UI
+
 volumes:
   postgres_data:
   minio_data:

@@ -243,6 +243,93 @@ html, body {
   opacity: .55;
 }
 
+/* Photo grid — appears when len(.Photos) > 0. 4-col on desktop, 2-col on
+   mobile (breakpoint extension below). Clicking a tile opens the full-res
+   presigned URL in a new tab. */
+/* Click-to-preview on download thumbs. Cursor + hover lift signal that
+   the play SVG is interactive. Stub cards (no data-preview attr) stay
+   non-interactive. */
+.wt-dl-thumb[data-preview] { cursor: pointer; }
+.wt-dl-thumb[data-preview]:hover .wt-dl-play {
+  transform: scale(1.08);
+  background: rgba(11,14,20,.7);
+  transition: transform 160ms, background 160ms;
+}
+
+/* Preview modal — opens when operator/jumper clicks a download thumb's
+   play icon. Native <video controls> handles play/pause/scrub; we just
+   provide the overlay + close affordance. */
+.wt-preview-modal {
+  position: fixed; inset: 0;
+  background: rgba(5, 7, 11, .82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1000;
+  padding: 4vh 4vw;
+}
+.wt-preview-modal.is-open { display: flex; }
+.wt-preview-frame {
+  position: relative;
+  display: flex; flex-direction: column;
+  max-width: 100%; max-height: 100%;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0,0,0,.55);
+}
+.wt-preview-frame[data-aspect="9:16"] video { max-height: 86vh; width: auto; }
+.wt-preview-frame[data-aspect="16:9"] video { max-width: 90vw;  max-height: 86vh; height: auto; }
+.wt-preview-video {
+  display: block;
+  width: 100%; height: auto;
+  background: #000;
+}
+.wt-preview-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--sm-surface-2, #11151c);
+  border-top: 1px solid var(--sm-border, rgba(255,255,255,.08));
+  font-family: var(--sm-display);
+  font-size: 13px;
+  color: var(--sm-text);
+}
+.wt-preview-close {
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--sm-border, rgba(255,255,255,.18));
+  background: rgba(255,255,255,.04);
+  color: var(--sm-text);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.wt-preview-close:hover { background: rgba(255,255,255,.10); }
+
+.wt-photo-grid-section { margin-bottom: 32px; }
+.wt-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.wt-photo-tile {
+  display: block;
+  aspect-ratio: 3 / 2;
+  background: var(--sm-surface-2);
+  border: 1px solid var(--sm-border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: transform 150ms ease, border-color 150ms;
+}
+.wt-photo-tile:hover {
+  transform: scale(1.02);
+  border-color: var(--sm-border-strong);
+}
+.wt-photo-tile img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* Combined-zip strip */
 .wt-zip-strip {
   margin-top: 12px;
@@ -359,6 +446,7 @@ html, body {
   .wt-headline { text-align: left; margin-bottom: 22px; }
   .wt-byline { font-size: 13px; }
   .wt-download-grid { grid-template-columns: 1fr; }
+  .wt-photo-grid { grid-template-columns: repeat(2, 1fr); }
   .wt-photo-pack-inner { grid-template-columns: 1fr; padding: 18px; }
   .wt-photo-pack .price-col { flex-direction: row; align-items: center; justify-content: space-between; }
   .wt-photo-pack .price { font-size: 24px; }
@@ -448,17 +536,18 @@ html, body {
     <div class="wt-download-grid">
 
       <!-- Full edit -->
+      {{$resLabel := .VideoLabel}}{{if not $resLabel}}{{$resLabel = "1080p"}}{{end}}
       <div class="wt-dl-card">
-        <div class="wt-dl-thumb">
+        <div class="wt-dl-thumb" data-preview="{{.VideoURL}}" data-preview-aspect="16:9" data-preview-title="Full edit · {{$resLabel}}">
           <span class="wt-dl-thumb-cap">16:9 · horizontal</span>
           <div class="wt-dl-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
         </div>
         <div class="wt-dl-body">
           <div class="wt-dl-row1">
             <div class="wt-dl-name">Full edit</div>
-            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-brand-hi);border-color:var(--sm-brand-hi)">Main</span>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-brand-hi);border-color:var(--sm-brand-hi)">{{$resLabel}}</span>
           </div>
-          <div class="wt-dl-detail">1080p{{if .VideoSizeBytes}} · {{bytesHuman .VideoSizeBytes}}{{end}}</div>
+          <div class="wt-dl-detail">{{$resLabel}}{{if .VideoSizeBytes}} · {{bytesHuman .VideoSizeBytes}}{{end}}</div>
           <div class="wt-dl-desc">The complete edit — boarding, freefall, canopy, landing.</div>
           <div class="wt-dl-actions">
             <a class="sm-btn is-primary wt-dl-btn" href="{{.VideoURL}}" download data-track="full">
@@ -472,7 +561,29 @@ html, body {
         </div>
       </div>
 
-      <!-- Reel (Phase 5 placeholder) -->
+      <!-- Reel (Phase 5: live when vertical artifact uploaded) -->
+      {{if .VerticalReelURL}}
+      <div class="wt-dl-card">
+        <div class="wt-dl-thumb" data-preview="{{.VerticalReelURL}}" data-preview-aspect="9:16" data-preview-title="Reel · Instagram">
+          <span class="wt-dl-thumb-cap">9:16 · vertical</span>
+          <div class="wt-dl-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+        </div>
+        <div class="wt-dl-body">
+          <div class="wt-dl-row1">
+            <div class="wt-dl-name">Reel</div>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-accent);border-color:var(--sm-accent)">Instagram</span>
+          </div>
+          <div class="wt-dl-detail">1080×1920{{if .VerticalReelSize}} · {{bytesHuman .VerticalReelSize}}{{end}}</div>
+          <div class="wt-dl-desc">Reframed for Stories &amp; Reels — drop straight into Instagram.</div>
+          <div class="wt-dl-actions">
+            <a class="sm-btn is-primary wt-dl-btn" href="{{.VerticalReelURL}}" download data-track="reel">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </a>
+          </div>
+        </div>
+      </div>
+      {{else}}
       <div class="wt-dl-card wt-dl-stub">
         <div class="wt-dl-thumb"><span class="wt-dl-thumb-cap">9:16 · vertical</span></div>
         <div class="wt-dl-body">
@@ -487,8 +598,31 @@ html, body {
           </div>
         </div>
       </div>
+      {{end}}
 
-      <!-- WOW · freefall (Phase 5 placeholder) -->
+      <!-- WOW · freefall (Phase 5: live when wow_highlights artifact uploaded) -->
+      {{if .WOWReelURL}}
+      <div class="wt-dl-card">
+        <div class="wt-dl-thumb" data-preview="{{.WOWReelURL}}" data-preview-aspect="16:9" data-preview-title="WOW · freefall">
+          <span class="wt-dl-thumb-cap">16:9 · highlight</span>
+          <div class="wt-dl-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
+        </div>
+        <div class="wt-dl-body">
+          <div class="wt-dl-row1">
+            <div class="wt-dl-name">WOW · freefall</div>
+            <span class="sm-pill" style="height:20px;font-size:10px;padding:0 8px;color:var(--sm-success);border-color:var(--sm-success)">Highlight</span>
+          </div>
+          <div class="wt-dl-detail">freefall cut{{if .WOWReelSize}} · {{bytesHuman .WOWReelSize}}{{end}}</div>
+          <div class="wt-dl-desc">Pure freefall — multi-angle cuts under energetic music.</div>
+          <div class="wt-dl-actions">
+            <a class="sm-btn is-primary wt-dl-btn" href="{{.WOWReelURL}}" download data-track="wow">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </a>
+          </div>
+        </div>
+      </div>
+      {{else}}
       <div class="wt-dl-card wt-dl-stub">
         <div class="wt-dl-thumb"><span class="wt-dl-thumb-cap">16:9 · highlight</span></div>
         <div class="wt-dl-body">
@@ -503,9 +637,28 @@ html, body {
           </div>
         </div>
       </div>
+      {{end}}
 
     </div>
   </div>
+
+  {{if .Photos}}
+  <!-- Photo grid: appears between downloads and the upsell CTA when freefall
+       stills are uploaded. Click → opens full-res in a new tab via the
+       browser's native image viewer (lightbox upgrade is a follow-up). -->
+  <div class="wt-photo-grid-section">
+    <div class="wt-section-h">
+      <h2>Freefall stills <span class="sub">· {{len .Photos}} photo{{if gt (len .Photos) 1}}s{{end}}</span></h2>
+    </div>
+    <div class="wt-photo-grid">
+      {{range .Photos}}
+      <a class="wt-photo-tile" href="{{.URL}}" target="_blank" rel="noopener" data-track="photo">
+        <img src="{{.URL}}" loading="lazy" alt="">
+      </a>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
 
   <!-- Photo pack — Phase 8 (SEPA) wires the buy button. For now: visible placeholder. -->
   <div class="wt-photo-pack">
@@ -559,6 +712,22 @@ html, body {
   </div>
 </div>
 
+<!-- Preview modal: hidden by default, opened by clicking any .wt-dl-thumb
+     that has a data-preview URL. ESC + backdrop click + close button all
+     close. Video src is set on open and cleared on close so audio stops
+     immediately and the next open doesn't replay from a cached position. -->
+<div class="wt-preview-modal" id="wt-preview-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="wt-preview-frame" id="wt-preview-frame">
+    <video class="wt-preview-video" id="wt-preview-video" controls playsinline preload="metadata"></video>
+    <div class="wt-preview-bar">
+      <span id="wt-preview-title">Preview</span>
+      <button type="button" class="wt-preview-close" id="wt-preview-close" aria-label="Close preview">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
 {{if .HasVideo}}
 <script>
 // Click the play overlay → start the actual hero video and hide overlay.
@@ -594,6 +763,53 @@ html, body {
     } catch {}
   }
   document.querySelectorAll('.wt-dl-btn').forEach(a => a.addEventListener('click', ping));
+})();
+
+// Click-to-preview on download thumbnails. Opens the in-page modal with
+// a fresh <video src=…>; the existing Download button stays as the way to
+// save locally. Modal is closed via ESC, backdrop click, or × button.
+(function() {
+  const modal  = document.getElementById('wt-preview-modal');
+  const frame  = document.getElementById('wt-preview-frame');
+  const video  = document.getElementById('wt-preview-video');
+  const titleEl = document.getElementById('wt-preview-title');
+  const closeBtn = document.getElementById('wt-preview-close');
+  if (!modal || !video) return;
+
+  function open(url, aspect, title) {
+    if (!url) return;
+    frame.setAttribute('data-aspect', aspect || '16:9');
+    titleEl.textContent = title || 'Preview';
+    video.src = url;
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    // Autoplay — most browsers block w/ sound; fall back silently.
+    video.play().catch(() => {});
+  }
+  function close() {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+
+  document.querySelectorAll('.wt-dl-thumb[data-preview]').forEach(thumb => {
+    thumb.addEventListener('click', (e) => {
+      e.preventDefault();
+      open(
+        thumb.getAttribute('data-preview'),
+        thumb.getAttribute('data-preview-aspect'),
+        thumb.getAttribute('data-preview-title')
+      );
+    });
+  });
+
+  closeBtn?.addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+  });
 })();
 </script>
 {{else}}

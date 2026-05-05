@@ -187,6 +187,31 @@
       <div class="eyebrow">Client</div>
       <h2 class="h2">Who's jumping?</h2>
 
+      {{if .LockedClient}}
+      <!-- Locked-in mode: came from a specific "Start project" button.
+           Single client card, no list, no walk-in tab. JS picks up the
+           data-id below to populate the submit payload. -->
+      <div id="client-list" class="client-list" style="max-height:none;margin-bottom:0">
+        <div class="client-card is-active is-locked"
+             data-id="{{.LockedClient.ID}}"
+             data-name="{{.LockedClient.Name}}"
+             data-email="{{.LockedClient.Email}}"
+             data-phone="{{.LockedClient.Phone}}">
+          <div class="ck"></div>
+          <div class="info">
+            <div class="name">{{.LockedClient.Name}}</div>
+            <div class="sub">{{if .LockedClient.Email}}{{.LockedClient.Email}}{{else if .LockedClient.Phone}}{{.LockedClient.Phone}}{{else}}—{{end}}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="code">{{.LockedClient.AccessCode}}</div>
+            <div style="font-size:10px;color:var(--sm-text-dim);margin-top:2px">{{.LockedClient.JumpCount}} jump{{if ne .LockedClient.JumpCount 1}}s{{end}}</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--sm-text-dim)">
+        <a href="/projects/new" style="color:var(--sm-text-muted)">← Pick a different client</a>
+      </div>
+      {{else}}
       <div class="picker-tabs">
         <button type="button" id="tab-assigned" class="is-active">Assigned to me</button>
         <button type="button" id="tab-walkin">Walk-in</button>
@@ -218,6 +243,7 @@
           <input class="sm-input" name="walkin_phone" type="tel" placeholder="+372 555 1234">
         </div>
       </div>
+      {{end}}
     </section>
 
     <!-- ========== OUTPUT FORMATS ========== -->
@@ -302,12 +328,27 @@
 
     <!-- ========== CTA ========== -->
     <div class="full">
+      {{if .ExistingProjectID}}
+      <!-- Continue mode: operator already has an in-flight project for
+           this client. Don't POST a new register call — just send them
+           back to the existing clips board. -->
+      <a href="/projects/{{.ExistingProjectID}}/clips" id="continueBtn"
+         class="sm-btn is-hero is-lg is-block"
+         style="height:56px;font-size:15px;display:flex;align-items:center;justify-content:center;text-decoration:none">
+        Continue project
+      </a>
+      <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--sm-text-muted)">
+        You started this jumper's project earlier — picking up where you left off.
+        <a href="#" id="freshStartLink" style="margin-left:6px">Start fresh instead</a>
+      </div>
+      {{else}}
       <button type="submit" id="submitBtn" class="sm-btn is-hero is-lg is-block" style="height:56px;font-size:15px">
         Create project &amp; start uploading clips
       </button>
       <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--sm-text-muted)">
         Next stop: clip board. Drop your clips, trim, pick music.
       </div>
+      {{end}}
       <div id="err" class="err-banner"></div>
     </div>
 
@@ -315,8 +356,12 @@
 </form>
 
 <script>
+// LOCKED_MODE = came from "Start project" button → single client card,
+// no list, no walk-in tab. The DOM was rendered server-side already.
+const LOCKED_MODE = !!document.querySelector('.client-card.is-locked');
+
 // ============================================================
-// Tab switching
+// Tab switching (full-picker mode only)
 // ============================================================
 const tabAssigned = document.getElementById('tab-assigned');
 const tabWalkin   = document.getElementById('tab-walkin');
@@ -325,13 +370,16 @@ const paneWalkin   = document.getElementById('pane-walkin');
 let mode = 'assigned';
 function setMode(m) {
   mode = m;
+  if (!tabAssigned || !tabWalkin) return;
   tabAssigned.classList.toggle('is-active', m === 'assigned');
   tabWalkin.classList.toggle('is-active', m === 'walkin');
   paneAssigned.style.display = m === 'assigned' ? '' : 'none';
   paneWalkin.style.display   = m === 'walkin'   ? '' : 'none';
 }
-tabAssigned.addEventListener('click', () => setMode('assigned'));
-tabWalkin.addEventListener('click',   () => setMode('walkin'));
+if (tabAssigned && tabWalkin) {
+  tabAssigned.addEventListener('click', () => setMode('assigned'));
+  tabWalkin.addEventListener('click',   () => setMode('walkin'));
+}
 
 // ============================================================
 // Client picker — fetch /clients.json then render selectable cards
@@ -339,7 +387,15 @@ tabWalkin.addEventListener('click',   () => setMode('walkin'));
 let selectedClientID = null;
 const list = document.getElementById('client-list');
 
+// Locked mode: skip the cloud round-trip. The single card is already
+// rendered with data-id; record it as the current selection.
+if (LOCKED_MODE) {
+  const locked = document.querySelector('.client-card.is-locked');
+  selectedClientID = Number(locked.dataset.id);
+}
+
 (async function loadClients() {
+  if (LOCKED_MODE) return; // single card already rendered server-side
   try {
     const res = await fetch('/clients.json', { credentials: 'same-origin' });
     if (!res.ok) {
@@ -401,10 +457,25 @@ document.querySelectorAll('.out-card input[type=checkbox]').forEach(cb => {
 });
 
 // ============================================================
-// Submit
+// "Start fresh instead" link — Continue-mode operators can still bail
+// out and create a brand-new project. We bounce to /projects/new with
+// a `fresh=1` flag so the server skips the existing-project lookup.
+// ============================================================
+document.getElementById('freshStartLink')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  const u = new URL(location.href);
+  u.searchParams.set('fresh', '1');
+  location.href = u.toString();
+});
+
+// ============================================================
+// Submit (only when the form actually has a Create button — Continue
+// mode renders an <a> instead, no submit listener needed).
 // ============================================================
 document.getElementById('f').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const submitBtn = document.getElementById('submitBtn');
+  if (!submitBtn) return; // Continue mode — link handles navigation
   const errEl = document.getElementById('err');
   errEl.style.display = 'none';
   const fd = new FormData(e.target);
@@ -417,13 +488,15 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     has_operator_uploaded_photos: fd.get('has_operator_uploaded_photos') === 'on',
   };
 
-  if (mode === 'assigned') {
+  // Locked mode forces 'assigned' — we have a single card, no walk-in.
+  const effectiveMode = LOCKED_MODE ? 'assigned' : mode;
+  if (effectiveMode === 'assigned') {
     if (!selectedClientID) {
       errEl.textContent = 'Pick a client first, or switch to Walk-in.';
       errEl.style.display = 'block';
       return;
     }
-    const card = list.querySelector('.client-card.is-active');
+    const card = list.querySelector('.client-card.is-active') || list.querySelector('.client-card.is-locked');
     payload.existing_client_id = Number(selectedClientID);
     payload.client_name        = card?.dataset.name  || '';
     payload.client_email       = card?.dataset.email || '';
@@ -445,9 +518,8 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     return;
   }
 
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.textContent = 'Creating…';
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Creating…';
   try {
     const res = await fetch('/projects', {
       method: 'POST',
@@ -465,27 +537,13 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     errEl.textContent = e.message;
     errEl.style.display = 'block';
   }
-  btn.disabled = false;
-  btn.textContent = 'Create project & start uploading clips';
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Create project & start uploading clips';
 });
 
-// ============================================================
-// Pre-select client from ?client_id=N (deep-link from dashboard "Start project")
-// ============================================================
-(function deepLink() {
-  const u = new URL(location.href);
-  const id = u.searchParams.get('client_id');
-  if (!id) return;
-  // Wait until clients load, then click the matching card
-  const tryPick = () => {
-    const card = list.querySelector(`.client-card[data-id="${id}"]`);
-    if (card) { card.click(); return true; }
-    return false;
-  };
-  if (tryPick()) return;
-  const obs = new MutationObserver(() => { if (tryPick()) obs.disconnect(); });
-  obs.observe(list, { childList: true });
-})();
+// Locked mode renders the single card server-side — no deep-link JS
+// dance needed. Full-picker mode (no LockedClient on the server) shows
+// the standard list with the operator's pick.
 </script>
 <script src="/static/theme-toggle.js" defer></script>
 </body>

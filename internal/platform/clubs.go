@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pionerus/freefall/internal/auth"
+	"github.com/pionerus/freefall/internal/billing"
 	"github.com/pionerus/freefall/internal/db"
 )
 
@@ -45,13 +46,21 @@ type ClubRow struct {
 	Slug        string
 	CountryCode string
 	City        string
-	Plan        string
 	Status      string
 	OperatorN   int
 	JumpN       int
 	PhotoOrderN int
 	JoinedAt    time.Time
+
+	// Per-club billing rates the super admin sets in the edit form. Stored
+	// in cents on tenants.video_price_cents / photo_pack_price_cents.
+	VideoPriceCents int
+	PhotoPriceCents int
 }
+
+// EuroPerVideo / EuroPerPhoto turn cents → "5.00" for the table.
+func (c ClubRow) EuroPerVideo() string { return formatEuro(c.VideoPriceCents) }
+func (c ClubRow) EuroPerPhoto() string { return formatEuro(c.PhotoPriceCents) }
 
 // Country returns "Yekaterinburg, RU" for the table's location column.
 func (c ClubRow) Country() string {
@@ -93,14 +102,15 @@ func (h *Handlers) listClubs(ctx context.Context) ([]ClubRow, error) {
 			COALESCE(t.slug, ''),
 			COALESCE(t.country_code, ''),
 			COALESCE(t.city, ''),
-			t.plan,
 			t.status,
 			COALESCE((SELECT COUNT(*) FROM operators o WHERE o.tenant_id = t.id), 0) AS op_n,
 			COALESCE((SELECT COUNT(*) FROM jumps j    WHERE j.tenant_id = t.id), 0) AS jump_n,
 			COALESCE((SELECT COUNT(*) FROM photo_orders po
 			          JOIN jumps jj ON jj.id = po.jump_id
 			          WHERE jj.tenant_id = t.id), 0) AS photo_n,
-			t.created_at
+			t.created_at,
+			t.video_price_cents,
+			t.photo_pack_price_cents
 		FROM tenants t
 		WHERE t.deleted_at IS NULL
 		ORDER BY t.created_at DESC, t.id DESC`,
@@ -114,8 +124,9 @@ func (h *Handlers) listClubs(ctx context.Context) ([]ClubRow, error) {
 	for rows.Next() {
 		var c ClubRow
 		if err := rows.Scan(
-			&c.ID, &c.Name, &c.Slug, &c.CountryCode, &c.City, &c.Plan, &c.Status,
+			&c.ID, &c.Name, &c.Slug, &c.CountryCode, &c.City, &c.Status,
 			&c.OperatorN, &c.JumpN, &c.PhotoOrderN, &c.JoinedAt,
+			&c.VideoPriceCents, &c.PhotoPriceCents,
 		); err != nil {
 			return nil, fmt.Errorf("scan club row: %w", err)
 		}
@@ -135,6 +146,12 @@ type ClubsListPageData struct {
 	TotalOps     int
 	TotalJumps   int
 	TotalPhotos  int
+
+	// MonthBills indexed by tenant ID — current-month bill summary so the
+	// list shows "€45 due" next to each club without a second page load.
+	MonthBills    map[int64]billing.Bill
+	MonthLabel    string
+	GrandTotalEur string
 }
 
 // ClubsList handles GET /platform/clubs.
@@ -149,9 +166,23 @@ func (h *Handlers) ClubsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Compute current-month bills in a batch — one Compute() per club. Cap
+	// total time at 4s so a slow query on one tenant doesn't block the page.
+	year, month := billing.CurrentMonth()
+	bills, _ := billing.AllClubs(ctx, h.DB, year, month)
+	billByID := make(map[int64]billing.Bill, len(bills))
+	grandCents := 0
+	for _, b := range bills {
+		billByID[b.TenantID] = b
+		grandCents += b.GrandTotalCents
+	}
+
 	data := ClubsListPageData{
-		AdminName: s.PlatformAdminName,
-		Clubs:     clubs,
+		AdminName:     s.PlatformAdminName,
+		Clubs:         clubs,
+		MonthBills:    billByID,
+		MonthLabel:    fmt.Sprintf("%s %d", month.String(), year),
+		GrandTotalEur: formatEuro(grandCents),
 	}
 	for _, c := range clubs {
 		data.TotalClubs++
@@ -194,6 +225,11 @@ type ClubDetail struct {
 	BestMonth   string
 	AvgPerMonth int
 
+	// Current-month bill — per-line counts × per-club rates. The detail
+	// page surfaces this in a top-of-page card so super admins can see
+	// "Demo Skydive Club owes €45 for May" without bouncing to /platform/billing.
+	Bill billing.Bill
+
 	RecentJumps []RecentJump
 }
 
@@ -226,20 +262,23 @@ func (h *Handlers) ClubDetail(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			t.id, t.name, COALESCE(t.slug, ''),
 			COALESCE(t.country_code, ''), COALESCE(t.city, ''),
-			t.plan, t.status,
+			t.status,
 			COALESCE((SELECT COUNT(*) FROM operators o WHERE o.tenant_id = t.id), 0),
 			COALESCE((SELECT COUNT(*) FROM jumps j    WHERE j.tenant_id = t.id), 0),
 			COALESCE((SELECT COUNT(*) FROM photo_orders po
 			          JOIN jumps jj ON jj.id = po.jump_id
 			          WHERE jj.tenant_id = t.id), 0),
-			t.created_at
+			t.created_at,
+			t.video_price_cents,
+			t.photo_pack_price_cents
 		FROM tenants t
 		WHERE t.id = $1 AND t.deleted_at IS NULL`,
 		id,
 	).Scan(
 		&club.ID, &club.Name, &club.Slug, &club.CountryCode, &club.City,
-		&club.Plan, &club.Status,
+		&club.Status,
 		&club.OperatorN, &club.JumpN, &club.PhotoOrderN, &club.JoinedAt,
+		&club.VideoPriceCents, &club.PhotoPriceCents,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.NotFound(w, r)
@@ -250,9 +289,18 @@ func (h *Handlers) ClubDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Current-month bill for the top-of-page card. Best-effort — a billing
+	// query failure shouldn't 500 the detail page.
+	detail := ClubDetail{Club: club}
+	{
+		y, m := billing.CurrentMonth()
+		if b, berr := billing.Compute(ctx, h.DB, id, y, m); berr == nil && b != nil {
+			detail.Bill = *b
+		}
+	}
+
 	// Owner = first operator with role='owner', oldest. (Single-owner clubs
 	// is the common case; future multi-owner support won't break this.)
-	detail := ClubDetail{Club: club}
 	_ = h.DB.QueryRow(ctx, `
 		SELECT email, COALESCE(last_login_at, created_at), created_at
 		FROM operators
@@ -538,14 +586,162 @@ func (h *Handlers) WatchLinks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Billing — Phase 10.6 (aggregated monthly stats — depends on Phase 12).
+// =====================================================================
+// Billing — real, no longer a stub.
+// =====================================================================
+
+// BillingPageData is what /platform/billing renders. Year+Month default to
+// the current calendar month UTC; ?year=2026&month=4 lets the super admin
+// inspect a previous period.
+type BillingPageData struct {
+	AdminName    string
+	Year         int
+	MonthLabel   string
+	MonthNum     int
+	Bills        []billing.Bill
+	GrandTotal   string
+	VideoCount   int
+	PhotoCount   int
+
+	// Pagination ribbon: prev/next month for the controls in the topbar.
+	PrevYear, PrevMonth int
+	NextYear, NextMonth int
+}
+
+// Billing handles GET /platform/billing.
 func (h *Handlers) Billing(w http.ResponseWriter, r *http.Request) {
-	h.renderStub(w, StubData{
-		Active: "billing", Title: "Billing",
-		Sub:      "Aggregated MRR + per-club invoices",
-		Body:     "Cross-tenant billing roll-up: MRR by plan, monthly_invoices status, photo-pack revenue split per club. Lights up after the Stripe + Flowtark wiring lands.",
-		PhaseTag: "Phase 10.6 · depends on Phase 12",
-	})
+	s := auth.MustFromContext(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	year, month := billing.CurrentMonth()
+	if y, err := parseInt64(r.URL.Query().Get("year")); err == nil && y >= 2000 && y < 2100 {
+		year = int(y)
+	}
+	if m, err := parseInt64(r.URL.Query().Get("month")); err == nil && m >= 1 && m <= 12 {
+		month = time.Month(m)
+	}
+
+	bills, err := billing.AllClubs(ctx, h.DB, year, month)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	grand := 0
+	videoTotal, photoTotal := 0, 0
+	for _, b := range bills {
+		grand += b.GrandTotalCents
+		videoTotal += b.VideoCount
+		photoTotal += b.PhotoPackCount
+	}
+
+	prev := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
+	next := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.Templates.ExecuteTemplate(w, "platform_billing.html", BillingPageData{
+		AdminName:  s.PlatformAdminName,
+		Year:       year,
+		MonthLabel: fmt.Sprintf("%s %d", month.String(), year),
+		MonthNum:   int(month),
+		Bills:      bills,
+		GrandTotal: formatEuro(grand),
+		VideoCount: videoTotal,
+		PhotoCount: photoTotal,
+		PrevYear:   prev.Year(), PrevMonth: int(prev.Month()),
+		NextYear:   next.Year(), NextMonth: int(next.Month()),
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// =====================================================================
+// UpdateClub — PUT /platform/clubs/{id}
+// =====================================================================
+//
+// Editable fields: name, country_code, city, video_price_cents,
+// photo_pack_price_cents, status (active|trial|overdue|archived). Slug is
+// intentionally NOT editable here — it's referenced by the watch URL and a
+// rename mid-flight breaks every saved /watch link the jumper bookmarked.
+type UpdateClubRequest struct {
+	Name           string `json:"name"`
+	CountryCode    string `json:"country_code"`
+	City           string `json:"city"`
+	Status         string `json:"status"`
+	VideoRateCents int    `json:"video_rate_cents"`
+	PhotoRateCents int    `json:"photo_rate_cents"`
+}
+
+// UpdateClub patches a tenant row. Used by the edit modal on the detail page.
+func (h *Handlers) UpdateClub(w http.ResponseWriter, r *http.Request) {
+	id, err := parseInt64(chi.URLParam(r, "id"))
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_ID", "club id required")
+		return
+	}
+	var req UpdateClubRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.CountryCode = strings.TrimSpace(strings.ToUpper(req.CountryCode))
+	req.City = strings.TrimSpace(req.City)
+	req.Status = strings.TrimSpace(strings.ToLower(req.Status))
+
+	if req.Name == "" || len(req.Name) > 200 {
+		writeJSONErr(w, http.StatusBadRequest, "NAME", "Club name is required (≤200 chars).")
+		return
+	}
+	if req.CountryCode != "" && len(req.CountryCode) != 2 {
+		writeJSONErr(w, http.StatusBadRequest, "COUNTRY", "Country code must be 2 letters.")
+		return
+	}
+	if req.VideoRateCents < 0 || req.VideoRateCents > 10000 {
+		writeJSONErr(w, http.StatusBadRequest, "VIDEO_RATE", "Per-video rate must be 0..€100.")
+		return
+	}
+	if req.PhotoRateCents < 0 || req.PhotoRateCents > 10000 {
+		writeJSONErr(w, http.StatusBadRequest, "PHOTO_RATE", "Per-photo-pack rate must be 0..€100.")
+		return
+	}
+	switch req.Status {
+	case "", "active", "trial", "overdue", "archived":
+		// ok — empty means "leave unchanged"
+	default:
+		writeJSONErr(w, http.StatusBadRequest, "STATUS", "status must be active|trial|overdue|archived")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	q := `UPDATE tenants
+	      SET name = $1,
+	          country_code = NULLIF($2, ''),
+	          city = NULLIF($3, ''),
+	          video_price_cents = $4,
+	          photo_pack_price_cents = $5`
+	args := []any{req.Name, req.CountryCode, req.City, req.VideoRateCents, req.PhotoRateCents}
+	if req.Status != "" {
+		q += `, status = $6 WHERE id = $7 AND deleted_at IS NULL`
+		args = append(args, req.Status, id)
+	} else {
+		q += ` WHERE id = $6 AND deleted_at IS NULL`
+		args = append(args, id)
+	}
+
+	ct, err := h.DB.Exec(ctx, q, args...)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		writeJSONErr(w, http.StatusNotFound, "NOT_FOUND", "club not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "ok": true})
 }
 
 // Settings — Phase 10.7 (app_settings editor).
@@ -762,6 +958,17 @@ func displayNameFromEmail(email string) string {
 		return "Owner"
 	}
 	return strings.Join(parts, " ")
+}
+
+// formatEuro turns 549 → "5.49". Mirrors billing.cents but lives here so
+// templates can call ClubRow.EuroPerVideo without importing billing.
+func formatEuro(c int) string {
+	if c < 0 {
+		return "-" + formatEuro(-c)
+	}
+	euros := c / 100
+	frac := c % 100
+	return fmt.Sprintf("%d.%02d", euros, frac)
 }
 
 func writeJSONErr(w http.ResponseWriter, status int, code, msg string) {

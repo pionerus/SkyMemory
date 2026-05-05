@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Storage · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .stor-card { padding:24px;border:1px solid var(--sm-border);border-radius:14px;background:var(--sm-surface);margin-bottom:16px; }
+  .stor-card h2 { font-size:15px;font-weight:500;margin-bottom:6px; }
+  .stor-card .hint { font-size:12px;color:var(--sm-text-muted);margin-bottom:14px; }
+  .stor-state { display:flex;align-items:center;gap:14px; }
+  .stor-state .ico {
+    width:48px;height:48px;border-radius:12px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#4285F4 0%,#34A853 50%,#FBBC04 100%);
+    color:#fff;font-weight:700;
+  }
+  .stor-state .ico.is-disconnected { background:var(--sm-surface-3);color:var(--sm-text-dim); }
+  .stor-state .meta { flex:1;min-width:0; }
+  .stor-state .meta .name { font-size:14px;font-weight:500;margin-bottom:2px; }
+  .stor-state .meta .sub { font-size:12px;color:var(--sm-text-muted);font-family:var(--sm-mono); }
+  .stor-pill { padding:3px 10px;border-radius:999px;font-size:11px;border:1px solid var(--sm-border);font-family:var(--sm-mono); }
+  .stor-pill.is-ok { color:var(--sm-success);border-color:var(--sm-success);background:rgba(91,210,160,.10); }
+  .stor-pill.is-bad { color:var(--sm-danger,#ff6b7a);border-color:var(--sm-danger,#ff6b7a);background:rgba(255,107,122,.10); }
+  .stor-actions { display:flex;gap:8px;margin-top:14px;flex-wrap:wrap; }
+  .flash { padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px; }
+  .flash.is-ok { background:rgba(91,210,160,.10);color:var(--sm-success);border:1px solid rgba(91,210,160,.28); }
+  .flash.is-err { background:rgba(255,107,122,.10);color:var(--sm-danger,#ff6b7a);border:1px solid rgba(255,107,122,.28); }
+  .scope-list { font-size:12px;color:var(--sm-text-muted);margin:10px 0;padding-left:18px; }
+  .scope-list li { margin-bottom:4px; }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  <aside class="sm-rail" style="width:240px">
+    <div style="padding:20px 18px 18px;border-bottom:1px solid var(--sm-border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none">
+          <span class="sm-mark" style="width:22px"></span>
+        </span>
+        <div style="min-width:0">
+          <div style="font-family:var(--sm-display);font-weight:600;font-size:13px;letter-spacing:-0.01em">Skydive Memory</div>
+          <span class="role-chip role-chip--operator">Operator · web</span>
+        </div>
+      </div>
+    </div>
+    <nav style="padding:12px;display:flex;flex-direction:column;gap:2px;flex:1">
+      <a class="sm-rail-item" href="/operator/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Dashboard
+      </a>
+      <a class="sm-rail-item" href="/operator/projects">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        Projects
+      </a>
+      <a class="sm-rail-item" href="/operator/clients">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        Clients
+      </a>
+      <a class="sm-rail-item is-active" href="/operator/storage">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        Storage
+      </a>
+      <div style="height:1px;background:var(--sm-border);margin:8px 4px"></div>
+      <form method="POST" action="/auth/logout" style="margin:0">
+        <button type="submit" class="sm-rail-item" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign out
+        </button>
+      </form>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.OperatorEmail}}</div>
+        <div style="font-size:11px;color:var(--sm-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}} · {{.OperatorRole}}</div>
+      </div>
+      <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
+              style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">
+        <span data-theme-icon></span>
+      </button>
+    </div>
+  </aside>
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Storage</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Where your renders go after each jump</div>
+      </div>
+    </header>
+
+    <div style="padding:28px;overflow:auto;flex:1;max-width:780px;width:100%;margin:0 auto">
+
+      {{if .FlashOK}}<div class="flash is-ok">{{.FlashOK}}</div>{{end}}
+      {{if .FlashError}}<div class="flash is-err">{{.FlashError}}</div>{{end}}
+
+      <div class="stor-card">
+        <h2>Google Drive</h2>
+        <p class="hint">Connect your own Google Drive — every rendered video for your clients lands in a "Skydive Memory" folder you own. Clients download from the link we generate.</p>
+
+        {{if not .Configured}}
+          <div class="flash is-err" style="margin-top:0">
+            Server-side OAuth credentials not configured yet. Set <code>GOOGLE_OAUTH_CLIENT_ID</code> and <code>GOOGLE_OAUTH_CLIENT_SECRET</code> in <code>.env</code> on the cloud, then restart.
+          </div>
+        {{else if .Connected}}
+          <div class="stor-state">
+            <div class="ico">G</div>
+            <div class="meta">
+              <div class="name">Connected as <span class="mono" style="font-family:var(--sm-mono)">{{.Config.GoogleAccountEmail}}</span></div>
+              <div class="sub">
+                {{if .Config.RootFolderID}}Folder: My Drive / Skydive Memory ✓
+                {{else}}Folder will be created on first render
+                {{end}}
+              </div>
+            </div>
+            <span class="stor-pill {{if .Config.LastHealthCheckOK}}is-ok{{else if not .Config.LastHealthCheckAt.IsZero}}is-bad{{end}}">
+              {{if .Config.LastHealthCheckOK}}Healthy
+              {{else if not .Config.LastHealthCheckAt.IsZero}}Last check failed
+              {{else}}Not tested
+              {{end}}
+            </span>
+          </div>
+          {{if and (not .Config.LastHealthCheckAt.IsZero) (not .Config.LastHealthCheckOK)}}
+          <div style="font-size:11px;color:var(--sm-danger,#ff6b7a);margin-top:8px;font-family:var(--sm-mono)">{{.Config.LastHealthCheckError}}</div>
+          {{end}}
+
+          <div class="stor-actions">
+            <button id="testBtn" class="sm-btn">Test connection</button>
+            <form method="POST" action="/operator/storage/disconnect" style="margin:0"
+                  onsubmit="return confirm('Disconnect Google Drive? Future renders will fall back to default storage. Files already on Drive stay where they are.')">
+              <button type="submit" class="sm-btn is-danger">Disconnect</button>
+            </form>
+          </div>
+        {{else}}
+          <div class="stor-state">
+            <div class="ico is-disconnected">G</div>
+            <div class="meta">
+              <div class="name">Not connected</div>
+              <div class="sub">Renders use Skydive Memory's default storage</div>
+            </div>
+          </div>
+
+          <ul class="scope-list">
+            <li>Scope: <code>drive.file</code> — we can ONLY see and modify files our app creates. Your existing Drive content is invisible to us.</li>
+            <li>You can revoke access any time at <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.</li>
+            <li>Free Drive accounts have 15 GB. A 4K render is ~1-2 GB. Operators with high volume buy Google One.</li>
+          </ul>
+
+          <div class="stor-actions">
+            <a href="/auth/google-drive/start" class="sm-btn is-primary" style="display:inline-flex;align-items:center;gap:8px">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7.71 6.71L1.15 18l3.27 5.66h13.16L21.71 18 7.71 6.71M7.71 6.71l8.04 13.86h6.43L14.14 6.71M1.15 18h13.16l3.27-5.66"/></svg>
+              Connect Google Drive
+            </a>
+          </div>
+        {{end}}
+      </div>
+
+      <!-- Future: tenant_storage_configs (S3/MinIO) for power users.
+           Hidden until /admin/storage lands. -->
+
+    </div>
+  </main>
+</div>
+
+{{if .Connected}}
+<script>
+document.getElementById('testBtn').addEventListener('click', async (e) => {
+  const btn = e.target;
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Testing…';
+  try {
+    const res = await fetch('/operator/storage/test', { method: 'POST', credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body.ok) {
+      location.href = '/operator/storage?ok=' + encodeURIComponent('Drive responding · folder ok');
+    } else {
+      location.href = '/operator/storage?error=' + encodeURIComponent(body.error || 'Test failed');
+    }
+  } catch (err) {
+    location.href = '/operator/storage?error=' + encodeURIComponent(err.message);
+  }
+});
+</script>
+{{end}}
+
+<script src="/static/theme-toggle.js" defer></script>
+</body>
+</html>

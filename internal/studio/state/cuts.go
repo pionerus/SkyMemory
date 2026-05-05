@@ -52,6 +52,34 @@ func (db *DB) DeleteCut(ctx context.Context, cutID int64) error {
 	return err
 }
 
+// UpdateCutRange edits the start/end of an existing cut — used when the
+// operator drags a cut handle on the trim rail. Range validation (inside
+// trim window, no overlap with siblings) is the caller's job, same as
+// CreateCut. auto_suggested flips off because a manual drag is no longer
+// the AI's choice.
+func (db *DB) UpdateCutRange(ctx context.Context, cutID int64, start, end float64) error {
+	if end <= start {
+		return errors.New("cut end must be > start")
+	}
+	if start < 0 {
+		return errors.New("cut start must be >= 0")
+	}
+	res, err := db.ExecContext(ctx, `
+		UPDATE clip_cuts
+		   SET start_seconds = ?, end_seconds = ?, auto_suggested = 0
+		 WHERE id = ?`,
+		start, end, cutID,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListCuts returns all cuts for one clip, sorted by start ascending — order
 // matters because the pipeline's split+concat assumes monotonically increasing
 // boundaries.

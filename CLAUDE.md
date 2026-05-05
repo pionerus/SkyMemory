@@ -1,6 +1,6 @@
 # Skydive Memory — project memory for Claude
 
-> Read this first. Updated 2026-05-02.
+> Read this first. Updated 2026-05-03.
 >
 > **Canonical roadmap lives in `~/.claude/plans/skydive-memory-master-plan.md`.**
 > When this file disagrees with the master plan, the master plan wins.
@@ -9,10 +9,11 @@
 ## What this is
 
 Multi-tenant SaaS for tandem-skydive operators ("clubs"). Camera operators
-film 7 canonical segments (intro / interview_pre / walk / interview_plane
-/ freefall / landing / closing), the studio app auto-edits them with
-music + sidechain ducking + watermark + intro/outro, and delivers up to
-6 video deliverables + photos to the jumper via a `/watch/<access_code>`
+film **5 canonical segments** (interview_pre / walk / interview_plane /
+freefall / landing — intro/closing are now sourced from the club admin's
+branding bundle, not operator-uploaded). The studio app auto-edits them
+with music + sidechain ducking + watermark + intro/outro and delivers up
+to 4 video deliverables + photo pack to the jumper via a `/watch/<access_code>`
 portal.
 
 Brand: **Skydive Memory** (was "Freefall" — repo + binaries kept the old
@@ -104,9 +105,9 @@ S3 buckets:
 
 server.exe creates the buckets on boot (idempotent HeadBucket → CreateBucket).
 
-## Schema state — Postgres v5 / Studio SQLite v6
+## Schema state — Postgres v7 / Studio SQLite v7
 
-**Cloud Postgres** at v5:
+**Cloud Postgres** at v7:
 
 - **0001_init**: tenants (`video_price_cents`, `photo_pack_price_cents`,
   `end_customer_photo_price_cents`, `is_free_forever`, `flowtark_client_id`,
@@ -128,17 +129,28 @@ server.exe creates the buckets on boot (idempotent HeadBucket → CreateBucket).
 - **0005_assign_operator**: `clients` extended with `assigned_operator_id`
   (FK → operators ON DELETE SET NULL) + partial index. Powers the
   "club admin assigns client to operator" workflow.
+- **0006_client_status**: `jumps.download_clicked_at TIMESTAMPTZ` +
+  view `v_client_status` projecting the canonical 5-step lifecycle
+  per client: `new → assigned → in_progress → sent → downloaded`.
+  Powers status pills across admin/clients, operator/clients,
+  studio Today queue.
+- **0007_reel_kinds**: extends `jump_artifacts.kind` CHECK to include
+  `wow_highlights` (pure-freefall short reel). Existing kinds remain:
+  `horizontal_1080p`, `horizontal_4k`, `vertical`, `wow_highlights`,
+  `photo`, `screenshot`.
 
-`jump_artifacts.kind` enum supports up to 6 video deliverables per jump:
-`video_main`, `video_instagram`, `video_wow_highlights`, `video_plane_exit`,
-`video_freefall`, `video_operator_flyby`. Pipeline currently emits
-`horizontal_1080p` only — multi-deliverable is Phase 5 in the master plan.
+`jump_artifacts.kind` enum (post-0007): `horizontal_1080p`, `horizontal_4k`,
+`vertical` (Insta 9:16 reel), `wow_highlights` (freefall-only highlight reel),
+`photo`, `screenshot`. Pipeline now emits all 4 video kinds + photo pack
+when the project has the corresponding output flags.
 
-**Studio SQLite** at v6 (auto-migrated on Open at
+**Studio SQLite** at v7 (auto-migrated on Open at
 `~/.freefall-studio/state.db`):
 
 - v1 projects, v2 clips, v3 clip trim columns, v4 projects music columns,
-  v5 generations, v6 `clip_cuts` (CUT / exclude feature).
+  v5 generations, v6 `clip_cuts` (CUT / exclude feature),
+  v7 `clips.speech_start_seconds` (post-action interview marker for
+  hybrid silence/source audio in landing clips).
 
 ## Auth model (UPDATED 2026-05-02 — license tokens deprecated)
 
@@ -236,7 +248,7 @@ incognito** to view simultaneously.
    - `/platform/jumps` cross-tenant list for super admin
    - `/watch/<access_code>` for the jumper (24h presigned URL)
 
-## What's built (current state — 2026-05-02)
+## What's built (current state — 2026-05-03)
 
 ### Phase 0 — baseline pipeline (DONE)
 QSV-or-libx264 single-pass with xfade + acrossfade between clips,
@@ -276,17 +288,127 @@ Old single page is now a 302 to `/clips`.
   ffmpeg pass. Conditional pix_fmt and `-fps_mode cfr` for QSV stability.
 - 6.5: studio `internal/studio/branding` cache with ETag invalidation.
 
-### Phase 7 — cloud delivery + watch page (PARTIAL)
+### Phase 7 — cloud delivery + watch page (MOSTLY DONE)
 - 7.1 DONE: studio uploads outputs to S3 after render. Two-step flow:
   `POST /api/v1/jumps/{id}/artifacts/upload-url` → presigned PUT →
   `POST /api/v1/jumps/{id}/artifacts` registers the row.
 - 7.4 DONE: public `/watch/<access_code>` page (1:1 with WatchDesktop
-  / WatchMobile design). 24h presigned video URL, watch link
-  responsive, photo pack + Reel + WOW deliverable cards stubbed for
-  later phases.
+  / WatchMobile design). 24h presigned video URL, watch link responsive.
+- 7.6 DONE (Phase 5.5): photo grid section with 4-col → 2-col mobile,
+  click → native browser image viewer. Reel + WOW download cards
+  flip from "Coming soon" stubs to live cards when artifacts exist.
+  Watch handler runs ONE `WHERE kind IN (...)` query for all
+  artifacts, presigns each, caps photos at 20.
 - 7.7 DONE: watch_events fire-and-forget logging on every page hit.
-- 7.2 / 7.3 / 7.5 / 7.6 NOT YET: photo extraction, operator DSLR
-  uploads, deliverable picker, photo grid + lightbox.
+- 7.2 / 7.3 / 7.5 NOT YET: photo extraction from operator DSLR uploads
+  (operator currently can only flag the slot; auto-extraction from
+  freefall video already shipped via Phase 5 photo pack), deliverable
+  picker overlay, watermarked-preview-vs-paid-original flow.
+
+### Phase 5 — multi-deliverable pipeline + photo pack (DONE 2026-05-03)
+- **Insta vertical reel** (`internal/studio/pipeline/runner_reel.go`):
+  centre-cropped 9:16 multi-cut from walk + plane + freefall + landing.
+  ~30 s, music-only audio, watermark on. Saved as `output_vertical.mp4`,
+  uploaded as `kind='vertical'`.
+- **WOW reel**: pure freefall 16:9, 4–6 sub-clips around exit + scene-
+  anchored body cuts + canopy-open. Saved as `output_wow.mp4`,
+  uploaded as `kind='wow_highlights'`.
+- **Photo pack** (`internal/studio/highlights/photopack.go`): 20
+  timestamps planned across walk/plane/freefall/canopy/landing with
+  3-candidate sharpness picking (pure-Go Laplacian variance,
+  `sharpness.go`). Falls back to operator's trim window for freefall
+  body shots when RMS exit detection fails — always emits ≥16 photos
+  on a typical clip set.
+- **Highlights detection** (`internal/studio/highlights`):
+  `FindExitMoment` + `FindCanopyOpenMoment` fuse `ffmpeg.AudioRMS`
+  + `ffmpeg.SceneChanges` (scdet). Cascading fallback: detected
+  anchors → operator trim window → whole clip.
+- All three deliverables run in the SAME goroutine after the main
+  1080p edit completes. Sequential (one QSV/CPU = no parallelism win).
+  Total ~7–9 min for a full set including photos. Generate flags:
+  `OutputVertical=true` triggers Insta + WOW; `OutputPhotos=true`
+  triggers photo pack.
+
+### Phase 4.x — auto-trim refresh (DONE 2026-05-03)
+- **Auto-trim runs on upload** synchronously in `cmd/studio/main.go`
+  upload handler — operator no longer has to click "Auto-trim".
+  Page reload after upload picks up persisted trim values from DB.
+  Operator opt-out via Settings modal: localStorage `studio.autoTrimOnUpload`
+  → `X-Auto-Trim: 0` header on upload XHR → server skips heuristic.
+- **Per-kind heuristics** (`internal/studio/trim/auto.go`):
+  - Interview pre/plane: `silencedetect -30dB d=0.3` + 0.5 s pads,
+    no max cap (was over-cutting).
+  - Freefall: longest sustained-loud RMS window, adaptive threshold
+    (median + 12 dB). Falls back to "keep full clip" when no window
+    found (safer than the old skip-2/take-30 positional cut).
+  - Landing: impact spike (RMS > –20 dB after ≥1 s of < –30 dB) →
+    trim_in = spike – 1 s; smart trim_out via silencedetect on tail
+    (last phrase + 1 s pad, fallback to clip end). **Auto-places
+    speech-start marker** so pipeline ducks music under the
+    post-landing interview without operator action.
+- **`Suggestion.SpeechStart`** — new field on the auto-trim result.
+  Currently only landing's smart heuristic sets it; manual marker
+  via the Mark-speech-start button still works through its own
+  endpoint.
+- **Auto-save trim before Generate**: capture-phase JS click handler
+  on `a[href*="/generate"]` walks all `.slot.has-file` rows, PUTs any
+  whose live trim values differ from `data-trim-in`/`data-trim-out`,
+  then navigates. Forgotten Save no longer loses dragged thumbs.
+
+### Phase 5.5 — watch page surface for reels + photos (DONE 2026-05-03)
+- `internal/jump/artifacts.go` `allowedArtifactKinds` extended with
+  `wow_highlights` (mirrors migration 0007's CHECK).
+- `internal/watch/handlers.go` `PageData` extended with
+  `VerticalReelURL`, `WOWReelURL`, `Photos []Photo` — single
+  `WHERE kind IN (...)` query, 24 h presign per artifact, photo
+  cap = 20.
+- `web/server/templates/watch.html` — "Coming soon" stubs for Reel
+  and WOW now flip to live download cards via `{{if .VerticalReelURL}}`
+  / `{{if .WOWReelURL}}`. New `.wt-photo-grid-section` between the
+  pack CTA and share row, 4-col desktop → 2-col mobile.
+- Lightbox V1 = `<a target="_blank">` opens presigned URL in new tab,
+  native image viewer handles zoom/save. Full JS lightbox deferred.
+
+### Phase 6 — branding + pipeline overlay (DONE)
+- 6.1 + 6.2: `/admin/branding` real UI. Per-tenant `freefall-branding`
+  bucket, watermark PNG + intro / outro mp4 upload + size / opacity /
+  position config (`internal/branding`).
+- 6.3 + 6.4: pipeline overlay watermark + intro / outro concat in one
+  ffmpeg pass. Conditional pix_fmt and `-fps_mode cfr` for QSV stability.
+- 6.5: studio `internal/studio/branding` cache with ETag invalidation.
+- **Operator clip board no longer has intro/closing slots** — `KindIntro`
+  and `KindClosing` are legacy constants (kept for backward compat),
+  removed from `CanonicalKinds()`. Pipeline filters legacy intro/
+  closing clips out of `ListClips` so old projects don't double-render
+  them alongside the branding bumpers.
+
+### Trim rail unified design (DONE 2026-05-03)
+- Single 36 px-tall track with two yellow IN/OUT thumbs (was two
+  separate `<input type=range>` rows). Cuts overlay the SAME track
+  as red striped boxes — drag body to move, drag L/R handles to
+  resize. Click empty area → new 1.5 s cut (POST `/cuts`).
+- Speech-start marker as a green vertical line on the same track,
+  draggable. Auto-placed by landing heuristic; manual via "Mark
+  speech start" button. Persists via PUT `/clips/{kind}/speech-start`.
+- Live cursor reflects video.currentTime during play / drag-scrub.
+- New cloud endpoint `PUT /cuts/{id}` for resize (reuses existing
+  POST/DELETE).
+
+### 5-step lifecycle status (DONE 2026-05-03)
+Migration 0006 added `v_client_status` view + `jumps.download_clicked_at`.
+Status pills replace the old internal-jump-status mix everywhere:
+
+| Status | When |
+|---|---|
+| `new` | Client row exists, no operator |
+| `assigned` | Operator assigned, no jump yet |
+| `in_progress` | Jump created (operator hit Start project) |
+| `sent` | Deliverables email went out |
+| `downloaded` | Client clicked Download on `/watch/<code>` |
+
+Endpoint `POST /watch/{code}/download` stamps `download_clicked_at`
+on first click via `sendBeacon`. Studio dashboard, admin/clients,
+operator/clients all read `v_client_status.status`.
 
 ### Phase 10.2 — super-admin clubs CRUD (DONE)
 - E1: `/platform/clubs` list with KPI strip + cross-tenant aggregations.
@@ -363,20 +485,30 @@ per operator. Owners can't self-delete. JSON sidecar at
 ## What's left (priority order)
 
 ### Critical for alpha
-1. **Phase 5 — multi-deliverable pipeline** (4-5 sessions). Currently
-   only `horizontal_1080p` is produced. Need `vertical_1080`, `instagram_reel`,
-   `wow_highlights`, `freefall_only`, `plane_exit`, `operator_flyby`.
-2. **Phase 7 polish** — photo extraction (15 freefall keyframes via
-   `ffmpeg -ss N -frames:v 1`), operator DSLR uploads, photo-grid
-   lightbox on watch page, watermarked previews for unpaid clients.
+1. **Phase 5.6 follow-ups** (small):
+   - Energy-aware music auto-pick for reels (don't reuse main-edit
+     track). Needs `music_tracks.energy_score` column or RMS probe of
+     the track itself.
+   - Per-deliverable `watch_events` (currently all clicks go in
+     `artifact_kind='horizontal_1080p'`). Needed for platform-admin
+     analytics breakdown.
+   - Photo dedupe `original` vs `preview` via `DISTINCT ON (s3_key)`
+     when both variants exist.
+   - Manual exit-mark fallback — operator click-to-mark exit moment
+     when RMS detection fails (currently the trim-window fallback
+     covers this passively).
+2. **Phase 7 polish** — operator DSLR photo uploads (currently only
+   the auto-extracted freefall stills work), watermarked previews
+   for unpaid clients, deliverable picker overlay.
 3. **Phase 8 — SEPA + photo pack purchase** (3 sessions). GoCardless
    vs Stripe SEPA research, IBAN mandate flow, photo-pack checkout.
 4. **Phase 13 — email send post-render** (1-2 sessions). Resend
    integration, magic-link `/me/<token>` cross-jump access.
 
 ### Important for production
-5. **Phase 9.x — operator portal real impl**. `/operator/dashboard`,
-   `/operator/storage` (Drive/Dropbox/OneDrive OAuth + S3-compat config).
+5. **Phase 9.x — operator portal storage**. `/operator/storage`
+   (Drive/Dropbox/OneDrive OAuth + S3-compat config). Operator
+   dashboard already real (KPI strip + Today queue + recent jumps).
 6. **Phase 11 — club admin extensions**. Real dashboard "Recent jumps"
    query (currently returns 0). `/admin/storage` page. SEPA UI.
 7. **Phase 12 — billing aggregation**. Cross-tenant MRR roll-up,
@@ -384,16 +516,19 @@ per operator. Owners can't self-delete. JSON sidecar at
    split per club.
 
 ### Cleanup (Phase 14 backlog)
-8. **Drop license_tokens** — migration 0006 dropping the table,
+8. **Drop license_tokens** — migration dropping the table,
    removing `internal/studio/license` package, `/admin/license-tokens`
    routes, `/api/v1/license/validate` endpoint, `admin_tokens.html`
    template.
 9. **Dashboard real queries** — club-admin `/` and platform-admin
-   `/platform/` currently show zeros for stats. Wire to real
-   aggregations.
+   `/platform/` still show zeros for some stats. Wire to real
+   aggregations (operator portal `/operator/` is now real).
 10. **Phase 4.2 full MSE/WebCodecs preview** — current single-`<video>`
     sequencer works but has visible white-frame between clips. Real
     seamless preview needs MediaSource Extensions or WebCodecs.
+11. **Photo lightbox** — V1 uses native browser image viewer via
+    `target="_blank"`. Upgrade to in-page lightbox with zoom/swipe
+    if user feedback demands.
 
 ### Production deploy
 11. **Phase 14 — production deploy**. Caddy + TLS on Hetzner Cloud.
@@ -418,21 +553,36 @@ Single-pass per generation. The render produces the main timeline with
 optional intro / outro concat and watermark overlay in one ffmpeg call:
 
 - **Stage A** trim+normalise: per-clip → 1920×1080 30fps H.264 + AAC
-  stereo 48k. Action kinds (intro/walk/freefall/landing/closing/custom)
-  get their audio replaced by `anullsrc` silence. Interview kinds keep
-  speech. CUT zones split into segments and concatenated.
+  stereo 48k. Three audio modes per clip:
+  - `modeSource` (interview kinds with audio): keep source via
+    `writeClipAudioChainFromSource`.
+  - `modeSilence` (action kinds, default): per-clip `anullsrc` lavfi
+    of length `effDur`.
+  - `modeHybrid` (action kind with operator-set `speech_start_seconds`,
+    typical: landing): `writeClipAudioChainHybrid` splits each
+    keep-segment at the marker — silence atrim'd from anullsrc before,
+    source atrim'd from clip after — concat'd in the right order.
+  CUT zones split into keep-segments and concatenated.
 - **Stage B** crossfades: one ffmpeg with N inputs + filter_complex
   `xfade` (video) + `acrossfade` (audio), 0.5s default crossfade,
   shrunk to `clip_duration/3` for short clips.
 - **Stage C** watermark + intro/outro: optional `[wm][mainV]overlay`
   with brand-defined position; intro/outro normalised through the same
-  Stage A chain and concatenated.
+  Stage A chain and concatenated. Watermark goes on main timeline ONLY
+  (intro/outro stay clean — bumpers carry their own branding).
 - **Stage D** music mix (skipped if `music_track_id=0`): looped, faded
   in 1s, pre-attenuated 0.7×; sidechain compressor with project audio
-  as the duck driver; 1s afade-out.
+  as the duck driver (now also includes the hybrid landing tail).
 - **Stage E** stat → `status='done'` + `output_path` + `output_size`.
-- **Stage F** (post-render): upload to cloud + register
-  `jump_artifacts` row + flip `jumps.status = ready`.
+- **Stage F** (post-render): upload `horizontal_1080p` to cloud +
+  register `jump_artifacts` row + flip `jumps.status = ready`.
+- **Stage G** (Phase 5 deliverables, `runner_reel.go` +
+  `highlights.PlanPhotoPack` / `ExtractPhotoPack`): if
+  `OutputVertical=true` → render Insta vertical reel + WOW reel via
+  multi-input + xfade + watermark + music-only audio, upload as
+  `vertical` and `wow_highlights`. If `OutputPhotos=true` → extract
+  20 frames at picker timestamps with 3-candidate sharpness scoring,
+  upload each as `kind='photo'`.
 
 QSV reality on this dev box: Intel UHD 620 iGPU. `h264_qsv` with
 `-low_power 1` crashed with "Invalid FrameType:0" — disabled. Default

@@ -21,7 +21,24 @@ type Generation struct {
 	Error       string
 	StartedAt   time.Time
 	FinishedAt  *time.Time
+	// Phase 5 deliverables — '' | 'rendering' | 'ready' | 'skipped' | 'failed'.
+	Phase5Insta  string
+	Phase5WOW    string
+	Phase5Photos string
+	// 0..100 progress; only meaningful while status is 'rendering'. UI uses
+	// these to drive a thin progress bar per deliverable.
+	Phase5InstaPct  int
+	Phase5WOWPct    int
+	Phase5PhotosPct int
 }
+
+// Phase 5 status values.
+const (
+	Phase5StatusRendering = "rendering"
+	Phase5StatusReady     = "ready"
+	Phase5StatusSkipped   = "skipped"
+	Phase5StatusFailed    = "failed"
+)
 
 // Status enum constants — keep in sync with the CHECK in schema v5 (none yet,
 // but the pipeline only ever writes these).
@@ -49,13 +66,19 @@ func (db *DB) CreateGeneration(ctx context.Context, projectID int64) (int64, err
 // UpdateGeneration patches one or more fields on a generation row. Use the
 // helper Patch types so callers can send only what changed.
 type GenerationPatch struct {
-	Status      *string
-	ProgressPct *int
-	StepLabel   *string
-	OutputPath  *string
-	OutputSize  *int64
-	Error       *string
-	Finish      bool // when true, sets finished_at = now()
+	Status          *string
+	ProgressPct     *int
+	StepLabel       *string
+	OutputPath      *string
+	OutputSize      *int64
+	Error           *string
+	Phase5Insta     *string
+	Phase5WOW       *string
+	Phase5Photos    *string
+	Phase5InstaPct  *int
+	Phase5WOWPct    *int
+	Phase5PhotosPct *int
+	Finish          bool // when true, sets finished_at = now()
 }
 
 func (db *DB) UpdateGeneration(ctx context.Context, id int64, p GenerationPatch) error {
@@ -70,12 +93,18 @@ func (db *DB) UpdateGeneration(ctx context.Context, id int64, p GenerationPatch)
 		args = append(args, v)
 		first = false
 	}
-	if p.Status != nil      { add("status",       *p.Status) }
-	if p.ProgressPct != nil { add("progress_pct", *p.ProgressPct) }
-	if p.StepLabel != nil   { add("step_label",   *p.StepLabel) }
-	if p.OutputPath != nil  { add("output_path",  *p.OutputPath) }
-	if p.OutputSize != nil  { add("output_size",  *p.OutputSize) }
-	if p.Error != nil       { add("error",        *p.Error) }
+	if p.Status != nil       { add("status",        *p.Status) }
+	if p.ProgressPct != nil  { add("progress_pct",  *p.ProgressPct) }
+	if p.StepLabel != nil    { add("step_label",    *p.StepLabel) }
+	if p.OutputPath != nil   { add("output_path",   *p.OutputPath) }
+	if p.OutputSize != nil   { add("output_size",   *p.OutputSize) }
+	if p.Error != nil        { add("error",         *p.Error) }
+	if p.Phase5Insta != nil     { add("phase5_insta",      *p.Phase5Insta) }
+	if p.Phase5WOW != nil       { add("phase5_wow",        *p.Phase5WOW) }
+	if p.Phase5Photos != nil    { add("phase5_photos",     *p.Phase5Photos) }
+	if p.Phase5InstaPct != nil  { add("phase5_insta_pct",  *p.Phase5InstaPct) }
+	if p.Phase5WOWPct != nil    { add("phase5_wow_pct",    *p.Phase5WOWPct) }
+	if p.Phase5PhotosPct != nil { add("phase5_photos_pct", *p.Phase5PhotosPct) }
 	if p.Finish {
 		add("finished_at", time.Now().UTC().Format("2006-01-02T15:04:05.000Z"))
 	}
@@ -122,7 +151,9 @@ func (db *DB) GetLatestGeneration(ctx context.Context, projectID int64) (*Genera
 	err := db.QueryRowContext(ctx, `
 		SELECT id, project_id, status, progress_pct,
 		       step_label, output_path, output_size, error,
-		       started_at, finished_at
+		       started_at, finished_at,
+		       phase5_insta, phase5_wow, phase5_photos,
+		       phase5_insta_pct, phase5_wow_pct, phase5_photos_pct
 		FROM generations
 		WHERE project_id = ?
 		ORDER BY started_at DESC, id DESC
@@ -130,6 +161,8 @@ func (db *DB) GetLatestGeneration(ctx context.Context, projectID int64) (*Genera
 	).Scan(&g.ID, &g.ProjectID, &g.Status, &g.ProgressPct,
 		&stepLabel, &outputPath, &outputSize, &errStr,
 		&started, &finished,
+		&g.Phase5Insta, &g.Phase5WOW, &g.Phase5Photos,
+		&g.Phase5InstaPct, &g.Phase5WOWPct, &g.Phase5PhotosPct,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

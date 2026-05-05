@@ -42,7 +42,7 @@
   .step.is-current .dot {
     background: var(--sm-brand);
     border-color: var(--sm-brand);
-    color: var(--sm-bg);
+    color: #0B0E14;
     font-weight: 600;
   }
   .step.is-current { color: var(--sm-text); }
@@ -132,7 +132,7 @@
 
 <div class="topbar">
   <span class="sm-tile" style="width:36px;height:36px;border-radius:10px;box-shadow:none">
-    <span class="sm-mark" style="width:24px;color:var(--sm-bg)"></span>
+    <span class="sm-mark" style="width:24px;color:#0B0E14"></span>
   </span>
   <div>
     <h1>{{.P.ClientName}}</h1>
@@ -201,6 +201,47 @@
     </div>
     <pre id="log-pane" style="display:none;margin-top:10px;max-height:340px;overflow:auto;background:var(--sm-surface-2);border:1px solid var(--sm-border);border-radius:8px;padding:14px;font-size:11px;font-family:var(--sm-mono,monospace);line-height:1.45;white-space:pre-wrap;color:var(--sm-text-muted)"></pre>
 
+    <!-- Deliverables status: appears once Generate has been clicked. Each
+         row is "name · status pill · progress bar". Bar fills as ffmpeg
+         reports progress (live for reels, per-pick for photos). -->
+    <style>
+      .del-grid { display:grid; grid-template-columns: 1fr 88px; gap:6px 12px; align-items:center; font-size:13px; }
+      .del-row-name { display:flex; flex-direction:column; gap:2px; min-width:0; }
+      .del-row-progress { height: 4px; background: var(--sm-surface-3, #1a1f29); border-radius: 999px; overflow: hidden; }
+      .del-row-progress > div { height: 100%; width: 0%; background: var(--sm-brand-hi); transition: width 250ms ease-out, background 200ms; border-radius:999px; }
+      .del-row-progress > div.is-ready  { background: var(--sm-success); width: 100% !important; }
+      .del-row-progress > div.is-failed { background: var(--sm-danger, #ff6b6b); }
+      .del-row-progress > div.is-skipped { background: var(--sm-text-dim); width: 100% !important; opacity: .35; }
+    </style>
+    <div id="gen-deliverables" style="display:none;margin-top:14px;border:1px solid var(--sm-border);border-radius:10px;padding:14px 16px;background:var(--sm-surface-2)">
+      <div style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">Deliverables</div>
+      <div class="del-grid">
+        <div class="del-row-name">
+          <span>Full edit · 1080p</span>
+          <div class="del-row-progress"><div data-bar="main"></div></div>
+        </div>
+        <span class="del-pill" data-deliverable="main" style="font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--sm-border);color:var(--sm-text-dim);text-align:center">pending</span>
+
+        <div class="del-row-name" data-row="insta">
+          <span>Reel · Instagram <span style="color:var(--sm-text-dim);font-size:11px">9:16</span></span>
+          <div class="del-row-progress"><div data-bar="insta"></div></div>
+        </div>
+        <span class="del-pill" data-deliverable="insta" data-row="insta" style="font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--sm-border);color:var(--sm-text-dim);text-align:center">pending</span>
+
+        <div class="del-row-name" data-row="wow">
+          <span>WOW · freefall <span style="color:var(--sm-text-dim);font-size:11px">16:9</span></span>
+          <div class="del-row-progress"><div data-bar="wow"></div></div>
+        </div>
+        <span class="del-pill" data-deliverable="wow" data-row="wow" style="font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--sm-border);color:var(--sm-text-dim);text-align:center">pending</span>
+
+        <div class="del-row-name" data-row="photos">
+          <span>Photos · freefall stills</span>
+          <div class="del-row-progress"><div data-bar="photos"></div></div>
+        </div>
+        <span class="del-pill" data-deliverable="photos" data-row="photos" style="font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid var(--sm-border);color:var(--sm-text-dim);text-align:center">pending</span>
+      </div>
+    </div>
+
     <div class="gen-result">
       <video id="gen-output-video" controls></video>
       <div class="actions">
@@ -241,9 +282,98 @@ const watchEl     = document.getElementById('gen-watch');
 let activeGenID = null;
 let pollTimer   = null;
 
+// Phase 5 pill colours per status. Maps to inline styles on .del-pill spans.
+const DELIVERABLE_STYLE = {
+  pending:   { bg:'transparent',                color:'var(--sm-text-dim)',  border:'var(--sm-border)' },
+  rendering: { bg:'rgba(255,200,61,.12)',       color:'var(--sm-brand-hi)',  border:'var(--sm-brand-hi)' },
+  ready:     { bg:'rgba(46,213,115,.14)',       color:'var(--sm-success)',   border:'var(--sm-success)' },
+  skipped:   { bg:'transparent',                color:'var(--sm-text-dim)',  border:'var(--sm-border)' },
+  failed:    { bg:'rgba(255,107,107,.14)',      color:'var(--sm-danger,#ff6b6b)', border:'var(--sm-danger,#ff6b6b)' },
+};
+
+function setPill(name, status) {
+  const el = document.querySelector('.del-pill[data-deliverable="'+name+'"]');
+  if (!el) return;
+  const s = DELIVERABLE_STYLE[status] || DELIVERABLE_STYLE.pending;
+  el.textContent = status;
+  el.style.background = s.bg;
+  el.style.color = s.color;
+  el.style.borderColor = s.border;
+}
+
+function setBar(name, pct, status) {
+  const el = document.querySelector('[data-bar="'+name+'"]');
+  if (!el) return;
+  el.classList.remove('is-ready', 'is-failed', 'is-skipped');
+  if (status === 'ready') {
+    el.classList.add('is-ready');
+    el.style.width = '100%';
+    return;
+  }
+  if (status === 'skipped') {
+    el.classList.add('is-skipped');
+    return;
+  }
+  if (status === 'failed') {
+    el.classList.add('is-failed');
+    el.style.width = (pct || 0) + '%';
+    return;
+  }
+  // pending / rendering — animate the yellow bar from 0 → pct.
+  el.style.width = (pct || 0) + '%';
+}
+
+// Hide rows the operator opted out of so the panel doesn't show "pending"
+// pills that will never advance.
+function applyDeliverableRows(g) {
+  const showInsta  = g.output_vertical;
+  const showWow    = g.output_vertical;
+  const showPhotos = g.output_photos;
+  document.querySelectorAll('[data-row="insta"]').forEach(e => e.style.display = showInsta ? '' : 'none');
+  document.querySelectorAll('[data-row="wow"]').forEach(e => e.style.display = showWow ? '' : 'none');
+  document.querySelectorAll('[data-row="photos"]').forEach(e => e.style.display = showPhotos ? '' : 'none');
+}
+
+function paintDeliverables(g) {
+  const panel = document.getElementById('gen-deliverables');
+  panel.style.display = '';
+  applyDeliverableRows(g);
+
+  // Main pill follows gen.status. 'queued'/'trimming'/'concating' = rendering;
+  // 'done' = ready; 'failed' = failed. Once main flips ready, phase5 pills
+  // start moving on their own as the goroutine proceeds.
+  let mainStatus = 'pending';
+  if (g.status === 'failed')      mainStatus = 'failed';
+  else if (g.status === 'done')   mainStatus = 'ready';
+  else if (g.status === 'queued') mainStatus = 'pending';
+  else                            mainStatus = 'rendering';
+  setPill('main', mainStatus);
+  setBar('main', g.progress_pct || 0, mainStatus);
+
+  const instaStatus  = g.phase5_insta  || (mainStatus === 'ready' ? 'rendering' : 'pending');
+  const wowStatus    = g.phase5_wow    || (mainStatus === 'ready' ? 'rendering' : 'pending');
+  const photosStatus = g.phase5_photos || (mainStatus === 'ready' ? 'rendering' : 'pending');
+  setPill('insta',  instaStatus);
+  setPill('wow',    wowStatus);
+  setPill('photos', photosStatus);
+  setBar('insta',  g.phase5_insta_pct  || 0, instaStatus);
+  setBar('wow',    g.phase5_wow_pct    || 0, wowStatus);
+  setBar('photos', g.phase5_photos_pct || 0, photosStatus);
+}
+
+function phase5AllSettled(g) {
+  const terminal = s => s === 'ready' || s === 'skipped' || s === 'failed';
+  const checks = [];
+  if (g.output_vertical) { checks.push(g.phase5_insta, g.phase5_wow); }
+  if (g.output_photos)   { checks.push(g.phase5_photos); }
+  if (checks.length === 0) return true; // nothing was requested
+  return checks.every(terminal);
+}
+
 function paint(g) {
   if (!g) return;
   activeGenID = g.id || activeGenID;
+  paintDeliverables(g);
   if (g.status === 'failed') {
     errEl.textContent = g.error || 'Generation failed without an error message — check studio log.';
     errEl.classList.add('show');
@@ -262,10 +392,17 @@ function paint(g) {
     stepEl.classList.remove('show');
     cancelBtn.style.display = 'none';
     generateBtn.style.display = 'none';
-    const url = '/projects/' + PROJECT_ID + '/output/1080p?t=' + Date.now();
-    videoEl.src = url;
-    downloadEl.href = url;
-    watchEl.href = CLOUD_BASE + '/watch/' + ACCESS_CODE;
+    // Set the video src ONCE per generation. Without this guard the polling
+    // loop reassigns src every 1.5s, which forces the <video> to reload
+    // from scratch — visible to the operator as a constant restart while
+    // phase 5 deliverables are still rendering.
+    if (videoEl.dataset.loadedGenId !== String(g.id)) {
+      const url = '/projects/' + PROJECT_ID + '/output/1080p?t=' + Date.now();
+      videoEl.src = url;
+      videoEl.dataset.loadedGenId = String(g.id);
+      downloadEl.href = url;
+      watchEl.href = CLOUD_BASE + '/watch/' + ACCESS_CODE;
+    }
     resultEl.classList.add('show');
     return;
   }
@@ -286,8 +423,12 @@ function startPolling() {
       const res = await fetch('/projects/' + PROJECT_ID + '/generations');
       if (!res.ok) return;
       const body = await res.json();
-      paint(body.generation);
-      if (body.generation && (body.generation.status === 'done' || body.generation.status === 'failed')) {
+      const g = body.generation;
+      paint(g);
+      // Stop polling once main is settled AND every requested phase5
+      // deliverable reached a terminal state. Without this we'd stop the
+      // moment main flips 'done' and miss the reel/photo status updates.
+      if (g && (g.status === 'failed' || (g.status === 'done' && phase5AllSettled(g)))) {
         stopPolling();
       }
     } catch (e) {}

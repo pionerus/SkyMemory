@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pionerus/freefall/internal/auth"
+	"github.com/pionerus/freefall/internal/billing"
 	"github.com/pionerus/freefall/internal/db"
 )
 
@@ -152,13 +153,10 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tenant chrome (matches adminPageData() in cmd/server).
-	var (
-		tenantName    string
-		isFreeForever bool
-	)
+	var tenantName string
 	_ = h.DB.QueryRow(ctx,
-		`SELECT name, is_free_forever FROM tenants WHERE id = $1`, s.TenantID,
-	).Scan(&tenantName, &isFreeForever)
+		`SELECT name FROM tenants WHERE id = $1`, s.TenantID,
+	).Scan(&tenantName)
 	if tenantName == "" {
 		tenantName = "Tenant"
 	}
@@ -169,13 +167,21 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		s.TenantID,
 	).Scan(&unassigned)
 
+	planLbl := "€0.00 this month"
+	{
+		y, m := billing.CurrentMonth()
+		if b, berr := billing.Compute(ctx, h.DB, s.TenantID, y, m); berr == nil && b != nil {
+			planLbl = "€" + b.EuroTotal() + " this month"
+		}
+	}
+
 	data := PageData{
 		Active:                "operators-people",
 		OperatorEmail:         s.OperatorEmail,
 		OperatorRole:          s.OperatorRole,
 		TenantName:            tenantName,
 		TenantInitials:        tenantInitials(tenantName),
-		PlanLabel:             planLabel(isFreeForever),
+		PlanLabel:             planLbl,
 		Operators:             out,
 		OwnerCount:            owners,
 		OperatorCount:         operators,
@@ -375,13 +381,6 @@ func tenantInitials(name string) string {
 		return "?"
 	}
 	return string(out)
-}
-
-func planLabel(isFreeForever bool) string {
-	if isFreeForever {
-		return "Free"
-	}
-	return "Pro"
 }
 
 func writeJSONErr(w http.ResponseWriter, status int, code, msg string) {

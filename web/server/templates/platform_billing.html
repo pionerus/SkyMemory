@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Billing · Skydive Memory</title>
+<link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .super-rail-pad { padding: 28px; max-width: 1200px; }
+
+  .hero {
+    background: linear-gradient(180deg, rgba(255,200,61,.08), transparent 60%), var(--sm-surface);
+    border: 1px solid var(--sm-brand);
+    border-radius: 16px;
+    padding: 30px;
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    margin-bottom: 24px;
+  }
+  .hero .num { font-family: var(--sm-display); font-size: 48px; font-weight: 600; color: var(--sm-brand-hi); letter-spacing: -.02em; }
+  .hero .lbl { font-size: 11px; color: var(--sm-text-dim); letter-spacing: .08em; text-transform: uppercase; }
+  .hero .sub { font-size: 13px; color: var(--sm-text-muted); margin-top: 4px; }
+
+  .nav-month {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--sm-text-muted);
+  }
+  .nav-month a {
+    color: var(--sm-text-muted); text-decoration: none;
+    padding: 6px 10px; border: 1px solid var(--sm-border); border-radius: 8px;
+    background: var(--sm-surface);
+  }
+  .nav-month a:hover { color: var(--sm-text); border-color: var(--sm-border-strong); }
+  .nav-month .current { font-weight: 500; color: var(--sm-text); padding: 0 6px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
+  .stat-card { padding: 18px 20px; background: var(--sm-surface); border: 1px solid var(--sm-border); border-radius: 14px; }
+  .stat-eyebrow { font-size: 11px; color: var(--sm-text-dim); letter-spacing: .08em; text-transform: uppercase; }
+  .stat-num { font-size: 28px; font-family: var(--sm-display); font-weight: 500; margin-top: 6px; letter-spacing: -.02em; }
+  .stat-sub { font-size: 12px; color: var(--sm-text-muted); margin-top: 4px; }
+
+  .b-table { width: 100%; border-collapse: collapse; }
+  .b-table th, .b-table td {
+    padding: 12px 14px; font-size: 13px;
+    border-bottom: 1px solid var(--sm-border); text-align: left;
+  }
+  .b-table th {
+    font-size: 11px; color: var(--sm-text-dim); letter-spacing: .08em; text-transform: uppercase;
+    font-family: var(--sm-mono, monospace); font-weight: 500;
+    background: var(--sm-surface-2);
+  }
+  .b-table td.num, .b-table th.num { text-align: right; font-family: var(--sm-mono, monospace); }
+  .b-table td.club a { color: var(--sm-text); text-decoration: none; font-weight: 500; }
+  .b-table td.club a:hover { color: var(--sm-brand-hi); }
+  .b-table td.total { color: var(--sm-text); font-weight: 600; }
+  .b-table tr:hover td { background: var(--sm-surface-2); }
+  .b-table .zero { color: var(--sm-text-dim); }
+  .b-table .empty-row td { color: var(--sm-text-dim); text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+
+<div class="sm-page">
+  <aside class="super-rail">
+    <div class="head">
+      <span class="sm-tile" style="width:32px;height:32px;border-radius:8px;box-shadow:none;background:var(--sm-gradient-hero)">
+        <span class="sm-mark" style="width:22px;color:#0B0E14"></span>
+      </span>
+      <div style="min-width:0">
+        <div class="name">Skydive Memory</div>
+        <span class="role-chip role-chip--super">Super admin</span>
+      </div>
+    </div>
+    <nav>
+      <a class="nav-item" href="/platform/">Dashboard</a>
+      <a class="nav-item" href="/platform/clubs">Clubs</a>
+      <a class="nav-item" href="/platform/operators">Operators</a>
+      <a class="nav-item" href="/platform/jumps">Jumps</a>
+      <a class="nav-item" href="/platform/watch-links">Watch links</a>
+      <a class="nav-item is-active" href="/platform/billing">Billing</a>
+      <a class="nav-item" href="/platform/settings">Settings</a>
+    </nav>
+    <div style="padding:14px;border-top:1px solid var(--sm-border);display:flex;gap:10px;align-items:center">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--sm-gradient-hero);display:flex;align-items:center;justify-content:center;font-family:var(--sm-display);font-size:12px;font-weight:600;color:#0B0E14;flex-shrink:0">YS</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.AdminName}}</div>
+        <div style="font-size:11px;color:var(--sm-text-muted)">Platform admin</div>
+      </div>
+      <form method="POST" action="/platform/logout" style="margin:0">
+        <button type="submit" title="Sign out" style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;padding:4px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </form>
+    </div>
+  </aside>
+
+  <main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
+      <div style="flex:1">
+        <h1 style="font-size:20px;font-weight:500">Billing</h1>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">
+          Per-club monthly bills · €{{.GrandTotal}} total revenue this period
+        </div>
+      </div>
+      <div class="nav-month">
+        <a href="/platform/billing?year={{.PrevYear}}&month={{.PrevMonth}}" title="Previous month">←</a>
+        <span class="current">{{.MonthLabel}}</span>
+        <a href="/platform/billing?year={{.NextYear}}&month={{.NextMonth}}" title="Next month">→</a>
+      </div>
+    </header>
+
+    <div class="super-rail-pad" style="overflow:auto;flex:1">
+
+      <!-- Hero: grand total -->
+      <div class="hero">
+        <div>
+          <div class="lbl">Total · {{.MonthLabel}}</div>
+          <div class="num">€{{.GrandTotal}}</div>
+          <div class="sub">across {{len .Bills}} club{{if ne (len .Bills) 1}}s{{end}}</div>
+        </div>
+        <div style="text-align:right;font-size:12px;color:var(--sm-text-muted);max-width:280px">
+          {{.VideoCount}} video{{if ne .VideoCount 1}}s{{end}} · {{.PhotoCount}} photo pack{{if ne .PhotoCount 1}}s{{end}} delivered.<br>
+          Each club's per-unit rate is configurable on its detail page.
+        </div>
+      </div>
+
+      <!-- Sub-stat row -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-eyebrow">Active clubs</div>
+          <div class="stat-num">{{len .Bills}}</div>
+          <div class="stat-sub">billed this month</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-eyebrow">Videos delivered</div>
+          <div class="stat-num">{{.VideoCount}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-eyebrow">Photo packs</div>
+          <div class="stat-num">{{.PhotoCount}}</div>
+        </div>
+      </div>
+
+      <!-- Per-club table -->
+      <section style="background:var(--sm-surface);border:1px solid var(--sm-border);border-radius:14px;overflow:hidden">
+        <div style="padding:16px 22px;border-bottom:1px solid var(--sm-border);display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:500">By club</div>
+          <div style="font-size:11px;color:var(--sm-text-dim);font-family:var(--sm-mono)">SORT · highest total ↓</div>
+        </div>
+        <table class="b-table">
+          <thead>
+            <tr>
+              <th>Club</th>
+              <th class="num">Videos</th>
+              <th class="num">€/video</th>
+              <th class="num">Photo packs</th>
+              <th class="num">€/pack</th>
+              <th class="num">Total due</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Bills}}
+            <tr>
+              <td class="club">
+                <a href="/platform/clubs/{{.TenantID}}">{{.TenantName}}</a>
+              </td>
+              <td class="num{{if eq .VideoCount 0}} zero{{end}}">{{.VideoCount}}</td>
+              <td class="num">€{{.EuroPerVideo}}</td>
+              <td class="num{{if eq .PhotoPackCount 0}} zero{{end}}">{{.PhotoPackCount}}</td>
+              <td class="num">€{{.EuroPerPhoto}}</td>
+              <td class="num total">€{{.EuroTotal}}</td>
+            </tr>
+            {{else}}
+            <tr class="empty-row"><td colspan="6">No clubs registered.</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </section>
+
+      <div style="font-size:11px;color:var(--sm-text-dim);text-align:center;margin-top:18px">
+        Counts based on jump_artifacts.uploaded_at within the month window (UTC).
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

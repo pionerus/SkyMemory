@@ -46,3 +46,6 @@ coverage.out
 # Empty installer-staging dirs (populated at build time)
 build/ffmpeg/
 build/windows/
+
+# Installer output
+dist/

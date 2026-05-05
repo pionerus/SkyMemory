@@ -17,14 +17,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/pionerus/freefall/internal/auth"
+	"github.com/pionerus/freefall/internal/billing"
 	"github.com/pionerus/freefall/internal/branding"
 	"github.com/pionerus/freefall/internal/clients"
 	"github.com/pionerus/freefall/internal/config"
 	"github.com/pionerus/freefall/internal/db"
+	"github.com/pionerus/freefall/internal/drive"
+	"github.com/pionerus/freefall/internal/email"
 	"github.com/pionerus/freefall/internal/jump"
 	"github.com/pionerus/freefall/internal/music"
 	"github.com/pionerus/freefall/internal/operators"
 	"github.com/pionerus/freefall/internal/platform"
+	"github.com/pionerus/freefall/internal/secrets"
 	"github.com/pionerus/freefall/internal/storage"
 	"github.com/pionerus/freefall/internal/watch"
 	"github.com/pionerus/freefall/web/server/templates"
@@ -109,7 +113,6 @@ func main() {
 		log.Printf("deliverables bucket: %s @ %s", cfg.DeliverablesBucket, cfg.MusicEndpoint)
 	}
 	delivBucketCancel()
-	artifactsH := &jump.ArtifactsHandlers{DB: pool, Storage: deliverStorage}
 	watchH := &watch.Handlers{
 		DB:             pool,
 		DeliverStorage: deliverStorage,
@@ -127,6 +130,42 @@ func main() {
 	operatorsH := &operators.Handlers{
 		DB:        pool,
 		Templates: templates.Templates,
+	}
+
+	// Drive integration — loads OAuth credentials from .env. Operator UI
+	// shows a "not configured" banner if the env vars are blank.
+	driveClient := drive.New(drive.Config{
+		ClientID:     cfg.GoogleOAuthClientID,
+		ClientSecret: cfg.GoogleOAuthClientSecret,
+		RedirectURL:  cfg.GoogleOAuthRedirectURL,
+		Scopes:       drive.DefaultScopes(),
+	}, pool)
+	driveH := &drive.Handlers{
+		Client:    driveClient,
+		Templates: templates.Templates,
+	}
+	// Master key for AES-GCM. Load once at boot — rotation requires a
+	// restart, which is fine for a single-process deployment.
+	driveMasterKey, err := secrets.LoadMasterKey(ctx, pool)
+	if err != nil {
+		log.Fatalf("load drive master key: %v", err)
+	}
+	artifactsH := &jump.ArtifactsHandlers{DB: pool, Storage: deliverStorage, DriveClient: driveClient}
+
+	// Phase 13 — outbound deliverables email. SMTP host blank in dev means
+	// MailHog at localhost:51025 (default). In prod we point at smtp.resend.com.
+	emailSender := email.New(email.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+	})
+	emailH := &jump.EmailHandlers{
+		DB:        pool,
+		Sender:    emailSender,
+		Templates: templates.Templates,
+		BaseURL:   cfg.PublicBaseURL,
 	}
 
 	r := chi.NewRouter()
@@ -209,7 +248,10 @@ func main() {
 	r.With(sessions.RequireOwner).Delete("/admin/branding/outro", brandH.DeleteOutro)
 	r.With(sessions.RequireOwner).Get("/admin/clients", clientsH.List)
 	r.With(sessions.RequireOwner).Post("/admin/clients", clientsH.Create)
+	r.With(sessions.RequireOwner).Put("/admin/clients/{id}", clientsH.Update)
+	r.With(sessions.RequireOwner).Delete("/admin/clients/{id}", clientsH.Delete)
 	r.With(sessions.RequireOwner).Put("/admin/clients/{id}/assign", clientsH.Assign)
+	r.With(sessions.RequireOwner).Post("/admin/clients/import", clientsH.ImportCSV)
 
 	r.With(sessions.RequireOwner).Get("/admin/operators", operatorsH.List)
 	r.With(sessions.RequireOwner).Post("/admin/operators", operatorsH.Create)
@@ -218,9 +260,30 @@ func main() {
 
 	r.With(sessions.RequireOwner).Get("/admin/billing", func(w http.ResponseWriter, req *http.Request) {
 		s := auth.MustFromContext(req.Context())
-		data := adminPageData(req.Context(), pool, s, "billing", map[string]any{
-			"UsageCount": 0, "UsageCap": 100, "UsagePct": 0,
-		})
+		ctx := req.Context()
+
+		// Current-month bill + 12-month history so the operator can see
+		// "what we owe right now" + "trend over the year".
+		y, m := billing.CurrentMonth()
+		current, _ := billing.Compute(ctx, pool, s.TenantID, y, m)
+
+		var history []billing.Bill
+		startMonth := time.Date(y, m, 1, 0, 0, 0, 0, time.UTC).AddDate(0, -11, 0)
+		for i := 0; i < 12; i++ {
+			t := startMonth.AddDate(0, i, 0)
+			b, err := billing.Compute(ctx, pool, s.TenantID, t.Year(), t.Month())
+			if err == nil && b != nil {
+				history = append(history, *b)
+			}
+		}
+		extra := map[string]any{
+			"History": history,
+		}
+		if current != nil {
+			extra["CurrentBill"] = *current
+		}
+
+		data := adminPageData(ctx, pool, s, "billing", extra)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := templates.Templates.ExecuteTemplate(w, "admin_billing.html", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -256,6 +319,7 @@ func main() {
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs", platformH.ClubsList)
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/clubs/{id}", platformH.ClubDetail)
 	r.With(sessions.RequirePlatformAdmin).Post("/platform/clubs", platformH.CreateClub)
+	r.With(sessions.RequirePlatformAdmin).Put("/platform/clubs/{id}", platformH.UpdateClub)
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/operators", platformH.Operators)
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/jumps", platformH.Jumps)
 	r.With(sessions.RequirePlatformAdmin).Get("/platform/watch-links", platformH.WatchLinks)
@@ -274,25 +338,24 @@ func main() {
 	})
 
 	// === Operator portal (web dashboard for camera operators, in addition to studio.exe) ===
-	// Operator portal pages. /clients and /projects are real implementations
-	// (see operator_*.go below); /dashboard and /storage stay as
-	// section-specific placeholders rendered by operator_dashboard.html.
-	renderOperatorPlaceholder := func(active, title, sub string) http.HandlerFunc {
-		return func(w http.ResponseWriter, req *http.Request) {
-			s := auth.MustFromContext(req.Context())
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = templates.Templates.ExecuteTemplate(w, "operator_dashboard.html", map[string]any{
-				"Active":        active,
-				"PageTitle":     title,
-				"PageSub":       sub,
-				"OperatorEmail": s.OperatorEmail,
-				"OperatorRole":  s.OperatorRole,
-				"TenantName":    data_tenantName(req.Context(), pool, s.TenantID),
-			})
-		}
-	}
+	// /storage now ships a real Google Drive connect flow (see drive.Handlers).
+	// /dashboard, /clients, /projects are real handlers below.
+	_ = data_tenantName // keep helper available for future operator pages
 	r.With(sessions.RequireSession).Get("/operator/",         operatorDashboardHandler(pool))
-	r.With(sessions.RequireSession).Get("/operator/storage",  renderOperatorPlaceholder("storage",   "My storage",  "Personal cloud storage for clips + outputs"))
+	r.With(sessions.RequireSession).Get("/operator/storage",  driveH.Page)
+	r.With(sessions.RequireSession).Post("/operator/storage/test", func(w http.ResponseWriter, req *http.Request) {
+		driveH.Test(w, req, driveMasterKey)
+	})
+	r.With(sessions.RequireSession).Post("/operator/storage/disconnect", func(w http.ResponseWriter, req *http.Request) {
+		driveH.Disconnect(w, req, driveMasterKey)
+	})
+
+	// OAuth dance for Google Drive. Both routes are operator-scoped — the
+	// callback needs an active session to know whose row to upsert.
+	r.With(sessions.RequireSession).Get("/auth/google-drive/start", driveH.Start)
+	r.With(sessions.RequireSession).Get("/auth/google-drive/callback", func(w http.ResponseWriter, req *http.Request) {
+		driveH.Callback(w, req, driveMasterKey)
+	})
 
 	r.With(sessions.RequireSession).Get("/operator/clients",  operatorClientsHandler(pool))
 	r.With(sessions.RequireSession).Get("/operator/projects", operatorProjectsHandler(pool))
@@ -343,6 +406,15 @@ func main() {
 	r.With(sessions.RequireSession).Get("/api/v1/tenant/branding", brandH.GetForStudio)
 	r.With(sessions.RequireSession).Post("/api/v1/jumps/{id}/artifacts/upload-url", artifactsH.RequestUploadURL)
 	r.With(sessions.RequireSession).Post("/api/v1/jumps/{id}/artifacts", artifactsH.RegisterArtifact)
+	r.With(sessions.RequireSession).Get("/api/v1/jumps/{id}/drive-token", func(w http.ResponseWriter, req *http.Request) {
+		driveH.UploadToken(w, req, driveMasterKey)
+	})
+	// Phase 13 — deliverables email. /api/v1 path is for studio (auto-send
+	// after render); /admin and /operator paths are for the manual resend
+	// button. All three are session-authed and tenant-scoped.
+	r.With(sessions.RequireSession).Post("/api/v1/jumps/{id}/send-email", emailH.Send)
+	r.With(sessions.RequireOwner).Post("/admin/jumps/{id}/resend-email", emailH.Resend)
+	r.With(sessions.RequireSession).Post("/operator/jumps/{id}/resend-email", emailH.Resend)
 
 	// Public client-facing watch page. No auth — access_code is the bearer.
 	r.Get("/watch/{access_code}", watchH.Render)
@@ -701,15 +773,29 @@ func renderTemplate(name string) http.HandlerFunc {
 // adminPageData builds the data map every admin template expects via the
 // shared `admin-rail` partial: who's signed in, which tenant, which nav item
 // to highlight. Page-specific extras get merged on top.
+//
+// PlanLabel is gone — there are no plans, only per-jump rates. The rail now
+// surfaces the current month's bill amount instead, computed via the
+// billing package.
 func adminPageData(ctx context.Context, pool *db.Pool, s auth.SessionData, active string, extra map[string]any) map[string]any {
 	var name string
-	var isFreeForever bool
 	_ = pool.QueryRow(ctx,
-		`SELECT name, is_free_forever FROM tenants WHERE id = $1`,
+		`SELECT name FROM tenants WHERE id = $1`,
 		s.TenantID,
-	).Scan(&name, &isFreeForever)
+	).Scan(&name)
 	if name == "" {
 		name = "Tenant"
+	}
+
+	// Compute current-month bill — best-effort; rail still renders if billing
+	// query errors (e.g. tenant deleted but stale session). "—" sentinel keeps
+	// the layout stable when there's nothing to bill yet.
+	billLabel := "€0.00 this month"
+	{
+		y, m := billing.CurrentMonth()
+		if b, berr := billing.Compute(ctx, pool, s.TenantID, y, m); berr == nil && b != nil {
+			billLabel = "€" + b.EuroTotal() + " this month"
+		}
 	}
 
 	data := map[string]any{
@@ -718,7 +804,7 @@ func adminPageData(ctx context.Context, pool *db.Pool, s auth.SessionData, activ
 		"OperatorRole":   s.OperatorRole,
 		"TenantName":     name,
 		"TenantInitials": tenantInitials(name),
-		"PlanLabel":      planLabel(isFreeForever),
+		"PlanLabel":      billLabel, // legacy template field — now shows the bill
 	}
 	for k, v := range extra {
 		data[k] = v

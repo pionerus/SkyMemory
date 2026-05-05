@@ -315,20 +315,22 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
           {{slice .Club.Name 0 1}}
         </div>
         <div class="hero-info">
-          <div class="name-row">
-            <h2>{{.Club.Name}}</h2>
+          <div class="name-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <h2 style="margin-right:auto">{{.Club.Name}}</h2>
             {{if eq .Club.Status "active"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Active</span>
             {{else if eq .Club.Status "trial"}}<span class="sm-pill is-warn">Trial</span>
             {{else if eq .Club.Status "overdue"}}<span class="sm-pill is-danger">Overdue</span>
             {{else}}<span class="sm-pill">{{.Club.Status}}</span>{{end}}
-            {{if eq .Club.Plan "enterprise"}}<span class="sm-pill is-brand">Enterprise</span>
-            {{else if eq .Club.Plan "pro"}}<span class="sm-pill is-brand">Pro</span>
-            {{else}}<span class="sm-pill">Starter</span>{{end}}
+            <button id="openEditClub" class="sm-btn is-sm" type="button">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>
+              Edit
+            </button>
           </div>
           <div class="meta">
             {{if .Club.Flag}}<span>{{.Club.Flag}} {{.Club.Country}}</span><span>·</span>{{end}}
             <span>Joined {{.Club.JoinedAt.Format "Jan 2, 2006"}}</span>
             {{if .Club.Slug}}<span>·</span><span class="mono">/{{.Club.Slug}}</span>{{end}}
+            <span>·</span><span style="font-family:var(--sm-mono)">€{{.Club.EuroPerVideo}}/video · €{{.Club.EuroPerPhoto}}/photo pack</span>
           </div>
         </div>
         <div class="hero-stats">
@@ -336,6 +338,22 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
           <div class="stat"><div class="v">{{.Club.JumpN}}</div><div class="l">Videos</div></div>
           <div class="stat"><div class="v">{{.Club.PhotoOrderN}}</div><div class="l">Photos</div></div>
         </div>
+      </div>
+
+      <!-- This-month bill — surfaces the amount due so super admin sees
+           it without bouncing to /platform/billing. -->
+      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px;background:linear-gradient(180deg,rgba(255,200,61,.08),transparent 60%),var(--sm-surface);border-color:var(--sm-brand)">
+        <div>
+          <div style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.08em;text-transform:uppercase">{{.Bill.MonthLabel}} due</div>
+          <div style="font-family:var(--sm-display);font-size:32px;font-weight:600;color:var(--sm-brand-hi);letter-spacing:-.02em;margin-top:4px">€{{.Bill.EuroTotal}}</div>
+          <div style="font-size:12px;color:var(--sm-text-muted);margin-top:4px">
+            {{.Bill.VideoCount}} video{{if ne .Bill.VideoCount 1}}s{{end}} (€{{.Bill.EuroVideo}}) ·
+            {{.Bill.PhotoPackCount}} photo pack{{if ne .Bill.PhotoPackCount 1}}s{{end}} (€{{.Bill.EuroPhoto}})
+          </div>
+        </div>
+        <a class="sm-btn" href="/platform/billing" style="white-space:nowrap">
+          See all clubs →
+        </a>
       </div>
 
       <!-- 2-col: contacts + activity -->
@@ -442,6 +460,119 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     </div>
   </main>
 </div>
+
+<!-- ============ Edit club modal ============ -->
+<div class="modal-backdrop" id="editClubModal" style="display:none;position:fixed;inset:0;background:rgba(8,10,16,.6);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:100;align-items:center;justify-content:center;padding:20px">
+  <div style="width:100%;max-width:560px;background:var(--sm-surface);border:1px solid var(--sm-border-strong);border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:calc(100vh - 40px)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--sm-border);display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:18px;font-weight:500">Edit club</h2>
+      <button id="closeEditClub" class="sm-btn is-ghost is-sm" style="background:transparent;border:none;width:28px;height:28px;border-radius:6px;color:var(--sm-text-muted);cursor:pointer">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="editClubForm" novalidate style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+      <div style="padding:24px;display:flex;flex-direction:column;gap:14px;overflow:auto">
+        <div>
+          <label class="sm-label">Club name *</label>
+          <input class="sm-input" name="name" required maxlength="200" value="{{.Club.Name}}">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label class="sm-label">Country code (ISO-2)</label>
+            <input class="sm-input" name="country_code" maxlength="2" value="{{.Club.CountryCode}}" placeholder="EE">
+          </div>
+          <div>
+            <label class="sm-label">City</label>
+            <input class="sm-input" name="city" value="{{.Club.City}}" placeholder="Tallinn">
+          </div>
+        </div>
+        <div>
+          <label class="sm-label">Status</label>
+          <select class="sm-input" name="status" style="height:38px">
+            <option value="active"   {{if eq .Club.Status "active"}}selected{{end}}>active</option>
+            <option value="trial"    {{if eq .Club.Status "trial"}}selected{{end}}>trial</option>
+            <option value="overdue"  {{if eq .Club.Status "overdue"}}selected{{end}}>overdue</option>
+            <option value="archived" {{if eq .Club.Status "archived"}}selected{{end}}>archived</option>
+          </select>
+        </div>
+        <div style="border-top:1px solid var(--sm-border);padding-top:14px;margin-top:4px">
+          <div style="font-size:11px;color:var(--sm-text-dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Per-jump rates</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="sm-label">€ per video</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="color:var(--sm-text-muted);font-family:var(--sm-mono)">€</span>
+                <input class="sm-input" name="video_rate_euros" type="number" step="0.01" min="0" max="100" value="{{.Club.EuroPerVideo}}">
+              </div>
+            </div>
+            <div>
+              <label class="sm-label">€ per photo pack</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="color:var(--sm-text-muted);font-family:var(--sm-mono)">€</span>
+                <input class="sm-input" name="photo_rate_euros" type="number" step="0.01" min="0" max="100" value="{{.Club.EuroPerPhoto}}">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="editClubErr" style="padding:10px 14px;border-radius:10px;font-size:12px;display:none;background:rgba(255,107,122,.10);color:var(--sm-danger);border:1px solid rgba(255,107,122,.28)"></div>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid var(--sm-border);display:flex;justify-content:flex-end;gap:8px">
+        <button id="cancelEditClub" type="button" class="sm-btn">Cancel</button>
+        <button id="submitEditClub" type="submit" class="sm-btn is-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const CLUB_ID = {{.Club.ID}};
+  const modal = document.getElementById('editClubModal');
+  const open  = () => { modal.style.display = 'flex'; };
+  const close = () => { modal.style.display = 'none'; };
+  document.getElementById('openEditClub').addEventListener('click', open);
+  document.getElementById('closeEditClub').addEventListener('click', close);
+  document.getElementById('cancelEditClub').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.style.display !== 'none') close(); });
+
+  document.getElementById('editClubForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('editClubErr');
+    errEl.style.display = 'none';
+    const fd = new FormData(e.target);
+
+    // Convert euros (decimal) → cents (int) for the API.
+    const toCents = (v) => Math.round((parseFloat(v) || 0) * 100);
+    const data = {
+      name:             (fd.get('name')         || '').toString(),
+      country_code:     (fd.get('country_code') || '').toString(),
+      city:             (fd.get('city')         || '').toString(),
+      status:           (fd.get('status')       || '').toString(),
+      video_rate_cents: toCents(fd.get('video_rate_euros')),
+      photo_rate_cents: toCents(fd.get('photo_rate_euros')),
+    };
+    const btn = document.getElementById('submitEditClub');
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Saving…';
+    try {
+      const res = await fetch('/platform/clubs/' + CLUB_ID, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(data),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+      location.reload();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+})();
+</script>
 
 <script src="/static/theme-toggle.js" defer></script>
 </body>

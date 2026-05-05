@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pionerus/freefall/internal/auth"
+	"github.com/pionerus/freefall/internal/billing"
 	"github.com/pionerus/freefall/internal/db"
 	"github.com/pionerus/freefall/internal/jump"
 )
@@ -48,6 +49,7 @@ type ClientRow struct {
 	Phone          string
 	AccessCode     string
 	CreatedAt      time.Time
+	PlannedJumpAt  time.Time // scheduled jump date, zero if unset
 	LatestJumpAt   time.Time
 	LatestJumpID   int64
 	LatestStatus   string
@@ -128,6 +130,7 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			v.client_id, v.name, COALESCE(v.email, ''), COALESCE(v.phone, ''),
 			v.access_code, v.client_created_at,
+			COALESCE(v.planned_jump_at, '0001-01-01'::timestamptz),
 			COALESCE(v.jump_created_at, '0001-01-01'::timestamptz),
 			COALESCE(v.jump_id, 0),
 			v.status,
@@ -140,7 +143,7 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN jumps latest_j      ON latest_j.id  = v.jump_id
 		LEFT JOIN operators latestop  ON latestop.id  = latest_j.operator_id
 		WHERE v.tenant_id = $1
-		ORDER BY COALESCE(v.jump_created_at, v.client_created_at) DESC
+		ORDER BY COALESCE(v.planned_jump_at, v.jump_created_at, v.client_created_at) DESC
 		LIMIT 500`,
 		s.TenantID,
 	)
@@ -156,6 +159,7 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(
 			&c.ID, &c.Name, &c.Email, &c.Phone,
 			&c.AccessCode, &c.CreatedAt,
+			&c.PlannedJumpAt,
 			&c.LatestJumpAt, &c.LatestJumpID, &c.LatestStatus,
 			&c.AssignedOperatorID, &c.AssignedOperatorEmail,
 			&c.LatestJumpOperator, &c.JumpCount,
@@ -167,16 +171,22 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		clients = append(clients, c)
 	}
 
-	// Tenant + operator chrome (same shape as adminPageData() in cmd/server).
-	var (
-		tenantName   string
-		isFreeForever bool
-	)
+	// Tenant chrome (same shape as adminPageData() in cmd/server).
+	var tenantName string
 	_ = h.DB.QueryRow(ctx,
-		`SELECT name, is_free_forever FROM tenants WHERE id = $1`, s.TenantID,
-	).Scan(&tenantName, &isFreeForever)
+		`SELECT name FROM tenants WHERE id = $1`, s.TenantID,
+	).Scan(&tenantName)
 	if tenantName == "" {
 		tenantName = "Tenant"
+	}
+
+	// Rail's "PlanLabel" slot now shows current month's bill total.
+	planLbl := "€0.00 this month"
+	{
+		y, m := billing.CurrentMonth()
+		if b, berr := billing.Compute(ctx, h.DB, s.TenantID, y, m); berr == nil && b != nil {
+			planLbl = "€" + b.EuroTotal() + " this month"
+		}
 	}
 
 	data := PageData{
@@ -185,7 +195,7 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		OperatorRole:   s.OperatorRole,
 		TenantName:     tenantName,
 		TenantInitials: tenantInitials(tenantName),
-		PlanLabel:      planLabel(isFreeForever),
+		PlanLabel:      planLbl,
 		Clients:        clients,
 	}
 	for _, c := range clients {
@@ -215,12 +225,14 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 // =====================================================================
 
 // CreateRequest is the body of the "Add client" modal form. AssignedOperatorID
-// is optional — pass 0 (or omit) to leave the client unassigned.
+// is optional — pass 0 (or omit) to leave the client unassigned. PlannedJumpAt
+// is the scheduled jump date (YYYY-MM-DD or RFC3339); empty leaves it NULL.
 type CreateRequest struct {
 	Name               string `json:"name"`
 	Email              string `json:"email"`
 	Phone              string `json:"phone"`
 	AssignedOperatorID int64  `json:"assigned_operator_id"`
+	PlannedJumpAt      string `json:"planned_jump_at"`
 }
 
 // CreateResponse is the success payload returned to the modal's JS.
@@ -265,6 +277,12 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	plannedAt, perr := parseJumpDate(req.PlannedJumpAt)
+	if perr != nil {
+		writeJSONErr(w, http.StatusBadRequest, "DATE", perr.Error())
+		return
+	}
+
 	// Insert with retry on access_code collision (we generate; the unique
 	// index would reject on a clash, which is astronomically unlikely but
 	// handle it cleanly anyway).
@@ -280,10 +298,10 @@ func (h *Handlers) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = h.DB.QueryRow(ctx, `
-			INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by, assigned_operator_id)
-			VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6, NULLIF($7,0)::bigint)
+			INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by, assigned_operator_id, planned_jump_at)
+			VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6, NULLIF($7,0)::bigint, $8)
 			RETURNING id`,
-			s.TenantID, req.Name, req.Email, req.Phone, code, s.OperatorID, req.AssignedOperatorID,
+			s.TenantID, req.Name, req.Email, req.Phone, code, s.OperatorID, req.AssignedOperatorID, plannedAt,
 		).Scan(&id)
 		if err == nil {
 			break
@@ -390,13 +408,6 @@ func tenantInitials(name string) string {
 	return string(out)
 }
 
-func planLabel(isFreeForever bool) string {
-	if isFreeForever {
-		return "Free"
-	}
-	return "Pro"
-}
-
 func operatorInitials(email string) string {
 	at := strings.IndexByte(email, '@')
 	if at <= 0 {
@@ -423,6 +434,323 @@ func writeJSONErr(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "message": msg})
+}
+
+// =====================================================================
+// PUT /admin/clients/{id}   (JSON body — full edit)
+// =====================================================================
+
+// UpdateRequest covers every editable field on the row. Empty Name keeps
+// the existing value (treated as "no change") so the front-end can send
+// only the fields it actually changed.
+type UpdateRequest struct {
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	Phone              string `json:"phone"`
+	AssignedOperatorID *int64 `json:"assigned_operator_id"` // pointer = optional, 0 = unassign
+	PlannedJumpAt      string `json:"planned_jump_at"`      // empty string = clear; "skip" = leave unchanged
+	ClearPlannedJumpAt bool   `json:"clear_planned_jump_at"`
+}
+
+// Update handles PUT /admin/clients/{id}. All fields are optional; missing
+// or empty fields preserve the existing value (except for explicit clearing
+// flags). Tenant-scoped — won't touch a row that belongs to another club.
+func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+	clientID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || clientID <= 0 {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_ID", "client id required")
+		return
+	}
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Phone = strings.TrimSpace(req.Phone)
+	if req.Name == "" {
+		writeJSONErr(w, http.StatusBadRequest, "NAME", "Name is required.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Validate operator belongs to this tenant when assignment is supplied.
+	if req.AssignedOperatorID != nil && *req.AssignedOperatorID > 0 {
+		var ok bool
+		_ = h.DB.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM operators WHERE id = $1 AND tenant_id = $2)`,
+			*req.AssignedOperatorID, s.TenantID,
+		).Scan(&ok)
+		if !ok {
+			writeJSONErr(w, http.StatusBadRequest, "OPERATOR", "operator not in this club")
+			return
+		}
+	}
+
+	var plannedAt any // *time.Time | "leave unchanged" sentinel via map column
+	switch {
+	case req.ClearPlannedJumpAt:
+		plannedAt = nil
+	case req.PlannedJumpAt != "":
+		t, perr := parseJumpDate(req.PlannedJumpAt)
+		if perr != nil {
+			writeJSONErr(w, http.StatusBadRequest, "DATE", perr.Error())
+			return
+		}
+		plannedAt = t
+	default:
+		plannedAt = "__SKIP__" // sentinel — handled below
+	}
+
+	q := `
+		UPDATE clients SET
+			name  = $1,
+			email = NULLIF($2, ''),
+			phone = NULLIF($3, '')`
+	args := []any{req.Name, req.Email, req.Phone}
+	idx := 4
+	if req.AssignedOperatorID != nil {
+		q += fmt.Sprintf(", assigned_operator_id = NULLIF($%d, 0)::bigint", idx)
+		args = append(args, *req.AssignedOperatorID)
+		idx++
+	}
+	if pa, ok := plannedAt.(string); !ok || pa != "__SKIP__" {
+		q += fmt.Sprintf(", planned_jump_at = $%d", idx)
+		args = append(args, plannedAt)
+		idx++
+	}
+	q += fmt.Sprintf(" WHERE id = $%d AND tenant_id = $%d", idx, idx+1)
+	args = append(args, clientID, s.TenantID)
+
+	ct, err := h.DB.Exec(ctx, q, args...)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		writeJSONErr(w, http.StatusNotFound, "NOT_FOUND", "client not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": clientID, "ok": true})
+}
+
+// =====================================================================
+// DELETE /admin/clients/{id}
+// =====================================================================
+//
+// Permanent delete. Cascades to jumps via FK ON DELETE CASCADE, which in
+// turn cascades to jump_artifacts / jump_terms / watch_events. Refuses if
+// the operator hasn't passed `?confirm=1` so a stray double-click on the
+// row doesn't nuke a real jumper.
+func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+	clientID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || clientID <= 0 {
+		writeJSONErr(w, http.StatusBadRequest, "INVALID_ID", "client id required")
+		return
+	}
+	if r.URL.Query().Get("confirm") != "1" {
+		writeJSONErr(w, http.StatusPreconditionRequired, "CONFIRM", "Add ?confirm=1 to confirm the delete.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	ct, err := h.DB.Exec(ctx,
+		`DELETE FROM clients WHERE id = $1 AND tenant_id = $2`,
+		clientID, s.TenantID,
+	)
+	if err != nil {
+		writeJSONErr(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	if ct.RowsAffected() == 0 {
+		writeJSONErr(w, http.StatusNotFound, "NOT_FOUND", "client not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": clientID, "deleted": true})
+}
+
+// =====================================================================
+// POST /admin/clients/import   (text/csv body)
+// =====================================================================
+//
+// Accepts plain CSV (or pasted lines) with columns: name, email, phone,
+// planned_jump_at, operator_email. Header row is optional. Blank lines and
+// `#` comments are ignored. Per-row failures are collected and returned in
+// the response — partial success is OK ("rows 5+8 had no name"). The
+// front-end shows the failure list in a banner.
+func (h *Handlers) ImportCSV(w http.ResponseWriter, r *http.Request) {
+	s := auth.MustFromContext(r.Context())
+	body, err := io.ReadAll(io.LimitReader(r.Body, 256<<10)) // 256 KB cap
+	if err != nil {
+		writeJSONErr(w, http.StatusBadRequest, "READ", err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// Snapshot tenant operators for email→id lookup.
+	opByEmail := map[string]int64{}
+	{
+		rows, _ := h.DB.Query(ctx, `SELECT id, lower(email) FROM operators WHERE tenant_id = $1`, s.TenantID)
+		for rows.Next() {
+			var id int64
+			var email string
+			_ = rows.Scan(&id, &email)
+			opByEmail[email] = id
+		}
+		rows.Close()
+	}
+
+	type rowResult struct {
+		Line       int    `json:"line"`
+		Name       string `json:"name,omitempty"`
+		AccessCode string `json:"access_code,omitempty"`
+		Error      string `json:"error,omitempty"`
+	}
+	var (
+		results []rowResult
+		ok      int
+	)
+	lines := strings.Split(string(body), "\n")
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Skip an obvious header row on line 1.
+		if i == 0 && strings.Contains(strings.ToLower(line), "name") &&
+			(strings.Contains(strings.ToLower(line), "email") || strings.Contains(strings.ToLower(line), "phone")) {
+			continue
+		}
+		cols := splitCSVLine(line)
+		// columns: name, email, phone, planned_jump_at, operator_email
+		name := strings.TrimSpace(getCol(cols, 0))
+		email := strings.TrimSpace(strings.ToLower(getCol(cols, 1)))
+		phone := strings.TrimSpace(getCol(cols, 2))
+		plannedRaw := strings.TrimSpace(getCol(cols, 3))
+		opEmail := strings.TrimSpace(strings.ToLower(getCol(cols, 4)))
+
+		res := rowResult{Line: i + 1, Name: name}
+		if name == "" {
+			res.Error = "name is required"
+			results = append(results, res)
+			continue
+		}
+		var plannedAt any
+		if plannedRaw != "" {
+			t, err := parseJumpDate(plannedRaw)
+			if err != nil {
+				res.Error = "bad date: " + err.Error()
+				results = append(results, res)
+				continue
+			}
+			plannedAt = t
+		}
+		var opID int64
+		if opEmail != "" {
+			id, found := opByEmail[opEmail]
+			if !found {
+				res.Error = "operator " + opEmail + " not found in this club"
+				results = append(results, res)
+				continue
+			}
+			opID = id
+		}
+
+		// Insert with access-code retry, identical to Create().
+		var (
+			id   int64
+			code string
+		)
+		var ierr error
+		for attempt := 0; attempt < 5; attempt++ {
+			code, _, ierr = jump.NewAccessCode()
+			if ierr != nil {
+				break
+			}
+			ierr = h.DB.QueryRow(ctx, `
+				INSERT INTO clients (tenant_id, name, email, phone, access_code, created_by, assigned_operator_id, planned_jump_at)
+				VALUES ($1, $2, NULLIF($3,''), NULLIF($4,''), $5, $6, NULLIF($7,0)::bigint, $8)
+				RETURNING id`,
+				s.TenantID, name, email, phone, code, s.OperatorID, opID, plannedAt,
+			).Scan(&id)
+			if ierr == nil || !strings.Contains(ierr.Error(), "clients_access_code_key") {
+				break
+			}
+		}
+		if ierr != nil {
+			res.Error = ierr.Error()
+		} else {
+			res.AccessCode = code
+			ok++
+		}
+		results = append(results, res)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"imported": ok,
+		"results":  results,
+	})
+}
+
+// parseJumpDate accepts YYYY-MM-DD (treated as midnight UTC), RFC3339, or
+// "datetime-local" form (YYYY-MM-DDTHH:MM). Empty input → nil time.
+func parseJumpDate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	for _, layout := range []string{
+		"2006-01-02",
+		"2006-01-02T15:04",
+		"2006-01-02T15:04:05",
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return &t, nil
+		}
+	}
+	return nil, fmt.Errorf("could not parse %q (use YYYY-MM-DD or YYYY-MM-DDTHH:MM)", s)
+}
+
+// splitCSVLine splits a line on commas, treating "..." quoted segments as
+// atomic so a name like "Doe, Jr." doesn't break the column count. Minimal —
+// no full RFC-4180 escapes; club admins paste from Google Sheets and that's
+// good enough.
+func splitCSVLine(line string) []string {
+	out := []string{}
+	var cur strings.Builder
+	inQuotes := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '"':
+			inQuotes = !inQuotes
+		case c == ',' && !inQuotes:
+			out = append(out, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	out = append(out, cur.String())
+	return out
+}
+
+func getCol(cols []string, i int) string {
+	if i < 0 || i >= len(cols) {
+		return ""
+	}
+	return cols[i]
 }
 
 // reserve `errors` + `fmt` + `pgx` imports in case future endpoints need them.

@@ -140,6 +140,36 @@ func (db *DB) GetProject(ctx context.Context, id int64) (*Project, error) {
 	return &p, nil
 }
 
+// FindLatestActiveProjectForClient returns the most recent non-archived
+// project for the given remote_client_id, or (nil, ErrNotFound) when the
+// operator hasn't started anything for this jumper yet.
+//
+// "Active" = archived=0. We don't filter by status because the studio
+// doesn't currently transition status past 'draft' — a project with clips
+// uploaded but no Generate clicked stays 'draft' forever, and that IS the
+// "half-done" case the operator wants to continue.
+func (db *DB) FindLatestActiveProjectForClient(ctx context.Context, remoteClientID int64) (*Project, error) {
+	if remoteClientID <= 0 {
+		return nil, ErrNotFound
+	}
+	row := db.QueryRowContext(ctx,
+		`SELECT `+projectColumns+`
+		   FROM projects
+		  WHERE remote_client_id = ?
+		    AND archived = 0
+		  ORDER BY updated_at DESC
+		  LIMIT 1`, remoteClientID,
+	)
+	p, err := scanProject(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // SetProjectMusic sets (or clears, with trackID=0) the picked music track.
 // title/artist/duration are denormalised so the UI works offline.
 // Pass title="" + artist="" + duration=0 when clearing.
