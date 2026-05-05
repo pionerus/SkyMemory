@@ -46,12 +46,34 @@ type PageData struct {
 	JumpDate       time.Time
 	Status         string
 	HasVideo       bool
-	VideoURL       string // 24h presigned GET, empty if no artifact yet
+	VideoURL       string // main edit (1080p OR 4K) — 24h presigned GET, empty if no artifact yet
 	VideoSizeBytes int64  // for the download card subtitle
+	VideoLabel     string // "1080p" / "2K" / "4K" — what the operator actually rendered
 	AccessCode     string // dashed format for display: "XXXX-XXXX"
 	TenantName     string // dropzone name for the topbar
 	OperatorName   string // "Filmed by …" — derived from operators.email prefix
 	NotFound       bool   // true → "Sorry, that link isn't valid"
+
+	// Phase 5 short-form deliverables. Empty URL = no artifact yet, template
+	// keeps the "Coming soon" stub visible. Non-empty URL flips to a live
+	// download card.
+	VerticalReelURL  string
+	VerticalReelSize int64
+	WOWReelURL       string
+	WOWReelSize      int64
+
+	// Phase 5 photo pack. Empty slice → photo grid section is hidden.
+	// Capped to 20 in handler so a misbehaving studio upload can't blow
+	// up rendering.
+	Photos []Photo
+}
+
+// Photo is one freefall still surfaced in the wt-photo-grid section.
+type Photo struct {
+	URL       string
+	SizeBytes int64
+	Width     int
+	Height    int
 }
 
 // Render handles GET /watch/{access_code}. The access_code in the URL is
@@ -114,27 +136,98 @@ func (h *Handlers) Render(w http.ResponseWriter, r *http.Request) {
 		OperatorName: operatorNameFor(operatorEmail),
 	}
 
-	// Pull the most recent horizontal_1080p artifact (variant prefers
-	// 'original' when present, falls back to whatever the latest is).
-	var (
-		s3Key     string
-		sizeBytes int64
-	)
-	err = h.DB.QueryRow(ctx, `
-		SELECT s3_key, size_bytes
+	// Pull every artifact for this jump in one query — main video + reels +
+	// photos. ORDER BY puts the canonical pick first per kind (variant
+	// 'original' > 'preview', then most-recently-uploaded). We then walk
+	// the rows in Go: keep the first match per non-photo kind, accumulate
+	// up to 20 photos. Each presign error is best-effort — log + skip,
+	// never fail the whole page.
+	const watchTTL = 24 * time.Hour
+	const maxPhotos = 20
+	rows, err := h.DB.Query(ctx, `
+		SELECT kind, s3_key, size_bytes, COALESCE(width, 0), COALESCE(height, 0)
 		FROM jump_artifacts
 		WHERE jump_id = $1
-		  AND kind = 'horizontal_1080p'
-		ORDER BY (variant = 'original') DESC, uploaded_at DESC
-		LIMIT 1`,
+		  AND kind IN ('horizontal_1080p','horizontal_4k','vertical','wow_highlights','photo')
+		ORDER BY kind,
+		         (variant = 'original') DESC,
+		         uploaded_at DESC`,
 		jumpID,
-	).Scan(&s3Key, &sizeBytes)
-	if err == nil && s3Key != "" {
-		const watchTTL = 24 * time.Hour
-		if url, perr := h.DeliverStorage.PresignGet(ctx, s3Key, watchTTL); perr == nil {
-			data.HasVideo = true
-			data.VideoURL = url
-			data.VideoSizeBytes = sizeBytes
+	)
+	if err == nil {
+		defer rows.Close()
+		seenMain, seenVert, seenWOW := false, false, false
+		for rows.Next() {
+			var (
+				kind          string
+				s3Key         string
+				sizeBytes     int64
+				width, height int
+			)
+			if scanErr := rows.Scan(&kind, &s3Key, &sizeBytes, &width, &height); scanErr != nil {
+				continue
+			}
+			if s3Key == "" {
+				continue
+			}
+			// Drive-hosted artifacts carry a "drive:<fileId>" key.
+			// The file was made public on upload so we return a direct URL.
+			resolveURL := func(key string) (string, bool) {
+				if strings.HasPrefix(key, "drive:") {
+					return "https://drive.google.com/uc?export=download&id=" + key[6:], true
+				}
+				u, err := h.DeliverStorage.PresignGet(ctx, key, watchTTL)
+				return u, err == nil
+			}
+
+			switch kind {
+			case "horizontal_4k", "horizontal_1080p":
+				// Main video. We treat both kinds as the same slot — operator
+				// renders ONE main video at chosen resolution. Iteration order
+				// is alphabetical by kind, so horizontal_4k naturally wins
+				// over horizontal_1080p when both somehow exist (re-render
+				// edge case). seenMain flag short-circuits the second.
+				if seenMain {
+					continue
+				}
+				seenMain = true
+				if url, ok := resolveURL(s3Key); ok {
+					data.HasVideo = true
+					data.VideoURL = url
+					data.VideoSizeBytes = sizeBytes
+					data.VideoLabel = videoLabelFor(height)
+				}
+			case "vertical":
+				if seenVert {
+					continue
+				}
+				seenVert = true
+				if url, ok := resolveURL(s3Key); ok {
+					data.VerticalReelURL = url
+					data.VerticalReelSize = sizeBytes
+				}
+			case "wow_highlights":
+				if seenWOW {
+					continue
+				}
+				seenWOW = true
+				if url, ok := resolveURL(s3Key); ok {
+					data.WOWReelURL = url
+					data.WOWReelSize = sizeBytes
+				}
+			case "photo":
+				if len(data.Photos) >= maxPhotos {
+					continue
+				}
+				if url, ok := resolveURL(s3Key); ok {
+					data.Photos = append(data.Photos, Photo{
+						URL:       url,
+						SizeBytes: sizeBytes,
+						Width:     width,
+						Height:    height,
+					})
+				}
+			}
 		}
 	}
 
@@ -218,6 +311,19 @@ func (h *Handlers) TrackDownload(w http.ResponseWriter, r *http.Request) {
 	}(jumpID, r.UserAgent(), r.Referer(), clientIPFor(r))
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// videoLabelFor maps a video's height to the marketing label shown next
+// to the Full edit download on the watch page.
+func videoLabelFor(h int) string {
+	switch {
+	case h >= 2160:
+		return "4K"
+	case h >= 1440:
+		return "2K"
+	default:
+		return "1080p"
+	}
 }
 
 // operatorNameFor turns "andrey@aeroclub.ru" into "Andrey". The operators

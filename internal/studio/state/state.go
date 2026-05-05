@@ -229,4 +229,86 @@ var schemaSteps = map[int]string{
 		);
 		CREATE INDEX idx_clip_cuts_clip ON clip_cuts(clip_id, start_seconds);
 	`,
+
+	7: `
+		-- Speech-start marker (in source-clip seconds, same scale as trim_in_seconds).
+		-- Set on action clips that contain a post-action interview at the tail —
+		-- typical case is landing footage where the jumper turns to camera and
+		-- starts talking after the canopy lands. Pipeline behaviour:
+		--
+		--   trim_in   →  speech_start_seconds  → action portion (silent, music plays)
+		--   speech_start_seconds  →  trim_out  → interview portion (keep audio,
+		--                                         music ducks via sidechain)
+		--
+		-- NULL = no marker, clip behaves per its kind's normal heuristic
+		-- (action kinds = silent, interview kinds = full interview audio).
+		ALTER TABLE clips ADD COLUMN speech_start_seconds REAL;
+	`,
+
+	8: `
+		-- Phase 5 deliverables status — surfaces per-deliverable progress on
+		-- the generate page so the operator can tell at a glance which short-
+		-- form pieces succeeded vs. were silently skipped (segment picker
+		-- returned ok=false, etc).
+		--
+		-- Values: '' (not started), 'rendering', 'ready', 'skipped', 'failed'.
+		-- 'skipped' = picker bailed (e.g. freefall too short for a WOW reel).
+		-- 'failed'  = render or upload errored.
+		ALTER TABLE generations ADD COLUMN phase5_insta  TEXT NOT NULL DEFAULT '';
+		ALTER TABLE generations ADD COLUMN phase5_wow    TEXT NOT NULL DEFAULT '';
+		ALTER TABLE generations ADD COLUMN phase5_photos TEXT NOT NULL DEFAULT '';
+	`,
+
+	9: `
+		-- Per-deliverable progress percentage (0..100). Set by the runner as
+		-- ffmpeg reports out_time_us / total duration; the photo-pack flavour
+		-- increments by 1/N per extracted frame. Lets the generate page show
+		-- a real progress bar instead of an indeterminate "rendering" pill.
+		ALTER TABLE generations ADD COLUMN phase5_insta_pct  INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE generations ADD COLUMN phase5_wow_pct    INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE generations ADD COLUMN phase5_photos_pct INTEGER NOT NULL DEFAULT 0;
+	`,
+
+	10: `
+		-- Operator-curated photo timestamps on a clip's timeline. Used by
+		-- the photo-pack pipeline: if any marks exist on the freefall clip
+		-- the planner uses them as anchors and only auto-fills the slack
+		-- (up to 20 photos total). When no marks exist the planner falls
+		-- back to the previous all-auto-distributed behaviour.
+		--
+		-- t_seconds is in source-clip seconds, same scale as trim_in_seconds.
+		-- Constrained to live inside the trim window application-side
+		-- (no CHECK so an AI suggestion outside the window can be tuned).
+		CREATE TABLE photo_marks (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			clip_id     INTEGER NOT NULL REFERENCES clips(id) ON DELETE CASCADE,
+			t_seconds   REAL NOT NULL,
+			created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+			UNIQUE(clip_id, t_seconds)
+		);
+		CREATE INDEX idx_photo_marks_clip ON photo_marks(clip_id, t_seconds);
+	`,
+
+	11: `
+		-- Per-project ordering of clips. Drives both the slot order on the
+		-- clip board and the order clips are concatenated by the pipeline.
+		-- Stored as an integer with gaps (10, 20, 30, ...) so reordering
+		-- requires updating only the moved row in the common case.
+		ALTER TABLE clips ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+
+		-- Backfill: canonical kinds get their conventional order; custom
+		-- ones land after, in creation order (id ascending).
+		UPDATE clips SET position = CASE kind
+			WHEN 'intro'           THEN 10
+			WHEN 'interview_pre'   THEN 20
+			WHEN 'walk'            THEN 30
+			WHEN 'interview_plane' THEN 40
+			WHEN 'freefall'        THEN 50
+			WHEN 'landing'         THEN 60
+			WHEN 'closing'         THEN 70
+			ELSE 1000 + id
+		END;
+
+		CREATE INDEX idx_clips_project_position ON clips(project_id, position);
+	`,
 }

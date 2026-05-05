@@ -33,7 +33,12 @@ func NewManager(secretKey string, productionMode bool) *Manager {
 		MaxAge:   86400 * 14, // 14 days
 		HttpOnly: true,
 		Secure:   productionMode, // dev runs on http://localhost
-		SameSite: http.SameSiteStrictMode,
+		// Lax (not Strict): Google's OAuth callback is a cross-site
+		// top-level GET — Strict would drop the cookie there and the
+		// callback handler would see no session. Lax still blocks
+		// cross-site POST/PUT/DELETE, so it doesn't weaken CSRF
+		// protection on mutating endpoints.
+		SameSite: http.SameSiteLaxMode,
 	}
 	return &Manager{store: store, prod: productionMode}
 }

@@ -157,6 +157,15 @@
           Re-sign in
         </button>
       </form>
+      {{if .License.Valid}}
+      <form method="POST" action="/license/logout" style="margin:0"
+            onsubmit="return confirm('Sign out of Skydive Memory? You will need email + password to sign back in.')">
+        <button type="submit" class="sm-rail-item" title="Sign out of cloud session" style="width:100%;border:none;background:transparent;font:inherit;cursor:pointer;text-align:left;color:var(--sm-text-muted)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign out
+        </button>
+      </form>
+      {{end}}
     </nav>
 
     <div style="padding:14px;border-top:1px solid var(--sm-border);margin-top:8px">
@@ -206,24 +215,46 @@
 
       {{if not .License.Valid}}
       <div class="auth-banner">
-        <h2>Studio is not signed in</h2>
-        {{if not .TokenConfigured}}
-          <p>Set <code>STUDIO_OPERATOR_EMAIL</code> and <code>STUDIO_OPERATOR_PASSWORD</code> in <code>.env</code>, then restart this app.</p>
-          <p>Use the operator credentials your club admin created for you on <code>/admin/operators</code>.</p>
+        <h2>Sign in to Skydive Memory</h2>
+        {{if eq .License.Reason "logged_out"}}
+          <p>You signed out. Enter your operator email + password to continue.</p>
+        {{else if not .TokenConfigured}}
+          <p>Sign in with the operator account your club admin created on <code>/admin/operators</code>, or set <code>STUDIO_OPERATOR_EMAIL</code> + <code>STUDIO_OPERATOR_PASSWORD</code> in <code>.env</code> for auto-login on launch.</p>
         {{else if .License.Err}}
-          <p>Cloud server isn't reachable.</p>
-          <p>Error: <code>{{.License.Err}}</code></p>
+          <p>Cloud server isn't reachable. Error: <code>{{.License.Err}}</code></p>
         {{else}}
           <p>Cloud rejected your credentials. Reason: <code>{{.License.Reason}}</code></p>
-          <p>Either the email/password in <code>.env</code> is wrong, or your club admin disabled this operator.</p>
         {{end}}
-        <form method="POST" action="/license/refresh" style="margin-top:16px">
-          <button class="sm-btn" type="submit">Re-check now</button>
+
+        {{if .LoginError}}
+        <div style="margin-top:12px;padding:10px 12px;border:1px solid var(--sm-danger,#ff6b6b);background:rgba(255,107,107,.08);border-radius:8px;font-size:13px;color:var(--sm-danger,#ff6b6b)">
+          Sign-in failed: <span class="mono">{{.LoginError}}</span>
+        </div>
+        {{end}}
+
+        <!-- Inline sign-in form. POSTs to /license/login which calls
+             sessionMgr.LoginWith(email, password) and redirects home. -->
+        <form method="POST" action="/license/login" style="margin-top:16px;display:flex;flex-direction:column;gap:10px;max-width:420px">
+          <label style="font-size:12px;color:var(--sm-text-muted)">
+            Operator email
+            <input class="sm-input" type="email" name="email" autocomplete="username"
+                   value="{{.OperatorEmailHint}}" required style="margin-top:4px">
+          </label>
+          <label style="font-size:12px;color:var(--sm-text-muted)">
+            Password
+            <input class="sm-input" type="password" name="password" autocomplete="current-password"
+                   required style="margin-top:4px">
+          </label>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="sm-btn is-primary" type="submit">Sign in</button>
+            <button class="sm-btn is-ghost" type="submit" formaction="/license/refresh"
+                    title="Retry with credentials from .env (no form values used)">Use .env</button>
+          </div>
         </form>
-        <ul class="check-list" style="margin-top:18px">
+
+        <ul class="check-list" style="margin-top:22px">
           <li class="done">Studio binary running on <span class="mono">{{.Addr}}</span></li>
           <li class="{{if .CloudReachable}}done{{else}}fail{{end}}">Cloud server reachable at <span class="mono">{{.CloudBaseURL}}</span></li>
-          <li class="{{if .TokenConfigured}}done{{else}}fail{{end}}">Operator credentials in <span class="mono">.env</span></li>
           <li class="{{if .License.Valid}}done{{else}}fail{{end}}">Cloud accepted credentials</li>
         </ul>
       </div>
@@ -251,11 +282,13 @@
             <div>Client</div><div>Email</div><div>Code</div><div>Jumps</div><div>Latest status</div><div>Phone</div><div></div>
           </div>
           {{if .AssignedClients}}
+            {{$existing := .ExistingProjectByClientID}}
             {{range .AssignedClients}}
+            {{$projID := index $existing .ID}}
             <div class="row" data-search="{{.Name}} {{.Email}} {{.AccessCode}}">
               <div class="name">{{.Name}}</div>
               <div class="email">{{if .Email}}{{.Email}}{{else}}—{{end}}</div>
-              <div class="code">{{.AccessCode}}</div>
+              <div class="code">{{dashCode .AccessCode}}</div>
               <div style="font-size:13px;color:var(--sm-text-muted)">{{.JumpCount}}</div>
               <div>
                 {{if eq .Status "downloaded"}}<span class="sm-pill is-success" style="font-weight:700;letter-spacing:.05em">DOWNLOADED</span>
@@ -266,7 +299,11 @@
               </div>
               <div style="font-size:12px;color:var(--sm-text-muted)">{{if .Phone}}{{.Phone}}{{else}}—{{end}}</div>
               <div class="action">
-                <a class="sm-btn is-sm is-primary" href="/projects/new?client_id={{.ID}}">▶ Start project</a>
+                {{if $projID}}
+                  <a class="sm-btn is-sm is-primary" href="/projects/{{$projID}}/clips" title="Pick up where you left off">Continue →</a>
+                {{else}}
+                  <a class="sm-btn is-sm is-primary" href="/projects/new?client_id={{.ID}}">▶ Start project</a>
+                {{end}}
               </div>
             </div>
             {{end}}
@@ -298,7 +335,7 @@
                  data-status="{{if eq .Status "done"}}done{{else if eq .Status "failed"}}failed{{else}}in_progress{{end}}">
               <div class="name">{{.ClientName}}</div>
               <div class="email">{{if .ClientEmail}}{{.ClientEmail}}{{else}}—{{end}}</div>
-              <div class="code">{{.AccessCode}}</div>
+              <div class="code">{{dashCode .AccessCode}}</div>
               <div style="font-size:11px;color:var(--sm-text-muted);display:flex;gap:4px;flex-wrap:wrap">
                 {{if .Output1080p}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">1080p</span>{{end}}
                 {{if .Output4K}}<span class="sm-pill" style="height:18px;font-size:10px;padding:0 6px">4K</span>{{end}}
@@ -406,14 +443,35 @@
         ${action || ''}
       </div>`;
     const encColor = s.encoder === 'QSV' ? 'var(--sm-success)' : 'var(--sm-warning)';
-    return [
+
+    const autoTrimOn = localStorage.getItem('studio.autoTrimOnUpload') !== '0';
+    const autoTrimToggleHtml =
+      `<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px">
+         <input type="checkbox" id="auto-trim-toggle" ${autoTrimOn ? 'checked' : ''} style="accent-color:var(--sm-brand)">
+         <span style="color:var(--sm-text-muted)">${autoTrimOn ? 'On' : 'Off'}</span>
+       </label>`;
+
+    const html = [
       row('Encoder', `<span style="color:${encColor}">${s.encoder}</span>${s.encoder_detail ? ' · ' + s.encoder_detail : ''}`),
+      row('Auto-trim on upload',
+          `<span style="color:var(--sm-text-muted);font-size:12px">Run silencedetect/RMS heuristics automatically when a clip lands. Disable if you prefer to trim manually.</span>`,
+          autoTrimToggleHtml),
       row('Jobs directory', `<span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.jobs_dir}</span>`),
       row('Signed in as', `<span class="mono" style="color:var(--sm-text-muted)">${s.operator_email || '(none)'}</span>`,
           `<button class="sm-btn is-sm" disabled title="Restart studio with new STUDIO_OPERATOR_EMAIL/PASSWORD in .env">Switch user</button>`),
       row('Studio version', `<span class="mono">v${s.version}</span> · ${s.platform}`),
       row('Cloud', `<span style="color:${s.cloud_reachable ? 'var(--sm-success)' : 'var(--sm-danger)'}">${s.cloud_reachable ? '● reachable' : '✕ unreachable'}</span> · <span class="mono" style="color:var(--sm-text-muted);font-size:12px">${s.cloud_url}</span>`)
     ].join('');
+
+    // Bind toggle after the HTML is in the DOM (next microtask).
+    setTimeout(() => {
+      const cb = document.getElementById('auto-trim-toggle');
+      if (cb) cb.addEventListener('change', () => {
+        localStorage.setItem('studio.autoTrimOnUpload', cb.checked ? '1' : '0');
+        cb.nextElementSibling.textContent = cb.checked ? 'On' : 'Off';
+      });
+    }, 0);
+    return html;
   }
 })();
 </script>

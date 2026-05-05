@@ -54,7 +54,7 @@
     <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,rgba(255,200,61,.2),rgba(255,138,61,.2));display:flex;align-items:center;justify-content:center;font-family:var(--sm-display);font-size:12px;font-weight:600;color:var(--sm-brand-hi);flex-shrink:0">{{.TenantInitials}}</div>
     <div style="flex:1;min-width:0">
       <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{.TenantName}}</div>
-      <div style="font-size:11px;color:var(--sm-text-muted)">{{.PlanLabel}}</div>
+      <div style="font-size:11px;color:var(--sm-brand-hi);font-family:var(--sm-mono);letter-spacing:.02em" title="Current month bill — see /admin/billing for breakdown">{{.PlanLabel}}</div>
     </div>
     <button type="button" data-theme-toggle title="Toggle theme" aria-label="Toggle theme"
             style="background:transparent;border:none;color:var(--sm-text-muted);cursor:pointer;display:flex;align-items:center;padding:4px">

@@ -35,6 +35,7 @@ var funcMap = template.FuncMap{
 	"durationHuman":  durationHuman,
 	"trimTime":       trimTime,
 	"bytesHuman":     bytesHuman,
+	"dashCode":       dashCode,
 }
 
 // Templates parsed at init. Studio templates are tiny — we don't need a hot-reload story yet.
@@ -61,6 +62,24 @@ func trimTime(seconds float64) string {
 	}
 	s := int(seconds + 0.5)
 	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// dashCode renders an 8-char Crockford access code as "XXXX-XXXX".
+// Cloud stores it canonical (no dash); studio's projects table sometimes
+// already has the dashed form (returned by the cloud register endpoint).
+// This normaliser strips any existing dash first so both inputs render
+// identically — used by the dashboard's Today + Past lists.
+func dashCode(s string) string {
+	out := make([]byte, 0, 9)
+	for i := 0; i < len(s); i++ {
+		if s[i] != '-' && s[i] != ' ' {
+			out = append(out, s[i])
+		}
+	}
+	if len(out) == 8 {
+		return string(out[:4]) + "-" + string(out[4:])
+	}
+	return string(out)
 }
 
 // bytesHuman: 1572864 -> "1.5 MB". Used by clip-size pills and file lists.

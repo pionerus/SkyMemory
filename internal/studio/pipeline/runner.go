@@ -62,6 +62,13 @@ type Runner struct {
 	// is true, all encode stages route through h264_qsv; otherwise libx264.
 	qsvOnce sync.Once
 	useQSV  bool
+
+	// Per-Run target frame size. Defaults to 1920×1080 — but Run() bumps it
+	// to (2560, 1440) or (3840, 2160) when project.Output4K is on AND the
+	// source clips are tall enough to justify it. We never UPSCALE: a 1080p
+	// source rendered with Output4K still produces 1080p, just labelled as
+	// 4K-eligible to the cloud.
+	targetW, targetH int
 }
 
 // BrandingProviderLike abstracts internal/studio/branding.Cache so the
@@ -98,9 +105,21 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		encTag = "QSV"
 	}
 
-	clips, err := r.DB.ListClips(ctx, projectID)
+	rawClips, err := r.DB.ListClips(ctx, projectID)
 	if err != nil {
 		return "", r.fail(ctx, generationID, "list clips: "+err.Error())
+	}
+
+	// Drop legacy intro/closing clips — those are now club-admin branding
+	// inputs (concat'd via bundle.IntroPath / bundle.OutroPath below).
+	// Old projects that have those uploaded would otherwise be rendered twice.
+	clips := make([]state.Clip, 0, len(rawClips))
+	for _, c := range rawClips {
+		if state.IsLegacyBrandingKind(c.Kind) {
+			log.Printf("pipeline: skipping legacy %q clip — using club-admin branding instead", c.Kind)
+			continue
+		}
+		clips = append(clips, c)
 	}
 	if len(clips) == 0 {
 		return "", r.fail(ctx, generationID, "no clips uploaded yet")
@@ -109,6 +128,20 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		if c.DurationSeconds <= 0 {
 			return "", r.fail(ctx, generationID, fmt.Sprintf("clip %q has no duration metadata (was ffprobe missing on upload? re-upload to fix)", c.Kind))
 		}
+	}
+
+	// Resolve target output resolution. Project.Output4K bumps it past 1080p
+	// when source clips are tall enough; otherwise we stay at 1080p.
+	{
+		proj, perr := r.DB.GetProject(ctx, projectID)
+		if perr == nil && proj != nil {
+			r.targetW, r.targetH = chooseTargetDims(proj.Output4K, clips)
+		} else {
+			r.targetW, r.targetH = 1920, 1080
+		}
+		log.Printf("pipeline target: %dx%d (encoder=%s, output4k=%v)",
+			r.targetW, r.targetH, encTag,
+			func() bool { if proj != nil { return proj.Output4K }; return false }())
 	}
 
 	projectDir := filepath.Join(r.JobsDir, strconv.FormatInt(projectID, 10))
@@ -169,7 +202,10 @@ func (r *Runner) Run(ctx context.Context, projectID, generationID int64) (string
 		return "", r.fail(ctx, generationID, "render: "+err.Error())
 	}
 
-	finalOut := filepath.Join(projectDir, "output_1080p.mp4")
+	// Output filename reflects actual rendered dims so a 4K render doesn't
+	// silently overwrite the 1080p one. Cloud-side artifact `kind` is set
+	// by the upload caller based on the same dims via OutputDims().
+	finalOut := filepath.Join(projectDir, outputFilename(r.targetW, r.targetH))
 	_ = os.Remove(finalOut) // overwrite previous
 
 	// === Mix music (only if project has a picked track) ===
@@ -313,10 +349,70 @@ type keepSeg struct{ start, end float64 }
 // • N>1 keep-segments: split=N → N×(trim+setpts) → concat → scale → pad → fps → format.
 //
 // The input source label is "[<srcIdx>:v]"; the output label is "[v<idx>]".
-const videoNormalizeChain = "scale=1920:1080:force_original_aspect_ratio=decrease," +
-	"pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p"
+// videoNormalizeChain returns the per-clip filter that maps a source frame
+// onto the runner's current target resolution (default 1920×1080). Made a
+// method so it can read r.targetW/r.targetH set per-Run().
+func (r *Runner) videoNormalizeChain() string {
+	w, h := r.outputDims()
+	return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,"+
+		"pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,fps=30,format=yuv420p",
+		w, h, w, h)
+}
 
-func writeClipVideoChain(fc *strings.Builder, srcIdx, idx int, segs []keepSeg) {
+// outputDims returns the runner's chosen target W,H, falling back to 1080p
+// when the per-Run setup hasn't run yet (defensive — every code path that
+// uses this should go through Run()).
+func (r *Runner) outputDims() (int, int) {
+	if r.targetW > 0 && r.targetH > 0 {
+		return r.targetW, r.targetH
+	}
+	return 1920, 1080
+}
+
+// OutputDims is the public wrapper so the studio's upload caller can ask
+// "what kind of artifact did this render produce" without poking at
+// private fields.
+func (r *Runner) OutputDims() (int, int) { return r.outputDims() }
+
+// outputFilename names the rendered output based on its frame size so a
+// 4K render doesn't clobber the 1080p one in the same project dir.
+func outputFilename(w, h int) string {
+	switch {
+	case h >= 2160:
+		return "output_4k.mp4"
+	case h >= 1440:
+		return "output_2k.mp4"
+	default:
+		return "output_1080p.mp4"
+	}
+}
+
+// chooseTargetDims picks the output resolution for this run. With 4K opt-in
+// and a high-res source, it bumps to 1440p or 2160p; otherwise it stays at
+// 1080p. Never upscales beyond what the source actually has — paying for
+// 4K render time on 1080p source is a waste.
+func chooseTargetDims(want4K bool, clips []state.Clip) (int, int) {
+	if !want4K {
+		return 1920, 1080
+	}
+	maxW := 0
+	for _, c := range clips {
+		if c.Width > maxW {
+			maxW = c.Width
+		}
+	}
+	switch {
+	case maxW >= 3840:
+		return 3840, 2160
+	case maxW >= 2560:
+		return 2560, 1440
+	default:
+		return 1920, 1080
+	}
+}
+
+func (r *Runner) writeClipVideoChain(fc *strings.Builder, srcIdx, idx int, segs []keepSeg) {
+	normChain := r.videoNormalizeChain()
 	src := fmt.Sprintf("[%d:v]", srcIdx)
 	out := fmt.Sprintf("[v%d]", idx)
 
@@ -324,7 +420,7 @@ func writeClipVideoChain(fc *strings.Builder, srcIdx, idx int, segs []keepSeg) {
 		s := segs[0]
 		fc.WriteString(fmt.Sprintf(
 			"%strim=start=%s:end=%s,setpts=PTS-STARTPTS,%s%s;",
-			src, floatStr(s.start), floatStr(s.end), videoNormalizeChain, out,
+			src, floatStr(s.start), floatStr(s.end), normChain, out,
 		))
 		return
 	}
@@ -350,7 +446,7 @@ func writeClipVideoChain(fc *strings.Builder, srcIdx, idx int, segs []keepSeg) {
 	fc.WriteString(fmt.Sprintf("%sconcat=n=%d:v=1:a=0%s;",
 		strings.Join(trimmedOuts, ""), n, concatLbl,
 	))
-	fc.WriteString(fmt.Sprintf("%s%s%s;", concatLbl, videoNormalizeChain, out))
+	fc.WriteString(fmt.Sprintf("%s%s%s;", concatLbl, normChain, out))
 }
 
 // writeClipAudioChainFromSource is the audio counterpart — used when the clip
@@ -388,6 +484,99 @@ func writeClipAudioChainFromSource(fc *strings.Builder, src string, idx int, seg
 	concatLbl := fmt.Sprintf("[a%d_c]", idx)
 	fc.WriteString(fmt.Sprintf("%sconcat=n=%d:v=0:a=1%s;",
 		strings.Join(trimmedOuts, ""), n, concatLbl,
+	))
+	fc.WriteString(fmt.Sprintf("%s%s%s;", concatLbl, audioNormalizeChain, out))
+}
+
+// writeClipAudioChainHybrid emits a clip's audio output [aN] when the clip
+// has a speech-start marker. Audio is silence before the marker, source
+// audio after. Cuts in keepSegs are honoured by both halves.
+//
+//   srcAudioRef  : "[<clipIdx>:a]"  — source audio of the clip
+//   silAudioRef  : "[<silIdx>:a]"   — pre-registered anullsrc of >= effDur seconds
+//   splitAt      : source-clip seconds where speech begins (same scale as keepSegs)
+func writeClipAudioChainHybrid(fc *strings.Builder, srcAudioRef, silAudioRef string,
+	idx int, segs []keepSeg, splitAt float64) {
+	out := fmt.Sprintf("[a%d]", idx)
+
+	type subSeg struct {
+		from string  // "src" or "sil"
+		s, e float64 // seconds in source-clip space (or local for sil — doesn't matter for atrim length)
+	}
+
+	// Walk keepSegs and break each one across the marker. Silence sub-segs
+	// use cumulative-offset within the anullsrc input (since anullsrc starts
+	// at t=0), source sub-segs use the original clip seconds.
+	var subs []subSeg
+	silOffset := 0.0
+	for _, s := range segs {
+		a, b := s.start, s.end
+		if b <= splitAt {
+			subs = append(subs, subSeg{from: "sil", s: silOffset, e: silOffset + (b - a)})
+			silOffset += (b - a)
+		} else if a >= splitAt {
+			subs = append(subs, subSeg{from: "src", s: a, e: b})
+		} else {
+			subs = append(subs, subSeg{from: "sil", s: silOffset, e: silOffset + (splitAt - a)})
+			silOffset += (splitAt - a)
+			subs = append(subs, subSeg{from: "src", s: splitAt, e: b})
+		}
+	}
+
+	// Count sub-segs per source so we asplit each input the right number of times.
+	srcN, silN := 0, 0
+	for _, ss := range subs {
+		if ss.from == "src" {
+			srcN++
+		} else {
+			silN++
+		}
+	}
+
+	// asplit the source audio into srcN branches (skip if 0, e.g. marker at trim_out edge).
+	srcOuts := make([]string, srcN)
+	for k := 0; k < srcN; k++ {
+		srcOuts[k] = fmt.Sprintf("[a%d_src%d]", idx, k)
+	}
+	if srcN > 0 {
+		fc.WriteString(fmt.Sprintf("%sasplit=%d%s;", srcAudioRef, srcN, strings.Join(srcOuts, "")))
+	}
+	silOuts := make([]string, silN)
+	for k := 0; k < silN; k++ {
+		silOuts[k] = fmt.Sprintf("[a%d_sil%d]", idx, k)
+	}
+	if silN > 0 {
+		fc.WriteString(fmt.Sprintf("%sasplit=%d%s;", silAudioRef, silN, strings.Join(silOuts, "")))
+	}
+
+	// atrim each sub-seg.
+	srcK, silK := 0, 0
+	trimmedOuts := make([]string, len(subs))
+	for k, ss := range subs {
+		lbl := fmt.Sprintf("[a%d_t%d]", idx, k)
+		trimmedOuts[k] = lbl
+		if ss.from == "src" {
+			fc.WriteString(fmt.Sprintf(
+				"%satrim=start=%s:end=%s,asetpts=PTS-STARTPTS%s;",
+				srcOuts[srcK], floatStr(ss.s), floatStr(ss.e), lbl,
+			))
+			srcK++
+		} else {
+			fc.WriteString(fmt.Sprintf(
+				"%satrim=start=%s:end=%s,asetpts=PTS-STARTPTS%s;",
+				silOuts[silK], floatStr(ss.s), floatStr(ss.e), lbl,
+			))
+			silK++
+		}
+	}
+
+	if len(subs) == 1 {
+		fc.WriteString(fmt.Sprintf("%s%s%s;", trimmedOuts[0], audioNormalizeChain, out))
+		return
+	}
+	concatLbl := fmt.Sprintf("[a%d_c]", idx)
+	fc.WriteString(fmt.Sprintf("%sconcat=n=%d:v=0:a=1%s;",
+		strings.Join(trimmedOuts, ""), len(subs), concatLbl,
 	))
 	fc.WriteString(fmt.Sprintf("%s%s%s;", concatLbl, audioNormalizeChain, out))
 }
@@ -499,24 +688,50 @@ func (r *Runner) renderSinglePass(
 	}
 
 	// === Build inputs ===
-	// For each clip, append `-i clip.mp4`. For action clips (or interview
-	// clips with no audio), additionally append a dedicated anullsrc input of
-	// exactly the EFFECTIVE post-cut length — that lets us silence action
-	// audio without any volume=0 or atrim gymnastics inside the filter graph.
+	// For each clip, append `-i clip.mp4`. We then decide a per-clip audio
+	// mode: pure source (interview), pure silence (action without marker),
+	// or hybrid (action with operator-placed speech_start marker — silent
+	// before, source after). Hybrid clips need BOTH the clip's source
+	// audio and an anullsrc lavfi input.
 	args := []string{"-hide_banner", "-y"}
 	videoIdx := make([]int, len(clips))
-	audioRef := make([]string, len(clips)) // "[X:a]" stream reference per clip
-	useSourceAudio := make([]bool, len(clips))
+	audioRef := make([]string, len(clips))    // "[X:a]" stream reference per clip
+	silenceRef := make([]string, len(clips))  // "[Y:a]" anullsrc reference (hybrid + silence modes)
+	type audioMode int
+	const (
+		modeSilence audioMode = iota // anullsrc only
+		modeSource                   // [clipIdx:a] only
+		modeHybrid                   // both — split at speech_start marker
+	)
+	modes := make([]audioMode, len(clips))
 	nextInputIdx := 0
 	for i, c := range clips {
 		args = append(args, "-i", c.SourcePath)
 		videoIdx[i] = nextInputIdx
+		clipAudioRef := fmt.Sprintf("[%d:a]", videoIdx[i])
 		nextInputIdx++
 
-		if c.HasAudio && isInterviewKind(c.Kind) {
-			useSourceAudio[i] = true
-			audioRef[i] = fmt.Sprintf("[%d:a]", videoIdx[i])
-		} else {
+		// Decide the mode. Speech-start marker only meaningful on action
+		// clips that actually have audio — interview clips already keep
+		// full source audio so the marker would be a no-op.
+		switch {
+		case c.HasAudio && isInterviewKind(c.Kind):
+			modes[i] = modeSource
+			audioRef[i] = clipAudioRef
+		case c.HasAudio && c.HasSpeechStart():
+			modes[i] = modeHybrid
+			audioRef[i] = clipAudioRef
+			args = append(args,
+				"-f", "lavfi",
+				"-i", fmt.Sprintf(
+					"anullsrc=channel_layout=stereo:sample_rate=48000:d=%s",
+					floatStr(metas[i].effDur),
+				),
+			)
+			silenceRef[i] = fmt.Sprintf("[%d:a]", nextInputIdx)
+			nextInputIdx++
+		default:
+			modes[i] = modeSilence
 			args = append(args,
 				"-f", "lavfi",
 				"-i", fmt.Sprintf(
@@ -525,6 +740,7 @@ func (r *Runner) renderSinglePass(
 				),
 			)
 			audioRef[i] = fmt.Sprintf("[%d:a]", nextInputIdx)
+			silenceRef[i] = audioRef[i]
 			nextInputIdx++
 		}
 	}
@@ -596,17 +812,18 @@ func (r *Runner) renderSinglePass(
 	// With cuts (N>1 keep-segments): split=N → N×(trim+setpts) → concat → scale...
 	for i, c := range clips {
 		m := metas[i]
-		writeClipVideoChain(&fc, videoIdx[i], i, m.keepSegs)
-		if useSourceAudio[i] {
+		r.writeClipVideoChain(&fc, videoIdx[i], i, m.keepSegs)
+		switch modes[i] {
+		case modeSource:
 			writeClipAudioChainFromSource(&fc, audioRef[i], i, m.keepSegs)
-		} else {
-			// anullsrc is already exactly effDur seconds long — just normalize.
+		case modeHybrid:
+			writeClipAudioChainHybrid(&fc, audioRef[i], silenceRef[i], i, m.keepSegs, c.SpeechStartSeconds)
+		default: // modeSilence
 			fc.WriteString(fmt.Sprintf(
 				"%saformat=channel_layouts=stereo:sample_rates=48000[a%d];",
 				audioRef[i], i,
 			))
 		}
-		_ = c
 	}
 
 	// === xfade / acrossfade chain → produces [mainV][mainA] + mainDur ===
@@ -663,7 +880,8 @@ func (r *Runner) renderSinglePass(
 	// without affecting the underlying video colour space. format=auto on the
 	// overlay means ffmpeg picks yuv420p so the encoder is happy.
 	if bundle.HasWatermark() && wmInputIdx >= 0 {
-		wmW := 1920 * bundle.WatermarkSizePct / 100
+		targetW, _ := r.outputDims()
+		wmW := targetW * bundle.WatermarkSizePct / 100
 		if wmW < 32 {
 			wmW = 32
 		}
@@ -703,14 +921,14 @@ func (r *Runner) renderSinglePass(
 		var concatParts []string
 
 		if introIn != nil {
-			fc.WriteString(fmt.Sprintf("[%d:v]%s[iv];", introIn.videoIdx, videoNormalizeChain))
+			fc.WriteString(fmt.Sprintf("[%d:v]%s[iv];", introIn.videoIdx, r.videoNormalizeChain()))
 			fc.WriteString(fmt.Sprintf("[%d:a]%s[ia];", introIn.audioIdx, audioNormalizeChain))
 			concatParts = append(concatParts, "[iv]", "[ia]")
 			totalDur += introIn.duration
 		}
 		concatParts = append(concatParts, mainV, mainA)
 		if outroIn != nil {
-			fc.WriteString(fmt.Sprintf("[%d:v]%s[ov];", outroIn.videoIdx, videoNormalizeChain))
+			fc.WriteString(fmt.Sprintf("[%d:v]%s[ov];", outroIn.videoIdx, r.videoNormalizeChain()))
 			fc.WriteString(fmt.Sprintf("[%d:a]%s[oa];", outroIn.audioIdx, audioNormalizeChain))
 			concatParts = append(concatParts, "[ov]", "[oa]")
 			totalDur += outroIn.duration

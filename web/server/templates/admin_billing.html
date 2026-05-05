@@ -5,6 +5,37 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Billing · Skydive Memory</title>
 <link rel="stylesheet" href="/static/skydive-memory.css">
+<style>
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .stat-card { padding: 18px 20px; background: var(--sm-surface); border: 1px solid var(--sm-border); border-radius: 14px; }
+  .stat-eyebrow { font-size: 11px; color: var(--sm-text-dim); letter-spacing: .08em; text-transform: uppercase; }
+  .stat-num     { font-size: 28px; font-family: var(--sm-display); font-weight: 500; margin-top: 6px; letter-spacing: -.02em; }
+  .stat-sub     { font-size: 12px; color: var(--sm-text-muted); margin-top: 4px; }
+
+  .total-card {
+    padding: 28px;
+    background: linear-gradient(180deg, rgba(255,200,61,.10), transparent 60%), var(--sm-surface);
+    border: 1px solid var(--sm-brand);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  }
+  .total-num { font-family: var(--sm-display); font-size: 44px; font-weight: 600; letter-spacing: -.02em; color: var(--sm-brand-hi); }
+  .total-sub { font-size: 13px; color: var(--sm-text-muted); margin-top: 6px; }
+
+  .hist-table { width: 100%; border-collapse: collapse; }
+  .hist-table th, .hist-table td {
+    padding: 10px 14px; font-size: 13px;
+    border-bottom: 1px solid var(--sm-border);
+    text-align: left;
+  }
+  .hist-table th {
+    font-size: 11px; color: var(--sm-text-dim); letter-spacing: .08em; text-transform: uppercase;
+    font-family: var(--sm-mono, monospace); font-weight: 500;
+  }
+  .hist-table td.num, .hist-table th.num { text-align: right; font-family: var(--sm-mono, monospace); }
+  .hist-table tr:hover td { background: var(--sm-surface-2); }
+  .hist-table .empty-row td { color: var(--sm-text-dim); text-align: center; padding: 30px; }
+</style>
 </head>
 <body>
 
@@ -15,59 +46,98 @@
     <header style="height:64px;border-bottom:1px solid var(--sm-border);display:flex;align-items:center;padding:0 28px;gap:16px">
       <div style="flex:1">
         <h1 style="font-size:20px;font-weight:500">Billing</h1>
-        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">Plan, usage and invoices</div>
+        <div style="font-size:12px;color:var(--sm-text-muted);margin-top:2px">
+          {{if .CurrentBill}}{{.CurrentBill.MonthLabel}}{{else}}This month{{end}} usage and amount due
+        </div>
       </div>
     </header>
 
-    <div style="padding:28px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:24px">
-      <!-- Plan tiers -->
-      <section>
-        <h2 style="font-size:14px;margin-bottom:12px;color:var(--sm-text-muted)">Plan</h2>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
-          <div class="sm-card" style="padding:22px;position:relative">
-            <div style="font-size:12px;color:var(--sm-text-muted)">Free</div>
-            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€0<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
-            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">1 operator · 5 jumps/mo</div>
-          </div>
-          <div class="sm-card" style="padding:22px;position:relative;border-color:var(--sm-brand);background:linear-gradient(180deg,rgba(255,200,61,.08),transparent 60%),var(--sm-surface)">
-            <span class="sm-pill is-brand" style="position:absolute;top:16px;right:16px">Current</span>
-            <div style="font-size:12px;color:var(--sm-text-muted)">Pro</div>
-            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€49<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
-            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">3 operators · 100 jumps/mo</div>
-          </div>
-          <div class="sm-card" style="padding:22px;position:relative">
-            <div style="font-size:12px;color:var(--sm-text-muted)">Studio</div>
-            <div style="font-size:30px;font-family:var(--sm-display);font-weight:500;margin-top:6px;letter-spacing:-0.02em">€149<span style="font-size:13px;color:var(--sm-text-muted)"> / mo</span></div>
-            <div style="font-size:12px;color:var(--sm-text-muted);margin-top:8px">Unlimited operators &amp; jumps</div>
+    <div style="padding:28px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:24px;max-width:1200px">
+
+      {{if .CurrentBill}}
+      <!-- Big "amount due" card -->
+      <div class="total-card">
+        <div>
+          <div class="stat-eyebrow">Amount due · {{.CurrentBill.MonthLabel}}</div>
+          <div class="total-num">€{{.CurrentBill.EuroTotal}}</div>
+          <div class="total-sub">
+            {{.CurrentBill.VideoCount}} video{{if ne .CurrentBill.VideoCount 1}}s{{end}}
+            ({{.CurrentBill.VideoCount}} × €{{.CurrentBill.EuroPerVideo}} = €{{.CurrentBill.EuroVideo}})
+            ·
+            {{.CurrentBill.PhotoPackCount}} photo pack{{if ne .CurrentBill.PhotoPackCount 1}}s{{end}}
+            ({{.CurrentBill.PhotoPackCount}} × €{{.CurrentBill.EuroPerPhoto}} = €{{.CurrentBill.EuroPhoto}})
           </div>
         </div>
+        <div style="text-align:right;font-size:11px;color:var(--sm-text-muted);max-width:240px">
+          Per-jump rates set by Skydive Memory.<br>
+          Invoice ships at the start of next month.
+        </div>
+      </div>
+
+      <!-- 4-stat row -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-eyebrow">Videos delivered</div>
+          <div class="stat-num">{{.CurrentBill.VideoCount}}</div>
+          <div class="stat-sub">€{{.CurrentBill.EuroPerVideo}} each</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-eyebrow">Photo packs</div>
+          <div class="stat-num">{{.CurrentBill.PhotoPackCount}}</div>
+          <div class="stat-sub">€{{.CurrentBill.EuroPerPhoto}} each</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-eyebrow">Subtotal · video</div>
+          <div class="stat-num">€{{.CurrentBill.EuroVideo}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-eyebrow">Subtotal · photo</div>
+          <div class="stat-num">€{{.CurrentBill.EuroPhoto}}</div>
+        </div>
+      </div>
+      {{else}}
+      <div class="stat-card" style="text-align:center;padding:60px 20px;color:var(--sm-text-muted)">
+        Billing data unavailable. Try refreshing the page.
+      </div>
+      {{end}}
+
+      <!-- 12-month history -->
+      <section style="background:var(--sm-surface);border:1px solid var(--sm-border);border-radius:14px;overflow:hidden">
+        <div style="padding:16px 22px;border-bottom:1px solid var(--sm-border);display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:500">12-month history</div>
+          <div style="font-size:11px;color:var(--sm-text-dim);font-family:var(--sm-mono)">SORT · oldest → newest</div>
+        </div>
+        <table class="hist-table">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th class="num">Videos</th>
+              <th class="num">Photo packs</th>
+              <th class="num">Subtotal video</th>
+              <th class="num">Subtotal photo</th>
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .History}}
+            <tr>
+              <td>{{.MonthLabel}}</td>
+              <td class="num">{{.VideoCount}}</td>
+              <td class="num">{{.PhotoPackCount}}</td>
+              <td class="num">€{{.EuroVideo}}</td>
+              <td class="num">€{{.EuroPhoto}}</td>
+              <td class="num" style="color:var(--sm-text);font-weight:600">€{{.EuroTotal}}</td>
+            </tr>
+            {{else}}
+            <tr class="empty-row"><td colspan="6">No bills yet — render your first jump to start the meter.</td></tr>
+            {{end}}
+          </tbody>
+        </table>
       </section>
 
-      <!-- Usage meter -->
-      <section class="sm-card" style="padding:22px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
-          <div style="font-weight:500">Usage this month</div>
-          <div style="font-size:12px;color:var(--sm-text-muted)">Resets on the 1st · 00:00 UTC</div>
-        </div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
-          <span style="font-size:28px;font-family:var(--sm-display);font-weight:500">{{.UsageCount}}</span>
-          <span style="color:var(--sm-text-muted)">/ {{.UsageCap}} jumps</span>
-        </div>
-        <div style="height:8px;background:var(--sm-surface-3);border-radius:999px;overflow:hidden">
-          <div style="width:{{.UsagePct}}%;height:100%;background:var(--sm-gradient-hero)"></div>
-        </div>
-      </section>
-
-      <!-- Invoices placeholder -->
-      <section class="sm-card" style="padding:0;overflow:hidden">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px;border-bottom:1px solid var(--sm-border)">
-          <div style="font-weight:500">Invoices</div>
-          <button class="sm-btn is-sm" disabled>Update payment method</button>
-        </div>
-        <div style="padding:40px;text-align:center;color:var(--sm-text-muted);font-size:13px">
-          Stripe integration ships in a later session. Manual B2B invoicing meanwhile via Flowtark.
-        </div>
-      </section>
+      <div style="font-size:11px;color:var(--sm-text-dim);text-align:center">
+        Counts based on artifacts uploaded in the month (UTC). Stripe / SEPA invoicing wires up in Phase 8.
+      </div>
     </div>
   </main>
 </div>

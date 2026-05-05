@@ -18,6 +18,12 @@ package v1
 type ArtifactUploadURLRequest struct {
 	Kind      string `json:"kind"`       // 'horizontal_1080p' | 'horizontal_4k' | 'vertical' | 'photo' | 'screenshot'
 	SizeBytes int64  `json:"size_bytes"` // for sanity validation only — S3 doesn't enforce
+	// Slot disambiguates multi-instance kinds (photo, screenshot) so each
+	// upload lands at its own S3 key. Ignored for single-instance kinds
+	// (1080p, 4k, vertical, wow_highlights). Studio passes the picker
+	// index ("00".."19") so re-runs overwrite the same slot in S3 instead
+	// of leaking storage.
+	Slot string `json:"slot,omitempty"`
 }
 
 // ArtifactUploadURLResponse carries the presigned PUT URL + the S3 key the

@@ -9,10 +9,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,10 +27,13 @@ import (
 	"github.com/pionerus/freefall/internal/config"
 	studiobranding "github.com/pionerus/freefall/internal/studio/branding"
 	"github.com/pionerus/freefall/internal/studio/delivery"
+	"github.com/pionerus/freefall/internal/studio/ffmpeg"
 	"github.com/pionerus/freefall/internal/studio/ffprobe"
+	"github.com/pionerus/freefall/internal/studio/highlights"
 	"github.com/pionerus/freefall/internal/studio/jump"
 	"github.com/pionerus/freefall/internal/studio/license"
 	studiosession "github.com/pionerus/freefall/internal/studio/session"
+	"github.com/pionerus/freefall/internal/studio/smartimport"
 	studiomusic "github.com/pionerus/freefall/internal/studio/music"
 	"github.com/pionerus/freefall/internal/studio/pipeline"
 	"github.com/pionerus/freefall/internal/studio/state"
@@ -143,6 +148,15 @@ func main() {
 	deliveryClient := delivery.NewClient(cfg.CloudBaseURL, sessionMgr.Client())
 	runRegistry := &pipeline.RunRegistry{}
 
+	// Phase 15 — smart-import job registry. Tracks async folder-classification
+	// runs; UI polls /smart-import/{job_id} for progress.
+	importRegistry := smartimport.NewRegistry()
+	importHandlers := &smartimport.Handlers{
+		StateDB:  stateDB,
+		JobsDir:  jobsDir,
+		Registry: importRegistry,
+	}
+
 	// Recover from a previous crash / kill: any generation row left in an
 	// in-progress status is bogus now (studio just restarted, no ffmpeg
 	// running). Mark them failed so the UI doesn't spin forever.
@@ -219,20 +233,45 @@ func main() {
 			}
 		}
 
+		// Filter out assigned clients who already have a project in this
+		// studio — they live in the "Past projects" section below, no need
+		// to show the same client twice. Also build a map for any future
+		// "Continue" CTA we want to surface elsewhere.
+		existingByClient := map[int64]int64{}
+		var todayList []jump.AssignedClient
+		for _, c := range assigned {
+			if existing, err := stateDB.FindLatestActiveProjectForClient(req.Context(), c.ID); err == nil && existing != nil {
+				existingByClient[c.ID] = existing.ID
+				continue // already in Past list, skip Today
+			}
+			todayList = append(todayList, c)
+		}
+		assigned = todayList
+
+		// Pre-fill the sign-in email with whoever was just logged out (cloud
+		// rejected creds → snapshot still has the email) or with .env on
+		// first boot. Empty string is fine — the input still works.
+		emailHint := res.OperatorEmail
+		if emailHint == "" {
+			emailHint = cfg.OperatorEmail
+		}
 		data := homeData{
-			Version:            version,
-			Platform:           runtime.GOOS + "/" + runtime.GOARCH,
-			Addr:               cfg.HTTPAddr,
-			Port:               portFromAddr(cfg.HTTPAddr),
-			CloudBaseURL:       cfg.CloudBaseURL,
-			StatePath:          cfg.StatePath,
-			TokenConfigured:    cfg.OperatorEmail != "" && cfg.OperatorPassword != "",
-			License:            res,
-			LicenseCheckedAt:   lastAt,
-			CloudReachable:     pingCloud(cfg.CloudBaseURL),
-			Projects:           projects,
-			AssignedClients:    assigned,
-			AssignedClientsErr: assignedErrMsg,
+			Version:                  version,
+			Platform:                 runtime.GOOS + "/" + runtime.GOARCH,
+			Addr:                     cfg.HTTPAddr,
+			Port:                     portFromAddr(cfg.HTTPAddr),
+			CloudBaseURL:             cfg.CloudBaseURL,
+			StatePath:                cfg.StatePath,
+			TokenConfigured:          cfg.OperatorEmail != "" && cfg.OperatorPassword != "",
+			License:                  res,
+			LicenseCheckedAt:         lastAt,
+			CloudReachable:           pingCloud(cfg.CloudBaseURL),
+			Projects:                 projects,
+			AssignedClients:          assigned,
+			AssignedClientsErr:       assignedErrMsg,
+			ExistingProjectByClientID: existingByClient,
+			LoginError:               req.URL.Query().Get("login_error"),
+			OperatorEmailHint:        emailHint,
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := ui.Templates.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -249,6 +288,45 @@ func main() {
 		// so a fresh email/password requires restart; this just refreshes the existing
 		// session if cookies expired).
 		_, _ = sessionMgr.Login(r.Context())
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
+
+	// /license/logout — operator-initiated sign-out. Wipes the cloud
+	// session + local cookies + cached credentials. After this the studio
+	// shows the auth-banner with a sign-in form (no automatic re-login from
+	// .env until the operator types creds or restarts).
+	r.Post("/license/logout", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		sessionMgr.Logout(ctx)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
+
+	// /license/login — handler for the in-page sign-in form on the
+	// dashboard's auth-banner. Lets the operator switch identity without
+	// editing .env. Form fields: email, password.
+	r.Post("/license/login", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Redirect(w, r, "/?login_error=parse", http.StatusSeeOther)
+			return
+		}
+		email := strings.TrimSpace(r.PostFormValue("email"))
+		password := r.PostFormValue("password")
+		if email == "" || password == "" {
+			http.Redirect(w, r, "/?login_error=missing", http.StatusSeeOther)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		snap, err := sessionMgr.LoginWith(ctx, email, password)
+		if err != nil || !snap.Valid {
+			reason := snap.Reason
+			if reason == "" {
+				reason = "unknown"
+			}
+			http.Redirect(w, r, "/?login_error="+url.QueryEscape(reason), http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
@@ -297,16 +375,60 @@ func main() {
 
 	// New project flow. GET renders the form, POST sends it through to the cloud
 	// (POST /api/v1/jumps/register) and renders the access_code on success.
+	//
+	// Deep-link mode: ?client_id=N from a "Start project" button locks the form
+	// to that single client (no list, no walk-in tab) and, if the operator has
+	// an existing in-progress project for them, flips the CTA to "Continue"
+	// pointing at /projects/{existing}/clips. Without ?client_id the page is
+	// the full picker.
 	r.Get("/projects/new", func(w http.ResponseWriter, req *http.Request) {
 		res, _ := licenseStatus()
 		if !res.Valid {
 			http.Redirect(w, req, "/", http.StatusSeeOther)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = ui.Templates.ExecuteTemplate(w, "new_project.html", map[string]any{
+
+		data := map[string]any{
 			"License": res,
-		})
+		}
+
+		// Resolve ?client_id → locked client + existing-project lookup. Both
+		// halves are best-effort: failure here just falls back to the full
+		// picker UI rather than 500-ing.
+		if cidStr := req.URL.Query().Get("client_id"); cidStr != "" {
+			if cid, perr := strconv.ParseInt(cidStr, 10, 64); perr == nil && cid > 0 {
+				ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+				defer cancel()
+				if clients, err := jumpClient.AssignedClients(ctx); err == nil {
+					for i := range clients {
+						if clients[i].ID == cid {
+							c := clients[i]
+							data["LockedClient"] = map[string]any{
+								"ID":         c.ID,
+								"Name":       c.Name,
+								"Email":      c.Email,
+								"Phone":      c.Phone,
+								"AccessCode": c.AccessCode,
+								"JumpCount":  c.JumpCount,
+								"Status":     c.Status,
+							}
+							break
+						}
+					}
+				}
+				// fresh=1 → operator clicked "Start fresh instead" on the
+				// Continue page. Skip the existing-project lookup so the
+				// CTA is "Create project" again.
+				if req.URL.Query().Get("fresh") != "1" {
+					if existing, err := stateDB.FindLatestActiveProjectForClient(req.Context(), cid); err == nil && existing != nil {
+						data["ExistingProjectID"] = existing.ID
+					}
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = ui.Templates.ExecuteTemplate(w, "new_project.html", data)
 	})
 
 	r.Post("/projects", func(w http.ResponseWriter, req *http.Request) {
@@ -411,6 +533,40 @@ func main() {
 			clipByKind[c.Kind] = &c
 		}
 
+		// Build the slot grid ordering: uploaded clips (any kind) interleaved
+		// with empty canonical slots, sorted by position. Canonical kinds get
+		// their default position when they don't have a clip yet, so a fresh
+		// project still shows them in the natural pre/walk/plane/freefall/
+		// landing order.
+		canonicalDefaults := map[string]int{
+			state.KindInterviewPre:   20,
+			state.KindWalk:           30,
+			state.KindInterviewPlane: 40,
+			state.KindFreefall:       50,
+			state.KindLanding:        60,
+		}
+		seen := map[string]bool{}
+		type slotEntry struct{ Pos int; Kind string }
+		var entries []slotEntry
+		for _, c := range clips {
+			if state.IsLegacyBrandingKind(c.Kind) {
+				continue
+			}
+			entries = append(entries, slotEntry{Pos: c.Position, Kind: c.Kind})
+			seen[c.Kind] = true
+		}
+		for _, k := range state.CanonicalKinds() {
+			if seen[k] {
+				continue
+			}
+			entries = append(entries, slotEntry{Pos: canonicalDefaults[k], Kind: k})
+		}
+		sort.SliceStable(entries, func(i, j int) bool { return entries[i].Pos < entries[j].Pos })
+		orderedKinds := make([]string, 0, len(entries))
+		for _, e := range entries {
+			orderedKinds = append(orderedKinds, e.Kind)
+		}
+
 		// Fetch all cut zones for this project's clips so the template can
 		// render them as red striped overlays inside each trim slider.
 		cutsByClipID, _ := stateDB.ListCutsForProject(req.Context(), id)
@@ -426,7 +582,7 @@ func main() {
 			"CloudBaseURL":        cfg.CloudBaseURL,
 			"P":                   p,
 			"AccessCodeCanonical": strings.ReplaceAll(p.AccessCode, "-", ""),
-			"CanonicalKinds":      state.CanonicalKinds(),
+			"CanonicalKinds":      orderedKinds, // legacy template var name; now contains all-ordered slot kinds
 			"ClipByKind":          clipByKind,
 			"CutsByKind":          cutsByKind,
 			"FFprobeAvailable":    ffprobe.IsAvailable(),
@@ -470,6 +626,12 @@ func main() {
 			"ClipCount":           len(clips),
 		})
 	})
+
+	// Phase 15 — smart-import: drop a whole folder, system classifies clips
+	// into canonical kinds + position-numbered custom slots automatically.
+	// Async pipeline; client polls Status for progress.
+	r.Post("/projects/{id}/clips/smart-import", importHandlers.Start)
+	r.Get("/projects/{id}/clips/smart-import/{job_id}", importHandlers.Status)
 
 	// POST a clip file into a project's slot. Multipart with field name "file".
 	// Stores under <jobsDir>/<project_id>/<sanitized_kind>.<ext>, runs ffprobe,
@@ -583,6 +745,40 @@ func main() {
 			return
 		}
 		clipRow.ID = clipID
+
+		// Run auto-trim synchronously before responding. UI does location.reload()
+		// right after this returns and reads trim_in/trim_out from the freshly
+		// rendered server template — async would race the reload. silencedetect
+		// + astats are fast (~10–20× realtime on audio-only decode); the extra
+		// few seconds are invisible after a 30s+ video upload.
+		//
+		// Operator opt-out: front-end sends X-Auto-Trim: 0 when the operator
+		// disabled "Auto-trim on upload" in studio settings. Default = enabled.
+		autoTrimEnabled := req.Header.Get("X-Auto-Trim") != "0"
+		if autoTrimEnabled && ffprobe.IsAvailable() && clipRow.DurationSeconds > 0 {
+			s, err := trim.Suggest(req.Context(), &clipRow)
+			if err != nil {
+				log.Printf("WARN: auto-trim on upload (%s): %v", kind, err)
+			} else {
+				if perr := stateDB.UpdateClipTrim(req.Context(), clipRow.ProjectID, kind, s.TrimIn, s.TrimOut, true); perr != nil {
+					log.Printf("WARN: persist auto-trim (%s): %v", kind, perr)
+				} else {
+					clipRow.TrimInSeconds = s.TrimIn
+					clipRow.TrimOutSeconds = s.TrimOut
+					clipRow.TrimAutoSuggested = true
+				}
+				if s.SpeechStart > 0 {
+					if perr := stateDB.UpdateClipSpeechStart(req.Context(), clipRow.ProjectID, kind, s.SpeechStart); perr != nil {
+						log.Printf("WARN: persist speech-start (%s): %v", kind, perr)
+					} else {
+						clipRow.SpeechStartSeconds = s.SpeechStart
+					}
+				}
+				log.Printf("auto-trim %s: %.2f-%.2f (speech_start=%.2f) — %s",
+					kind, s.TrimIn, s.TrimOut, s.SpeechStart, s.Reason)
+			}
+		}
+
 		writeStudioJSON(w, http.StatusOK, clipRow)
 	})
 
@@ -763,6 +959,87 @@ func main() {
 		})
 	})
 
+	// PUT /cuts/{id} — resize an existing cut zone after a handle drag.
+	// Body: {start: float, end: float}. Validates range against the clip's
+	// trim window and rejects overlap with other cuts on the same clip.
+	r.Put("/cuts/{id}", func(w http.ResponseWriter, req *http.Request) {
+		cutID, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		var body struct {
+			Start float64 `json:"start"`
+			End   float64 `json:"end"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+		if body.End <= body.Start {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_RANGE", "message": "end must be > start"})
+			return
+		}
+		// Find the parent clip + project to scope validation + sibling lookup.
+		clipID, _, err := stateDB.GetCutClip(req.Context(), cutID)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "Cut not found."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		clip, err := stateDB.GetClipByID(req.Context(), clipID)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		// Trim-window bounds.
+		tIn := clip.TrimInSeconds
+		if tIn < 0 {
+			tIn = 0
+		}
+		tOut := clip.TrimOutSeconds
+		if tOut <= 0 || tOut > clip.DurationSeconds {
+			tOut = clip.DurationSeconds
+		}
+		if body.Start < tIn-0.05 || body.End > tOut+0.05 {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{
+				"code":    "OUT_OF_TRIM",
+				"message": fmt.Sprintf("cut zone must sit inside the trim window [%.2f, %.2f]", tIn, tOut),
+			})
+			return
+		}
+		// Sibling overlap check (skip self).
+		siblings, err := stateDB.ListCuts(req.Context(), clip.ID)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		for _, c := range siblings {
+			if c.ID == cutID {
+				continue
+			}
+			if !(body.End <= c.StartSeconds || body.Start >= c.EndSeconds) {
+				writeStudioJSON(w, http.StatusBadRequest, map[string]string{
+					"code":    "OVERLAP",
+					"message": "Cut zone overlaps an existing one.",
+				})
+				return
+			}
+		}
+		if err := stateDB.UpdateCutRange(req.Context(), cutID, body.Start, body.End); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"id":    cutID,
+			"start": body.Start,
+			"end":   body.End,
+		})
+	})
+
 	// DELETE a cut by id. We resolve project + clip via JOIN so the response
 	// can be useful for the UI even after the row is gone.
 	r.Delete("/cuts/{id}", func(w http.ResponseWriter, req *http.Request) {
@@ -786,6 +1063,92 @@ func main() {
 			return
 		}
 		writeStudioJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	})
+
+	// PUT speech-start marker for a clip. Body: {speech_start: 12.34} or
+	// {speech_start: 0} to clear. Pipeline reads this on render: trim_in →
+	// speech_start = action (silent), speech_start → trim_out = interview
+	// (keep audio + sidechain music).
+	r.Put("/projects/{id}/clips/{kind}/speech-start", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		var body struct {
+			SpeechStart float64 `json:"speech_start"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		// 0 = clear.
+		if body.SpeechStart > 0 {
+			tIn := clip.TrimInSeconds
+			tOut := clip.EffectiveTrimOut()
+			if body.SpeechStart < tIn-0.05 || body.SpeechStart > tOut+0.05 {
+				writeStudioJSON(w, http.StatusBadRequest, map[string]string{
+					"code":    "OUT_OF_TRIM",
+					"message": fmt.Sprintf("speech_start must sit inside the trim window [%.2f, %.2f]", tIn, tOut),
+				})
+				return
+			}
+		}
+		if err := stateDB.UpdateClipSpeechStart(req.Context(), id, kind, body.SpeechStart); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"status":       "updated",
+			"speech_start": body.SpeechStart,
+		})
+	})
+
+	// POST speech-start auto-detect — runs silencedetect to find the first
+	// speech onset inside the trim window. Returns a suggested timestamp +
+	// human-readable reason without persisting; operator clicks Save (or
+	// drags) to commit via PUT above.
+	r.Post("/projects/{id}/clips/{kind}/speech-start/auto", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if !ffprobe.IsAvailable() {
+			writeStudioJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"code": "FFMPEG_MISSING", "message": "Auto-detect needs ffmpeg on PATH.",
+			})
+			return
+		}
+		s, err := trim.SuggestSpeechStart(req.Context(), clip)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "AUTO_DETECT_FAILED", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{
+			"speech_start": s.SpeechStart,
+			"reason":       s.Reason,
+		})
 	})
 
 	// POST .../trim/auto — runs the per-kind heuristic (silencedetect for audio
@@ -825,11 +1188,149 @@ func main() {
 			return
 		}
 
+		// Persist immediately so the rail picks up new values on reload AND
+		// speech-start (when set by landing heuristic) ducks music in the
+		// next render — operator doesn't need a separate Save click for the
+		// auto-suggested values.
+		if perr := stateDB.UpdateClipTrim(req.Context(), id, kind, suggestion.TrimIn, suggestion.TrimOut, true); perr != nil {
+			log.Printf("WARN: persist auto-trim (manual re-detect, %s): %v", kind, perr)
+		}
+		if suggestion.SpeechStart > 0 {
+			if perr := stateDB.UpdateClipSpeechStart(req.Context(), id, kind, suggestion.SpeechStart); perr != nil {
+				log.Printf("WARN: persist speech-start (manual re-detect, %s): %v", kind, perr)
+			}
+		}
+
 		writeStudioJSON(w, http.StatusOK, map[string]any{
-			"trim_in":  suggestion.TrimIn,
-			"trim_out": suggestion.TrimOut,
-			"reason":   suggestion.Reason,
+			"trim_in":      suggestion.TrimIn,
+			"trim_out":     suggestion.TrimOut,
+			"reason":       suggestion.Reason,
+			"speech_start": suggestion.SpeechStart,
 		})
+	})
+
+	// PUT /projects/{id}/clips/reorder — body {"order": [clipID, clipID, ...]}.
+	// Persists a new clip ordering; pipeline + UI reflect it on next render.
+	r.Put("/projects/{id}/clips/reorder", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		var body struct {
+			Order []int64 `json:"order"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+		if len(body.Order) == 0 {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "EMPTY_ORDER", "message": "order array required"})
+			return
+		}
+		if err := stateDB.ReorderClips(req.Context(), id, body.Order); err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"reordered": len(body.Order)})
+	})
+
+	// =========================================================
+	// Photo marks — operator-curated timestamps that drive the
+	// photo-pack pipeline. Pattern mirrors /cuts: per-clip GET
+	// + POST, plus a top-level DELETE by id for the "click dot
+	// to remove" UX.
+	// =========================================================
+
+	r.Get("/projects/{id}/clips/{kind}/photo-marks", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusOK, map[string]any{"marks": []any{}})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		marks, err := stateDB.ListPhotoMarks(req.Context(), clip.ID)
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"marks": marks})
+	})
+
+	r.Post("/projects/{id}/clips/{kind}/photo-marks", func(w http.ResponseWriter, req *http.Request) {
+		id, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		kind := chi.URLParam(req, "kind")
+		var body struct {
+			TSeconds float64 `json:"t_seconds"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_JSON", "message": err.Error()})
+			return
+		}
+		clip, err := stateDB.GetClip(req.Context(), id, kind)
+		if errors.Is(err, state.ErrNotFound) {
+			writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "No clip in that slot."})
+			return
+		}
+		if err != nil {
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		// Clamp to safe bounds inside the source clip (don't let an off-by-one
+		// drag set a mark past the clip's end). Trim window isn't enforced —
+		// operator may want to mark something just outside the trim that
+		// they'll widen later.
+		t := body.TSeconds
+		if t < 0 {
+			t = 0
+		}
+		if clip.DurationSeconds > 0 && t > clip.DurationSeconds-0.05 {
+			t = clip.DurationSeconds - 0.05
+		}
+		// Round to 0.01s so the UNIQUE constraint catches near-duplicate
+		// clicks (operators can't realistically distinguish 41.231 vs 41.235).
+		t = float64(int64(t*100+0.5)) / 100.0
+
+		markID, err := stateDB.CreatePhotoMark(req.Context(), clip.ID, t)
+		if err != nil {
+			if state.IsDuplicateMark(err) {
+				writeStudioJSON(w, http.StatusConflict, map[string]string{"code": "DUPLICATE", "message": "A mark already exists at that time."})
+				return
+			}
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"id": markID, "t_seconds": t, "clip_id": clip.ID})
+	})
+
+	r.Delete("/photo-marks/{id}", func(w http.ResponseWriter, req *http.Request) {
+		markID, err := parseInt64URLParam(req, "id")
+		if err != nil {
+			writeStudioJSON(w, http.StatusBadRequest, map[string]string{"code": "INVALID_ID", "message": err.Error()})
+			return
+		}
+		if err := stateDB.DeletePhotoMark(req.Context(), markID); err != nil {
+			if errors.Is(err, state.ErrNotFound) {
+				writeStudioJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "message": "mark not found"})
+				return
+			}
+			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		writeStudioJSON(w, http.StatusOK, map[string]any{"deleted": true})
 	})
 
 	// GET music catalog — proxies to cloud /api/v1/music. Studio doesn't cache;
@@ -1079,19 +1580,74 @@ func main() {
 				log.Printf("WARN: post-render upload skipped (project lookup project=%d): %v", projectID, perr)
 				return
 			}
+			// Phase 7.1 — upload main 1080p only when jump is registered.
 			if p.RemoteJumpID <= 0 {
-				log.Printf("WARN: post-render upload skipped (project=%d has no remote_jump_id)", projectID)
-				return
+				log.Printf("WARN: cloud upload skipped (project=%d has no remote_jump_id — phase 5 will still render locally)", projectID)
+			} else {
+				// Force a fresh login before the upload chain — the periodic
+				// re-login (every 6h) doesn't catch shorter cookie lifetimes
+				// behind some setups, and an expired cookie surfaces as an
+				// AUTH_REQUIRED 401 on the first artifact request.
+				if _, lerr := sessionMgr.Login(uploadCtx); lerr != nil {
+					log.Printf("WARN: pre-upload re-login: %v", lerr)
+				}
+				// Pick artifact kind based on actual rendered resolution. 4K
+				// goes up as horizontal_4k; the 2K case rounds up to 4K kind
+				// (cloud schema doesn't have a separate 2K bucket — Phase 14
+				// will revisit). Anything 1080p stays as horizontal_1080p.
+				renderW, renderH := pipelineRunner.OutputDims()
+				renderKind := "horizontal_1080p"
+				if renderH >= 1440 {
+					renderKind = "horizontal_4k"
+				}
+				artID, jumpStatus, uerr := deliveryClient.UploadAndRegister(
+					uploadCtx, p.RemoteJumpID, renderKind, outputPath, renderW, renderH,
+				)
+				if uerr != nil {
+					log.Printf("WARN: post-render upload failed (project=%d jump=%d): %v — continuing with reels/photos", projectID, p.RemoteJumpID, uerr)
+				} else {
+					log.Printf("post-render upload OK (project=%d jump=%d artifact=%d jump_status=%s)",
+						projectID, p.RemoteJumpID, artID, jumpStatus)
+				}
 			}
-			artID, jumpStatus, uerr := deliveryClient.UploadAndRegister(
-				uploadCtx, p.RemoteJumpID, "horizontal_1080p", outputPath, 1920, 1080,
-			)
-			if uerr != nil {
-				log.Printf("WARN: post-render upload failed (project=%d jump=%d): %v", projectID, p.RemoteJumpID, uerr)
-				return
+
+			// === Phase 5: short-form deliverables (WOW + Insta reel) ===
+			// Render always — upload inside each helper is skipped when
+			// RemoteJumpID == 0 but local files are still produced.
+			log.Printf("phase 5: OutputVertical=%v OutputPhotos=%v (remoteJumpID=%d)",
+				p.OutputVertical, p.OutputPhotos, p.RemoteJumpID)
+			if p.OutputVertical {
+				renderAndUploadReel(
+					uploadCtx, stateDB, pipelineRunner, deliveryClient,
+					p, projectID, generationID,
+					"vertical", pipeline.AspectVertical,
+					"insta", filepath.Join(projectDir(jobsDir, projectID), "output_vertical.mp4"),
+				)
+				renderAndUploadReel(
+					uploadCtx, stateDB, pipelineRunner, deliveryClient,
+					p, projectID, generationID,
+					"wow_highlights", pipeline.AspectHorizontal,
+					"wow", filepath.Join(projectDir(jobsDir, projectID), "output_wow.mp4"),
+				)
 			}
-			log.Printf("post-render upload OK (project=%d jump=%d artifact=%d jump_status=%s)",
-				projectID, p.RemoteJumpID, artID, jumpStatus)
+			if p.OutputPhotos {
+				renderAndUploadPhotoPack(
+					uploadCtx, stateDB, deliveryClient, p, projectID, generationID,
+					filepath.Join(projectDir(jobsDir, projectID), "photos"),
+					pipelineRunner,
+				)
+			}
+
+			// Phase 13: notify the jumper. Best-effort — failure here logs
+			// but doesn't fail the render (the watch page works regardless).
+			if p.RemoteJumpID > 0 {
+				if res, err := deliveryClient.SendDeliverablesEmail(uploadCtx, p.RemoteJumpID, false); err != nil {
+					log.Printf("send-email: jump=%d error=%v", p.RemoteJumpID, err)
+				} else {
+					log.Printf("send-email: jump=%d sent=%v reason=%s recipient=%s",
+						p.RemoteJumpID, res.Sent, res.Reason, res.Recipient)
+				}
+			}
 		}(id, genID)
 
 		writeStudioJSON(w, http.StatusAccepted, map[string]any{
@@ -1145,16 +1701,32 @@ func main() {
 			writeStudioJSON(w, http.StatusInternalServerError, map[string]string{"code": "DB_ERROR", "message": err.Error()})
 			return
 		}
+		// Project flags drive whether to render the phase5 status pills at
+		// all — `output_vertical=false` means the operator opted out so the
+		// pills shouldn't even appear.
+		var outVertical, outPhotos bool
+		if p, perr := stateDB.GetProject(req.Context(), id); perr == nil && p != nil {
+			outVertical = p.OutputVertical
+			outPhotos = p.OutputPhotos
+		}
 		writeStudioJSON(w, http.StatusOK, map[string]any{
 			"generation": map[string]any{
-				"id":           g.ID,
-				"status":       g.Status,
-				"progress_pct": g.ProgressPct,
-				"step_label":   g.StepLabel,
-				"output_size":  g.OutputSize,
-				"error":        g.Error,
-				"started_at":   g.StartedAt,
-				"finished_at":  g.FinishedAt,
+				"id":                  g.ID,
+				"status":              g.Status,
+				"progress_pct":        g.ProgressPct,
+				"step_label":          g.StepLabel,
+				"output_size":         g.OutputSize,
+				"error":               g.Error,
+				"started_at":          g.StartedAt,
+				"finished_at":         g.FinishedAt,
+				"phase5_insta":        g.Phase5Insta,
+				"phase5_wow":          g.Phase5WOW,
+				"phase5_photos":       g.Phase5Photos,
+				"phase5_insta_pct":    g.Phase5InstaPct,
+				"phase5_wow_pct":      g.Phase5WOWPct,
+				"phase5_photos_pct":   g.Phase5PhotosPct,
+				"output_vertical":     outVertical,
+				"output_photos":       outPhotos,
 			},
 		})
 	})
@@ -1290,11 +1862,340 @@ type homeData struct {
 	// Today queue: clients the club admin has assigned to this operator.
 	// Pulled from cloud each render. Best-effort — if the cloud is down
 	// the dashboard still renders with the local Projects list only.
-	AssignedClients     []jump.AssignedClient
-	AssignedClientsErr  string
+	AssignedClients    []jump.AssignedClient
+	AssignedClientsErr string
+
+	// Lookup map cloud_client_id → local_project_id for assigned clients
+	// who already have an in-flight draft. Drives the Today row's CTA:
+	// "Continue →" when found, "Start project" when not.
+	ExistingProjectByClientID map[int64]int64
+
+	// Sign-in form state. Surfaces the failure reason from /license/login
+	// and pre-fills the email field with .env value (or last logged-out
+	// operator) so retry doesn't make the operator type it again.
+	LoginError        string
+	OperatorEmailHint string
 }
 
 // writeStudioJSON sends a JSON response from a studio handler.
+// projectDir is the on-disk directory the pipeline writes intermediates +
+// output mp4s into for one project — `<jobsDir>/<projectID>`.
+func projectDir(jobsDir string, projectID int64) string {
+	return filepath.Join(jobsDir, strconv.FormatInt(projectID, 10))
+}
+
+// renderAndUploadReel orchestrates one short-form deliverable: pick segments
+// (WOW or Insta picker depending on `flavour`), render via pipeline.RunReel,
+// upload via deliveryClient, and register the artifact under `kind`. All
+// errors are logged + swallowed — caller is best-effort, the main edit is
+// already in the bag.
+//
+//	flavour: "wow" | "insta"
+//	kind:    "wow_highlights" | "vertical" — value passed to UploadAndRegister
+func renderAndUploadReel(
+	ctx context.Context,
+	db *state.DB,
+	runner *pipeline.Runner,
+	deliveryClient *delivery.Client,
+	p *state.Project,
+	projectID, genID int64,
+	kind string,
+	aspect pipeline.ReelAspect,
+	flavour string,
+	outputPath string,
+) {
+	setStatus := func(s string) { writePhase5Status(ctx, db, genID, flavour, s) }
+	setStatus(state.Phase5StatusRendering)
+
+	clips, err := db.ListClips(ctx, projectID)
+	if err != nil {
+		log.Printf("WARN: reel %s: list clips: %v", flavour, err)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	clipByKind := map[string]*state.Clip{}
+	for i := range clips {
+		c := clips[i]
+		clipByKind[c.Kind] = &c
+	}
+
+	var segs []highlights.Segment
+	var ok bool
+	var reason string
+	switch flavour {
+	case "wow":
+		ff := clipByKind[state.KindFreefall]
+		if ff == nil {
+			log.Printf("reel wow: no freefall clip; skip")
+			setStatus(state.Phase5StatusSkipped)
+			return
+		}
+		segs, ok, reason = highlights.PickWOWReelSegments(ctx, ff)
+	case "insta":
+		segs, ok, reason = highlights.PickInstaReelSegments(ctx, clipByKind)
+	default:
+		log.Printf("reel: unknown flavour %q", flavour)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	if !ok {
+		log.Printf("reel %s: skipped (%s)", flavour, reason)
+		setStatus(state.Phase5StatusSkipped)
+		return
+	}
+	log.Printf("reel %s: %s", flavour, reason)
+
+	// Resolve music path from project's picked track. Same track as the
+	// main edit by default — energy-aware re-pick is a Phase 5.5 polish.
+	var musicPath string
+	if p.MusicTrackID > 0 && runner.MusicCache != nil {
+		musicCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		mp, mErr := runner.MusicCache.Ensure(musicCtx, p.MusicTrackID)
+		cancel()
+		if mErr != nil {
+			log.Printf("WARN: reel %s: music ensure: %v", flavour, mErr)
+		} else {
+			musicPath = mp
+		}
+	}
+
+	// Branding bundle — reels get the same watermark as main edit.
+	var bundle studiobranding.Bundle
+	if runner.BrandingProvider != nil {
+		brandCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		b, bErr := runner.BrandingProvider.EnsureForRun(brandCtx)
+		cancel()
+		if bErr == nil {
+			bundle = b
+		}
+	}
+
+	if _, err := runner.RunReel(ctx, pipeline.ReelOptions{
+		Segments:       segs,
+		MusicTrackPath: musicPath,
+		Aspect:         aspect,
+		Branding:       bundle,
+		OutputPath:     outputPath,
+		CrossfadeSec:   0.4,
+		// ffmpeg's progress lands here ~1 Hz. We map [0,1] → 0..95 so the
+		// bar finishes at the upload step (last 5%) — operator sees the
+		// pill flip green only after the artifact is actually shipped.
+		OnProgress: func(frac float64) {
+			pct := int(frac * 95)
+			writePhase5Pct(ctx, db, genID, flavour, pct)
+		},
+	}); err != nil {
+		log.Printf("WARN: reel %s: render: %v", flavour, err)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	writePhase5Pct(ctx, db, genID, flavour, 95)
+	log.Printf("reel %s: rendered → %s", flavour, outputPath)
+
+	if p.RemoteJumpID <= 0 {
+		log.Printf("WARN: reel %s: no remote_jump_id; skipping upload", flavour)
+		// Local file exists, but watch page won't see it — mark ready
+		// anyway so the operator sees the reel succeeded locally.
+		setStatus(state.Phase5StatusReady)
+		return
+	}
+	w, h := 1920, 1080
+	if aspect == pipeline.AspectVertical {
+		w, h = 1080, 1920
+	}
+	artID, _, uerr := deliveryClient.UploadAndRegister(ctx, p.RemoteJumpID, kind, outputPath, w, h)
+	if uerr != nil {
+		log.Printf("WARN: reel %s upload: %v", flavour, uerr)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	log.Printf("reel %s uploaded (artifact=%d kind=%s)", flavour, artID, kind)
+	setStatus(state.Phase5StatusReady)
+}
+
+// writePhase5Status updates the appropriate phase5 column on a generation
+// row based on flavour ("wow" | "insta" | "photos"). Best-effort — log on
+// failure so a DB hiccup doesn't kill the render goroutine.
+//
+// Status transitions also reset/finalise the percent column: 'rendering'
+// snaps to 0%, 'ready' to 100%, 'skipped'/'failed' leaves the bar where
+// it died (operator can see it stalled at, say, 35%).
+func writePhase5Status(ctx context.Context, db *state.DB, genID int64, flavour, status string) {
+	if genID <= 0 {
+		return
+	}
+	patch := state.GenerationPatch{}
+	var pctReset, pctDone int = 0, 100
+	switch flavour {
+	case "insta":
+		patch.Phase5Insta = &status
+		switch status {
+		case state.Phase5StatusRendering:
+			patch.Phase5InstaPct = &pctReset
+		case state.Phase5StatusReady:
+			patch.Phase5InstaPct = &pctDone
+		}
+	case "wow":
+		patch.Phase5WOW = &status
+		switch status {
+		case state.Phase5StatusRendering:
+			patch.Phase5WOWPct = &pctReset
+		case state.Phase5StatusReady:
+			patch.Phase5WOWPct = &pctDone
+		}
+	case "photos":
+		patch.Phase5Photos = &status
+		switch status {
+		case state.Phase5StatusRendering:
+			patch.Phase5PhotosPct = &pctReset
+		case state.Phase5StatusReady:
+			patch.Phase5PhotosPct = &pctDone
+		}
+	default:
+		return
+	}
+	if err := db.UpdateGeneration(ctx, genID, patch); err != nil {
+		log.Printf("WARN: phase5 status (%s=%s gen=%d): %v", flavour, status, genID, err)
+	}
+}
+
+// writePhase5Pct writes only the percent column for the given flavour. Used
+// by ffmpeg progress callbacks (1 Hz) and the photo-pack loop (per-frame).
+// Throttled by callers; this just writes whatever it's given.
+func writePhase5Pct(ctx context.Context, db *state.DB, genID int64, flavour string, pct int) {
+	if genID <= 0 {
+		return
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	patch := state.GenerationPatch{}
+	switch flavour {
+	case "insta":
+		patch.Phase5InstaPct = &pct
+	case "wow":
+		patch.Phase5WOWPct = &pct
+	case "photos":
+		patch.Phase5PhotosPct = &pct
+	default:
+		return
+	}
+	_ = db.UpdateGeneration(ctx, genID, patch)
+}
+
+// renderAndUploadPhotoPack runs the photo-pack picker, extracts the best
+// frame at each chosen timestamp (sharpness-based), and uploads each as a
+// jump_artifacts row with kind='photo'. Like the reel renderer this is
+// best-effort — failures log + skip, never fail the parent jump.
+func renderAndUploadPhotoPack(
+	ctx context.Context,
+	db *state.DB,
+	deliveryClient *delivery.Client,
+	p *state.Project,
+	projectID, genID int64,
+	outDir string,
+	runner *pipeline.Runner,
+) {
+	setStatus := func(s string) { writePhase5Status(ctx, db, genID, "photos", s) }
+	setStatus(state.Phase5StatusRendering)
+
+	clips, err := db.ListClips(ctx, projectID)
+	if err != nil {
+		log.Printf("WARN: photo pack: list clips: %v", err)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	clipByKind := map[string]*state.Clip{}
+	for i := range clips {
+		c := clips[i]
+		clipByKind[c.Kind] = &c
+	}
+	// Operator-curated timestamps on the freefall clip take priority. If
+	// none, the planner auto-distributes 20 across the body window.
+	var operatorMarks []float64
+	if ff := clipByKind[state.KindFreefall]; ff != nil {
+		marks, _ := db.ListPhotoMarks(ctx, ff.ID)
+		for _, m := range marks {
+			operatorMarks = append(operatorMarks, m.TSeconds)
+		}
+	}
+	picks, reason := highlights.PlanPhotoPack(ctx, clipByKind, operatorMarks)
+	log.Printf("photo pack: %s", reason)
+	if len(picks) == 0 {
+		setStatus(state.Phase5StatusSkipped)
+		return
+	}
+
+	// Branding bundle for watermark overlay — same logo/position the
+	// rendered videos use. Empty Path = clean frame (no overlay).
+	var wm ffmpeg.WatermarkOptions
+	if runner != nil && runner.BrandingProvider != nil {
+		brandCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		bundle, bErr := runner.BrandingProvider.EnsureForRun(brandCtx)
+		cancel()
+		if bErr == nil && bundle.HasWatermark() {
+			wm = ffmpeg.WatermarkOptions{
+				Path:       bundle.WatermarkPath,
+				SizePct:    bundle.WatermarkSizePct,
+				OpacityPct: bundle.WatermarkOpacityPct,
+				Position:   bundle.WatermarkPosition,
+			}
+			log.Printf("photo pack: watermark on (size=%d%% opacity=%d%% pos=%s)", wm.SizePct, wm.OpacityPct, wm.Position)
+		}
+	}
+
+	// Extract reports per-pick progress. We map extraction over [0, 70]
+	// so uploading owns the trailing 30% — there are 20 photos × ~1s
+	// upload each, which is comparable in wall-time to extraction.
+	total := len(picks)
+	got, err := highlights.ExtractPhotoPackWithProgress(ctx, picks, outDir, wm, func(done int) {
+		pct := done * 70 / total
+		writePhase5Pct(ctx, db, genID, "photos", pct)
+	})
+	if err != nil {
+		log.Printf("WARN: photo pack extract: %v", err)
+		setStatus(state.Phase5StatusFailed)
+		return
+	}
+	log.Printf("photo pack: extracted %d/%d frames into %s", got, len(picks), outDir)
+	writePhase5Pct(ctx, db, genID, "photos", 70)
+
+	if p.RemoteJumpID <= 0 {
+		log.Printf("WARN: photo pack: no remote_jump_id; uploads skipped")
+		setStatus(state.Phase5StatusReady) // local files exist
+		return
+	}
+	uploaded := 0
+	for i, pk := range picks {
+		if pk.ResultPath == "" {
+			continue
+		}
+		// Slot keeps each photo at its own S3 key. Without it all 20
+		// uploads collapse onto "photo.jpg" and overwrite each other —
+		// watch page then shows the same image 20 times. Re-runs reuse
+		// the same slot so we don't leak storage on regeneration.
+		slot := fmt.Sprintf("%02d", i)
+		if _, _, uerr := deliveryClient.UploadAndRegisterWithSlot(ctx, p.RemoteJumpID, "photo", slot, pk.ResultPath, 0, 0); uerr != nil {
+			log.Printf("WARN: photo upload (%s): %v", pk.Label, uerr)
+			continue
+		}
+		uploaded++
+		// Upload phase walks 70 → 100 across the picks list so the bar
+		// finishes when every photo has actually shipped.
+		pct := 70 + (i+1)*30/total
+		writePhase5Pct(ctx, db, genID, "photos", pct)
+	}
+	log.Printf("photo pack: uploaded %d photos to cloud", uploaded)
+	if uploaded == 0 {
+		setStatus(state.Phase5StatusFailed)
+	} else {
+		setStatus(state.Phase5StatusReady)
+	}
+}
+
 func writeStudioJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

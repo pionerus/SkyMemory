@@ -84,14 +84,19 @@ func (m *Manager) Client() *http.Client { return m.hc }
 // updated snapshot. Idempotent — call on boot, on demand, and on the
 // first 401 from a downstream call.
 func (m *Manager) Login(ctx context.Context) (Snapshot, error) {
-	if m.email == "" || m.password == "" {
+	// Snapshot creds under the lock so Logout/LoginWith from another
+	// goroutine don't race with the read.
+	m.mu.RLock()
+	email, password := m.email, m.password
+	m.mu.RUnlock()
+	if email == "" || password == "" {
 		snap := Snapshot{Valid: false, Reason: "credentials_missing"}
 		m.set(snap)
-		return snap, errors.New("STUDIO_OPERATOR_EMAIL / STUDIO_OPERATOR_PASSWORD not configured")
+		return snap, errors.New("operator credentials not configured (set STUDIO_OPERATOR_EMAIL/PASSWORD or sign in via studio UI)")
 	}
 	body, _ := json.Marshal(map[string]string{
-		"email":    m.email,
-		"password": m.password,
+		"email":    email,
+		"password": password,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		m.baseURL+"/auth/login", bytes.NewReader(body))
@@ -185,6 +190,49 @@ func (m *Manager) Start(ctx context.Context, interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// Logout invalidates the cloud session AND wipes the local cookie jar.
+// Best-effort: a network error on /auth/logout doesn't prevent the local
+// clear — operator wanted out, treat the local state as the truth and
+// retry the cloud call later if needed.
+//
+// After Logout the manager's stored email/password are cleared too, so a
+// subsequent EnsureLogin won't silently relog with stale creds. Use
+// LoginWith() to sign in as a different operator.
+func (m *Manager) Logout(ctx context.Context) {
+	// Tell cloud first so the session row in Redis is killed before we
+	// drop the cookie that would let us call it.
+	if req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/auth/logout", nil); err == nil {
+		if resp, derr := m.hc.Do(req); derr == nil {
+			resp.Body.Close()
+		}
+	}
+	// Replace the cookie jar — Go's stdlib jar has no public Clear() and we
+	// need a clean slate so any leaked Set-Cookie can't undo the logout.
+	jar, _ := cookiejar.New(nil)
+	m.hc.Jar = jar
+
+	m.mu.Lock()
+	m.email = ""
+	m.password = ""
+	m.current = Snapshot{Valid: false, Reason: "logged_out"}
+	m.loggedAt = time.Time{}
+	m.mu.Unlock()
+	log.Printf("session: logged out (cookies cleared, creds wiped)")
+}
+
+// LoginWith swaps the manager's stored credentials and signs in with the
+// new pair. Used by the studio's UI sign-in form so an operator can change
+// identity at runtime without editing .env + restarting. On failure the
+// new creds are still recorded (so a "wrong password" pop-up triggers a
+// retry instead of bouncing back to env defaults).
+func (m *Manager) LoginWith(ctx context.Context, email, password string) (Snapshot, error) {
+	m.mu.Lock()
+	m.email = email
+	m.password = password
+	m.mu.Unlock()
+	return m.Login(ctx)
 }
 
 // SnapshotState returns (snap, lastLoggedAt). Cheap; lock-protected.

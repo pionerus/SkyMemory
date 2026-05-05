@@ -128,13 +128,13 @@ button { font-family: inherit; cursor: pointer; }
 .sm-btn.is-primary {
   background: var(--sm-brand);
   border-color: transparent;
-  color: var(--sm-bg);
+  color: #0B0E14;            /* dark text on yellow brand — same in dark + light themes */
   font-weight: 600;
 }
 .sm-btn.is-primary:hover { background: var(--sm-brand-hi); }
 .sm-btn.is-hero {
   background: var(--sm-gradient-hero);
-  color: var(--sm-bg);
+  color: #0B0E14;            /* literal dark — var(--sm-bg) goes transparent in light theme */
   font-weight: 700;
   border: none;
 }

@@ -6,10 +6,7 @@
 <title>Clients · Skydive Memory</title>
 <link rel="stylesheet" href="/static/skydive-memory.css">
 <style>
-/* ===== Skydive Memory — Clients (B6)
-   1:1 port of screens/admin2.jsx → Clients. CSV import + assign-to-operator
-   live behind buttons that hand off to Phase 11+ work ("coming soon"); the
-   layout for both is wired so adding logic later won't require chrome edits. */
+/* ===== Skydive Memory — Clients (B6 + edit/delete/CSV/dropdown phase) */
 
 /* Topbar search */
 .search-wrap { position: relative; }
@@ -30,9 +27,15 @@
   height: 26px; padding: 0 12px;
   cursor: pointer;
   user-select: none;
-  transition: background 80ms;
+  transition: background 80ms, color 80ms, border-color 80ms;
+}
+.filter-chips .sm-pill[aria-pressed="true"] {
+  background: var(--sm-brand);
+  color: #0B0E14;
+  border-color: var(--sm-brand);
 }
 .filter-chips .sm-pill:hover { background: var(--sm-surface-3); color: var(--sm-text); }
+.filter-chips .sm-pill[aria-pressed="true"]:hover { background: var(--sm-brand); color: #0B0E14; }
 .filter-chips .sort-tag {
   margin-left: auto;
   font-family: var(--sm-mono, monospace);
@@ -42,10 +45,11 @@
   text-transform: uppercase;
 }
 
-/* Header row */
+/* Header row — added Jump-date column, removed dedicated Phone column
+   to keep widths sane (phone moved into the Client cell sub-line). */
 .client-head, .client-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1.4fr) 130px 110px 200px 120px 32px;
+  grid-template-columns: 32px minmax(0, 1.5fr) minmax(0, 1.5fr) 130px 200px 120px 36px;
   gap: 14px;
   align-items: center;
   padding: 11px 14px;
@@ -87,18 +91,18 @@
   font-size: 13px; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.client-row .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; }
+.client-row .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .client-row .email,
-.client-row .phone,
 .client-row .date {
   font-size: 13px;
   color: var(--sm-text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.client-row .phone, .client-row .date { font-family: var(--sm-mono, monospace); font-size: 12px; }
+.client-row .date { font-family: var(--sm-mono, monospace); font-size: 12px; }
 .client-row .date.has-date { color: var(--sm-text); }
+.client-row .date.is-soon { color: var(--sm-brand-hi, var(--sm-brand)); font-weight: 500; }
 
-/* Operator chip — clickable now (opens an assign-dropdown) */
+/* Operator chip — clickable, opens dropdown overlay */
 .op-chip {
   width: 100%;
   display: flex; align-items: center; gap: 8px;
@@ -112,9 +116,7 @@
   text-align: left;
 }
 .op-chip:hover { background: var(--sm-surface-3); border-color: var(--sm-border-strong); }
-.op-chip.is-unassigned {
-  color: var(--sm-text-dim);
-}
+.op-chip.is-unassigned { color: var(--sm-text-dim); }
 .op-chip .ava {
   width: 18px; height: 18px;
   border-radius: 999px;
@@ -128,16 +130,52 @@
   border: 1.5px dashed var(--sm-text-dim);
   color: var(--sm-text-dim);
 }
-.op-chip .chev {
-  margin-left: auto;
-  color: var(--sm-text-muted);
-}
+.op-chip .chev { margin-left: auto; color: var(--sm-text-muted); }
 
-/* Row overflow */
+/* Row overflow trigger */
 .row-more {
-  display: flex; justify-content: center;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
   color: var(--sm-text-muted);
+  border: 1px solid transparent;
+  background: transparent;
 }
+.row-more:hover { color: var(--sm-text); border-color: var(--sm-border); }
+
+/* Floating menu (used for both row-more and op-chip dropdowns) */
+.floating-menu {
+  position: absolute;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border-strong);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0,0,0,.45);
+  padding: 6px;
+  display: flex; flex-direction: column;
+}
+.floating-menu .item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--sm-text);
+  text-align: left;
+}
+.floating-menu .item:hover { background: var(--sm-surface-2); }
+.floating-menu .item.is-current { background: var(--sm-surface-2); }
+.floating-menu .item .check {
+  width: 12px; height: 12px;
+  margin-left: auto;
+  color: var(--sm-success);
+}
+.floating-menu .item.is-danger { color: var(--sm-danger, #ff6b7a); }
+.floating-menu .divider { height: 1px; background: var(--sm-border); margin: 4px 6px; }
 
 /* Empty state */
 .empty {
@@ -161,12 +199,14 @@
 .modal-backdrop.is-open { display: flex; }
 .modal-panel {
   width: 100%;
-  max-width: 480px;
+  max-width: 520px;
   background: var(--sm-surface);
   border: 1px solid var(--sm-border-strong);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column;
 }
 .modal-head {
   padding: 20px 24px;
@@ -182,7 +222,7 @@
   cursor: pointer;
 }
 .modal-head .close:hover { background: var(--sm-surface-2); color: var(--sm-text); }
-.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .modal-foot {
   padding: 16px 24px;
   border-top: 1px solid var(--sm-border);
@@ -216,11 +256,7 @@
         <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input class="sm-input" id="searchInput" placeholder="Search by name or email…">
       </div>
-      <button class="sm-btn" type="button" disabled title="Filtering — coming soon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        Filter
-      </button>
-      <button class="sm-btn" type="button" disabled title="CSV import — coming soon">
+      <button class="sm-btn" type="button" id="openImportCSV" title="Bulk import from CSV">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Import CSV
       </button>
@@ -231,22 +267,23 @@
     </header>
 
     <div style="padding:20px 28px;overflow:auto;flex:1">
-      <!-- Filter chips -->
-      <div class="filter-chips">
-        <span class="sm-pill is-brand">All · {{.TotalClients}}</span>
-        {{if .UnassignedCount}}<span class="sm-pill is-danger">Unassigned · {{.UnassignedCount}}</span>{{end}}
-        {{if .UpcomingCount}}<span class="sm-pill is-warn">In flight · {{.UpcomingCount}}</span>{{end}}
-        <span class="sort-tag">Sort · latest jump ↓</span>
+      <!-- Filter chips — clickable; toggle data-filter on the table -->
+      <div class="filter-chips" id="filterChips" data-active="all">
+        <span class="sm-pill is-brand" data-chip="all" aria-pressed="true">All · {{.TotalClients}}</span>
+        <span class="sm-pill is-danger" data-chip="unassigned" aria-pressed="false">Unassigned · {{.UnassignedCount}}</span>
+        <span class="sm-pill is-warn"   data-chip="upcoming"   aria-pressed="false">In flight · {{.UpcomingCount}}</span>
+        <span class="sm-pill"           data-chip="new"        aria-pressed="false">New</span>
+        <span class="sm-pill"           data-chip="sent"       aria-pressed="false">Sent</span>
+        <span class="sort-tag">Sort · planned jump ↓</span>
       </div>
 
       {{if .Clients}}
-      <!-- Header -->
+      <!-- Header (column count = .client-row grid) -->
       <div class="client-head">
         <div></div>
         <div>Client</div>
         <div>Email</div>
-        <div>Phone</div>
-        <div>Latest jump</div>
+        <div>Jump date</div>
         <div>Operator</div>
         <div>Status</div>
         <div></div>
@@ -255,28 +292,37 @@
       <!-- Rows -->
       <div id="clientsList">
         {{range .Clients}}
-        <div class="client-row" data-name="{{.Name}}" data-email="{{.Email}}" data-phone="{{.Phone}}">
+        <div class="client-row"
+             data-id="{{.ID}}"
+             data-name="{{.Name}}"
+             data-email="{{.Email}}"
+             data-phone="{{.Phone}}"
+             data-status="{{.LatestStatus}}"
+             data-assigned-id="{{.AssignedOperatorID}}"
+             data-jump-id="{{.LatestJumpID}}"
+             data-planned-at="{{if not .PlannedJumpAt.IsZero}}{{if ne .PlannedJumpAt.Year 1}}{{.PlannedJumpAt.Format "2006-01-02T15:04"}}{{end}}{{end}}">
           <div><div class="checkbox"></div></div>
           <div class="name-cell">
             <div class="avatar">{{.Initials}}</div>
             <div style="min-width:0">
               <div class="name" title="{{.Name}}">{{.Name}}</div>
-              <div class="sub mono" style="font-family:var(--sm-mono);font-size:10px;letter-spacing:.05em">{{.DashedAccessCode}}</div>
+              <div class="sub mono" style="font-family:var(--sm-mono);font-size:10px;letter-spacing:.05em">
+                {{.DashedAccessCode}}{{if .Phone}} · {{.Phone}}{{end}}
+              </div>
             </div>
           </div>
           <div class="email">{{if .Email}}{{.Email}}{{else}}—{{end}}</div>
-          <div class="phone">{{if .Phone}}{{.Phone}}{{else}}—{{end}}</div>
-          {{if not .LatestJumpAt.IsZero}}
-            {{if eq .LatestJumpAt.Year 1}}
-            <div class="date">never</div>
-            {{else}}
-            <div class="date has-date">{{.LatestJumpAt.Format "Jan 2 · 15:04"}}</div>
-            {{end}}
-          {{else}}
-          <div class="date">never</div>
-          {{end}}
           <div>
-              {{if .AssignedOperatorEmail}}
+            {{if and (not .PlannedJumpAt.IsZero) (ne .PlannedJumpAt.Year 1)}}
+              <div class="date has-date" data-planned-display>{{.PlannedJumpAt.Format "Jan 2 · 15:04"}}</div>
+            {{else if and (not .LatestJumpAt.IsZero) (ne .LatestJumpAt.Year 1)}}
+              <div class="date has-date" title="Last jump on file">{{.LatestJumpAt.Format "Jan 2"}}</div>
+            {{else}}
+              <div class="date">—</div>
+            {{end}}
+          </div>
+          <div>
+            {{if .AssignedOperatorEmail}}
             <button class="op-chip" type="button" data-assign="{{.ID}}"
                     data-current="{{.AssignedOperatorID}}" title="Click to reassign">
               <span class="ava">{{.OperatorInits}}</span>
@@ -292,15 +338,25 @@
             </button>
             {{end}}
           </div>
-          <div>
+          <div style="display:flex;align-items:center;gap:8px">
             {{if eq .LatestStatus "downloaded"}}<span class="sm-pill is-success" style="font-weight:700;letter-spacing:.05em">DOWNLOADED</span>
             {{else if eq .LatestStatus "sent"}}<span class="sm-pill is-success">Sent</span>
             {{else if eq .LatestStatus "in_progress"}}<span class="sm-pill is-warn">In progress</span>
             {{else if eq .LatestStatus "assigned"}}<span class="sm-pill is-brand">Assigned</span>
             {{else}}<span class="sm-pill">New</span>{{end}}
+            {{if and (gt .LatestJumpID 0) (or (eq .LatestStatus "in_progress") (eq .LatestStatus "sent") (eq .LatestStatus "downloaded"))}}
+            <button class="resend-email-btn" type="button"
+                    data-jump-id="{{.LatestJumpID}}"
+                    title="{{if eq .LatestStatus "in_progress"}}Send the deliverables email now{{else}}Re-send the deliverables email{{end}}"
+                    style="background:transparent;border:1px solid var(--sm-border);color:var(--sm-text-dim);padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer;line-height:1">
+              {{if eq .LatestStatus "in_progress"}}Send email{{else}}Resend{{end}}
+            </button>
+            {{end}}
           </div>
-          <div class="row-more">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+          <div>
+            <button class="row-more" type="button" data-row-menu="{{.ID}}" title="More actions">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+            </button>
           </div>
         </div>
         {{end}}
@@ -308,19 +364,19 @@
       {{else}}
       <div class="empty">
         <div style="font-size:16px;margin-bottom:8px">No clients yet.</div>
-        <div>Click <strong>Add client</strong> to register the first jumper.</div>
+        <div>Click <strong>Add client</strong> to register the first jumper, or <strong>Import CSV</strong> for a batch.</div>
       </div>
       {{end}}
     </div>
   </main>
 </div>
 
-<!-- Add client modal -->
+<!-- ============ Add client modal ============ -->
 <div class="modal-backdrop" id="addClientModal">
   <div class="modal-panel">
     <div class="modal-head">
       <h2>Add a client</h2>
-      <button class="close" id="closeAddClient" aria-label="Close">
+      <button class="close" data-close-modal aria-label="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -341,30 +397,117 @@
           </div>
         </div>
         <div>
+          <label class="sm-label">Jump date</label>
+          <input class="sm-input" name="planned_jump_at" type="datetime-local">
+          <div style="font-size:11px;color:var(--sm-text-muted);margin-top:4px">Optional — when is the jump scheduled?</div>
+        </div>
+        <div>
           <label class="sm-label">Assign to operator</label>
-          <select class="sm-input" name="assigned_operator_id" id="addAssignSelect" style="height:38px">
+          <select class="sm-input" name="assigned_operator_id" data-operator-select style="height:38px">
             <option value="0">— Unassigned —</option>
-            <!-- options populated by JS from /admin/operators/json -->
           </select>
-          <div style="font-size:11px;color:var(--sm-text-muted);margin-top:6px">
-            The operator will see this client on their /operator/clients page.
-            You can change the assignment later by clicking the operator chip in the row.
-          </div>
         </div>
         <div id="addClientErr" class="err-box"></div>
-        <div id="addClientOk" class="ok-box"></div>
+        <div id="addClientOk"  class="ok-box"></div>
       </div>
       <div class="modal-foot">
-        <button type="button" class="sm-btn" id="cancelAddClient">Cancel</button>
+        <button type="button" class="sm-btn" data-close-modal>Cancel</button>
         <button type="submit" class="sm-btn is-primary" id="submitAddClient">Add client</button>
       </div>
     </form>
   </div>
 </div>
 
+<!-- ============ Edit client modal ============ -->
+<div class="modal-backdrop" id="editClientModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Edit client</h2>
+      <button class="close" data-close-modal aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="editClientForm" novalidate>
+      <input type="hidden" name="id">
+      <div class="modal-body">
+        <div>
+          <label class="sm-label">Full name *</label>
+          <input class="sm-input" name="name" required maxlength="200">
+        </div>
+        <div class="field-grid-equal">
+          <div>
+            <label class="sm-label">Email</label>
+            <input class="sm-input" name="email" type="email">
+          </div>
+          <div>
+            <label class="sm-label">Phone</label>
+            <input class="sm-input" name="phone">
+          </div>
+        </div>
+        <div>
+          <label class="sm-label">Jump date</label>
+          <div style="display:flex;gap:8px">
+            <input class="sm-input" name="planned_jump_at" type="datetime-local" style="flex:1">
+            <button class="sm-btn" type="button" data-clear-date title="Clear scheduled date">Clear</button>
+          </div>
+        </div>
+        <div>
+          <label class="sm-label">Assign to operator</label>
+          <select class="sm-input" name="assigned_operator_id" data-operator-select style="height:38px">
+            <option value="0">— Unassigned —</option>
+          </select>
+        </div>
+        <div id="editClientErr" class="err-box"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="sm-btn" data-close-modal>Cancel</button>
+        <button type="submit" class="sm-btn is-primary" id="submitEditClient">Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ CSV import modal ============ -->
+<div class="modal-backdrop" id="importCSVModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Import clients from CSV</h2>
+      <button class="close" data-close-modal aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form id="importCSVForm" novalidate>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--sm-text-muted)">
+          One row per client. Columns (header optional): <code>name, email, phone, planned_jump_at, operator_email</code>.
+          Date as <code>YYYY-MM-DD</code> or <code>YYYY-MM-DDTHH:MM</code>.
+        </div>
+        <div>
+          <label class="sm-label">Upload .csv file</label>
+          <input class="sm-input" name="file" type="file" accept=".csv,text/csv,text/plain">
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--sm-text-dim)">— or paste below —</div>
+        <div>
+          <label class="sm-label">Paste CSV content</label>
+          <textarea class="sm-input" name="text" rows="8" style="font-family:var(--sm-mono);font-size:12px"
+                    placeholder="Anna Vorobyeva, anna@example.com, +37255500001, 2026-05-12, op@demo.test
+Mike Tandem, mike@…, , 2026-05-13T10:30, "></textarea>
+        </div>
+        <div id="importCSVErr" class="err-box"></div>
+        <div id="importCSVOk"  class="ok-box"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="sm-btn" data-close-modal>Cancel</button>
+        <button type="submit" class="sm-btn is-primary" id="submitImportCSV">Import</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
-// Cached list of tenant operators — used by both the add-modal dropdown
-// and the inline assign-chip prompt. Lazy-loaded on first use.
+// =====================================================================
+// Operators cache — used by every operator <select> + assign dropdown.
+// =====================================================================
 let OPERATORS_CACHE = null;
 async function fetchOperators() {
   if (OPERATORS_CACHE) return OPERATORS_CACHE;
@@ -375,13 +518,9 @@ async function fetchOperators() {
   return OPERATORS_CACHE;
 }
 
-// Populate the add-modal's <select> with operators from this tenant.
-async function populateAssignSelect() {
-  const sel = document.getElementById('addAssignSelect');
-  if (!sel) return;
-  try {
-    const ops = await fetchOperators();
-    // Keep the "Unassigned" option as index 0; rebuild the rest.
+async function populateOperatorSelects() {
+  const ops = await fetchOperators().catch(() => []);
+  document.querySelectorAll('select[data-operator-select]').forEach(sel => {
     while (sel.options.length > 1) sel.remove(1);
     for (const op of ops) {
       const opt = document.createElement('option');
@@ -389,115 +528,346 @@ async function populateAssignSelect() {
       opt.textContent = op.email + (op.role === 'owner' ? ' (owner)' : '');
       sel.appendChild(opt);
     }
-  } catch (e) {
-    console.warn('operators fetch failed:', e);
+  });
+}
+
+// =====================================================================
+// Floating menu helpers (used by op-chip dropdown + row "···" menu).
+// =====================================================================
+let openMenu = null;
+function closeOpenMenu() {
+  if (openMenu) { openMenu.remove(); openMenu = null; }
+}
+document.addEventListener('click', (e) => {
+  if (openMenu && !openMenu.contains(e.target) && !e.target.closest('[data-assign],[data-row-menu]')) {
+    closeOpenMenu();
   }
-}
-
-// Inline reassign: click on the operator chip → prompt picker.
-function wireAssignChips() {
-  document.querySelectorAll('.op-chip[data-assign]').forEach(chip => {
-    chip.addEventListener('click', async () => {
-      const clientID = chip.dataset.assign;
-      const currentID = chip.dataset.current || '0';
-      try {
-        const ops = await fetchOperators();
-        // Build a numbered prompt — minimal but functional. A proper
-        // dropdown lands in Phase 11; this gets the workflow working today.
-        const lines = ['Assign client to:'];
-        lines.push('  0) — Unassigned —');
-        ops.forEach((o, i) => {
-          const mark = String(o.id) === currentID ? ' ✓' : '';
-          lines.push('  ' + (i + 1) + ') ' + o.email + (o.role === 'owner' ? ' (owner)' : '') + mark);
-        });
-        lines.push('');
-        lines.push('Enter number:');
-        const ans = prompt(lines.join('\n'), '');
-        if (ans === null) return;
-        const idx = parseInt(ans.trim(), 10);
-        let opID = 0;
-        if (idx > 0 && idx <= ops.length) opID = ops[idx - 1].id;
-        else if (idx !== 0) return; // anything else = cancel
-
-        const res = await fetch('/admin/clients/' + clientID + '/assign', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ operator_id: opID }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
-        location.reload();
-      } catch (e) {
-        alert('Assign failed: ' + e.message);
-      }
-    });
-  });
-}
-
-// Search filter
-const searchInput = document.getElementById('searchInput');
-const list = document.getElementById('clientsList');
-if (searchInput && list) {
-  searchInput.addEventListener('input', () => {
-    const q = (searchInput.value || '').toLowerCase().trim();
-    list.querySelectorAll('.client-row').forEach(r => {
-      const hay = (r.dataset.name + ' ' + r.dataset.email + ' ' + r.dataset.phone).toLowerCase();
-      r.style.display = (!q || hay.includes(q)) ? '' : 'none';
-    });
-  });
-}
-
-// Modal
-const modal = document.getElementById('addClientModal');
-document.getElementById('openAddClient').addEventListener('click', () => {
-  modal.classList.add('is-open');
-  populateAssignSelect(); // lazy-load operators for the dropdown
 });
-document.getElementById('closeAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
-document.getElementById('cancelAddClient').addEventListener('click', () => modal.classList.remove('is-open'));
-modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeOpenMenu(); });
 
-// Inline reassign for every existing row.
-wireAssignChips();
-
-const form = document.getElementById('addClientForm');
-const errBox = document.getElementById('addClientErr');
-const okBox = document.getElementById('addClientOk');
-const submitBtn = document.getElementById('submitAddClient');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  errBox.classList.remove('show'); okBox.classList.remove('show');
-  const data = {};
-  for (const [k, v] of new FormData(form).entries()) data[k] = v;
-  // Server expects assigned_operator_id as a number, FormData hands strings.
-  if (data.assigned_operator_id !== undefined) {
-    data.assigned_operator_id = parseInt(data.assigned_operator_id, 10) || 0;
-  }
-
-  submitBtn.disabled = true;
-  const orig = submitBtn.textContent;
-  submitBtn.textContent = 'Adding…';
+// Resend deliverables email — small button next to the status pill on rows
+// where the jump is at least 'ready'. POST /admin/jumps/{id}/resend-email
+// always uses force=true (the operator's manual click is the explicit consent).
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.resend-email-btn');
+  if (!btn) return;
+  e.stopPropagation();
+  const jumpID = btn.dataset.jumpId;
+  if (!jumpID || jumpID === '0') return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
   try {
-    const res = await fetch('/admin/clients', {
-      method: 'POST',
+    const res = await fetch('/admin/jumps/' + jumpID + '/resend-email', { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = body.message || body.code || ('HTTP ' + res.status);
+      btn.textContent = body.reason === 'no_email' ? 'No email on file' : 'Failed';
+      btn.style.color = 'var(--sm-danger)';
+      console.warn('resend-email:', msg);
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.color = ''; }, 3000);
+      return;
+    }
+    btn.textContent = body.sent ? '✓ Sent' : '· Already sent';
+    btn.style.color = 'var(--sm-success)';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.color = ''; }, 2500);
+  } catch (err) {
+    btn.textContent = 'Error';
+    btn.style.color = 'var(--sm-danger)';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.style.color = ''; }, 3000);
+  }
+});
+
+function showMenu(anchorEl, items) {
+  closeOpenMenu();
+  const menu = document.createElement('div');
+  menu.className = 'floating-menu';
+  for (const it of items) {
+    if (it.divider) {
+      const d = document.createElement('div'); d.className = 'divider'; menu.appendChild(d); continue;
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'item' + (it.current ? ' is-current' : '') + (it.danger ? ' is-danger' : '');
+    btn.innerHTML = it.html || '';
+    btn.appendChild(document.createTextNode(it.label));
+    if (it.current) {
+      const c = document.createElement('span');
+      c.className = 'check';
+      c.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+      btn.appendChild(c);
+    }
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeOpenMenu();
+      it.onClick && it.onClick();
+    });
+    menu.appendChild(btn);
+  }
+  document.body.appendChild(menu);
+  // Position below anchor, flipping above if not enough room.
+  const r = anchorEl.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 240)) + 'px';
+  let top = r.bottom + 4;
+  if (top + menu.offsetHeight > window.innerHeight - 8) top = r.top - menu.offsetHeight - 4;
+  menu.style.top = top + 'px';
+  openMenu = menu;
+  return menu;
+}
+
+// =====================================================================
+// Op-chip dropdown — replaces the old prompt() picker.
+// =====================================================================
+async function openAssignMenu(chip) {
+  const clientID = chip.dataset.assign;
+  const currentID = chip.dataset.current || '0';
+  const ops = await fetchOperators().catch(() => []);
+  const items = [];
+  items.push({
+    label: '— Unassigned —',
+    current: currentID === '0',
+    onClick: () => assignClient(clientID, 0),
+  });
+  if (ops.length > 0) items.push({ divider: true });
+  for (const op of ops) {
+    items.push({
+      label: op.email + (op.role === 'owner' ? ' (owner)' : ''),
+      current: String(op.id) === currentID,
+      onClick: () => assignClient(clientID, op.id),
+    });
+  }
+  showMenu(chip, items);
+}
+
+async function assignClient(clientID, operatorID) {
+  try {
+    const res = await fetch('/admin/clients/' + clientID + '/assign', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ operator_id: Number(operatorID) }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
-    okBox.textContent = 'Added. Access code: ' + (body.access_code || '—');
-    okBox.classList.add('show');
+    location.reload();
+  } catch (e) { alert('Assign failed: ' + e.message); }
+}
+
+// =====================================================================
+// Row "···" menu — Edit / Delete.
+// =====================================================================
+function openRowMenu(btn) {
+  const row = btn.closest('.client-row');
+  const id  = row.dataset.id;
+  const name = row.dataset.name;
+  showMenu(btn, [
+    { label: 'Edit',          onClick: () => openEditModal(row) },
+    { divider: true },
+    { label: 'Delete client', danger: true, onClick: () => deleteClient(id, name) },
+  ]);
+}
+
+async function deleteClient(id, name) {
+  if (!confirm('Delete "' + name + '"?\n\nThis also removes every jump and artifact for this client and cannot be undone.')) return;
+  try {
+    const res = await fetch('/admin/clients/' + id + '?confirm=1', {
+      method: 'DELETE', credentials: 'same-origin',
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    location.reload();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+// =====================================================================
+// Modals — generic open/close.
+// =====================================================================
+function openModal(id) {
+  const m = document.getElementById(id);
+  m.classList.add('is-open');
+  populateOperatorSelects(); // lazy-load for any select inside
+}
+function closeAnyModal(target) {
+  const m = target.closest('.modal-backdrop');
+  if (m) m.classList.remove('is-open');
+}
+document.querySelectorAll('.modal-backdrop').forEach(m => {
+  m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('is-open'); });
+});
+document.querySelectorAll('[data-close-modal]').forEach(b => b.addEventListener('click', (e) => closeAnyModal(e.currentTarget)));
+
+// =====================================================================
+// Add client modal
+// =====================================================================
+document.getElementById('openAddClient').addEventListener('click', () => openModal('addClientModal'));
+
+document.getElementById('addClientForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('addClientErr');
+  const okEl  = document.getElementById('addClientOk');
+  errEl.classList.remove('show'); okEl.classList.remove('show');
+  const fd = new FormData(e.target);
+  const data = {
+    name:  (fd.get('name')  || '').toString(),
+    email: (fd.get('email') || '').toString(),
+    phone: (fd.get('phone') || '').toString(),
+    planned_jump_at:      (fd.get('planned_jump_at') || '').toString(),
+    assigned_operator_id: parseInt(fd.get('assigned_operator_id') || '0', 10) || 0,
+  };
+  const btn = document.getElementById('submitAddClient');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Adding…';
+  try {
+    const res = await fetch('/admin/clients', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    okEl.textContent = 'Added. Access code: ' + (body.access_code || '—');
+    okEl.classList.add('show');
     setTimeout(() => location.reload(), 700);
-  } catch (e) {
-    errBox.textContent = e.message;
-    errBox.classList.add('show');
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = orig;
+  } catch (e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+  finally { btn.disabled = false; btn.textContent = orig; }
+});
+
+// =====================================================================
+// Edit client modal — pre-fill from row data.
+// =====================================================================
+async function openEditModal(row) {
+  const f = document.getElementById('editClientForm');
+  f.elements.id.value     = row.dataset.id;
+  f.elements.name.value   = row.dataset.name || '';
+  f.elements.email.value  = row.dataset.email || '';
+  f.elements.phone.value  = row.dataset.phone || '';
+  f.elements.planned_jump_at.value = row.dataset.plannedAt || '';
+  document.getElementById('editClientErr').classList.remove('show');
+  openModal('editClientModal');
+  // Wait for selects to populate, then set the value.
+  await populateOperatorSelects();
+  f.elements.assigned_operator_id.value = row.dataset.assignedId || '0';
+}
+document.querySelector('#editClientForm [data-clear-date]').addEventListener('click', () => {
+  document.querySelector('#editClientForm [name=planned_jump_at]').value = '';
+});
+
+document.getElementById('editClientForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('editClientErr');
+  errEl.classList.remove('show');
+  const fd = new FormData(e.target);
+  const id = fd.get('id');
+  const planned = (fd.get('planned_jump_at') || '').toString();
+  const data = {
+    name:  (fd.get('name')  || '').toString(),
+    email: (fd.get('email') || '').toString(),
+    phone: (fd.get('phone') || '').toString(),
+    assigned_operator_id: parseInt(fd.get('assigned_operator_id') || '0', 10) || 0,
+    planned_jump_at: planned,
+    clear_planned_jump_at: planned === '',
+  };
+  const btn = document.getElementById('submitEditClient');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/admin/clients/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    location.reload();
+  } catch (e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+  finally { btn.disabled = false; btn.textContent = orig; }
+});
+
+// =====================================================================
+// CSV import modal
+// =====================================================================
+document.getElementById('openImportCSV').addEventListener('click', () => openModal('importCSVModal'));
+
+document.getElementById('importCSVForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('importCSVErr');
+  const okEl  = document.getElementById('importCSVOk');
+  errEl.classList.remove('show'); okEl.classList.remove('show');
+  const fd = new FormData(e.target);
+
+  let csvText = (fd.get('text') || '').toString();
+  const file = fd.get('file');
+  if (file && file.size > 0) csvText = await file.text();
+  csvText = csvText.trim();
+  if (!csvText) {
+    errEl.textContent = 'Paste a CSV or pick a file first.';
+    errEl.classList.add('show');
+    return;
   }
+
+  const btn = document.getElementById('submitImportCSV');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Importing…';
+  try {
+    const res = await fetch('/admin/clients/import', {
+      method: 'POST', headers: { 'Content-Type': 'text/csv' },
+      credentials: 'same-origin', body: csvText,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status));
+    const fails = (body.results || []).filter(r => r.error);
+    let msg = 'Imported ' + (body.imported || 0) + ' client' + ((body.imported || 0) === 1 ? '' : 's') + '.';
+    if (fails.length) {
+      msg += ' ' + fails.length + ' failed: ' + fails.slice(0, 3).map(f => 'L' + f.line + ' ' + (f.error || '')).join('; ');
+    }
+    okEl.textContent = msg;
+    okEl.classList.add('show');
+    setTimeout(() => location.reload(), 1200);
+  } catch (e) { errEl.textContent = e.message; errEl.classList.add('show'); }
+  finally { btn.disabled = false; btn.textContent = orig; }
+});
+
+// =====================================================================
+// Search filter (text) + chip filter (status). Both narrow the visible
+// rows; combined via "must match both".
+// =====================================================================
+const searchInput = document.getElementById('searchInput');
+const list   = document.getElementById('clientsList');
+const chipBar = document.getElementById('filterChips');
+
+function applyFilters() {
+  if (!list) return;
+  const q = (searchInput?.value || '').toLowerCase().trim();
+  const chip = chipBar?.dataset.active || 'all';
+  list.querySelectorAll('.client-row').forEach(r => {
+    const hay = (r.dataset.name + ' ' + r.dataset.email + ' ' + r.dataset.phone).toLowerCase();
+    const matchesText = !q || hay.includes(q);
+    const status = r.dataset.status;
+    const assignedID = r.dataset.assignedId;
+    let matchesChip = true;
+    switch (chip) {
+      case 'unassigned': matchesChip = (assignedID === '0' || assignedID === ''); break;
+      case 'upcoming':   matchesChip = (status === 'assigned' || status === 'in_progress'); break;
+      case 'new':        matchesChip = (status === 'new'); break;
+      case 'sent':       matchesChip = (status === 'sent' || status === 'downloaded'); break;
+    }
+    r.style.display = (matchesText && matchesChip) ? '' : 'none';
+  });
+}
+if (searchInput) searchInput.addEventListener('input', applyFilters);
+if (chipBar) {
+  chipBar.querySelectorAll('[data-chip]').forEach(c => {
+    c.addEventListener('click', () => {
+      chipBar.dataset.active = c.dataset.chip;
+      chipBar.querySelectorAll('[data-chip]').forEach(x => x.setAttribute('aria-pressed', x === c ? 'true' : 'false'));
+      applyFilters();
+    });
+  });
+}
+
+// =====================================================================
+// Wire up row buttons
+// =====================================================================
+document.querySelectorAll('.op-chip[data-assign]').forEach(c => {
+  c.addEventListener('click', (e) => { e.stopPropagation(); openAssignMenu(c); });
+});
+document.querySelectorAll('[data-row-menu]').forEach(b => {
+  b.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(b); });
 });
 </script>
 

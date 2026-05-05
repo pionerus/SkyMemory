@@ -71,7 +71,7 @@ html, body { margin: 0; background: var(--sm-bg); color: var(--sm-text); font-fa
   width: 32px; height: 32px;
   border-radius: 8px;
   background: var(--sm-brand);
-  color: var(--sm-bg);
+  color: #0B0E14;
   display: flex; align-items: center; justify-content: center;
   font-family: var(--sm-display); font-size: 13px; font-weight: 600;
 }
@@ -134,9 +134,22 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .kpi .sub { font-size: 11px; color: var(--sm-text-muted); margin-top: 4px; }
 
 /* Clubs table */
+.due-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--sm-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255,200,61,.10);
+  color: var(--sm-brand-hi);
+  border: 1px solid var(--sm-brand);
+}
+.due-pill.is-zero { color: var(--sm-text-dim); background: transparent; border-color: var(--sm-border); font-weight: 400; }
+
 .club-head, .club-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) 1fr 80px 90px 100px 120px 110px 32px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 70px 80px 80px 130px 130px 110px 32px;
   gap: 16px;
   align-items: center;
   padding: 12px 16px;
@@ -396,19 +409,22 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
       </div>
 
       {{if .Clubs}}
-      <!-- Header -->
+      <!-- Header — Plan column dropped, replaced with per-jump rates + due-this-month -->
       <div class="club-head">
         <div>Club</div>
         <div>Location</div>
         <div class="right">Ops</div>
         <div class="right">Videos</div>
         <div class="right">Photos</div>
-        <div>Plan</div>
+        <div>Per-jump rates</div>
+        <div class="right">{{.MonthLabel}}</div>
         <div>Status</div>
         <div></div>
       </div>
       <div id="clubList">
+        {{$bills := .MonthBills}}
         {{range .Clubs}}
+        {{$b := index $bills .ID}}
         <a class="club-row" href="/platform/clubs/{{.ID}}"
            data-name="{{.Name}}" data-slug="{{.Slug}}" data-loc="{{.Country}}">
           <div class="name-cell">
@@ -426,10 +442,16 @@ main.col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
           <div class="num right">{{.OperatorN}}</div>
           <div class="num right">{{.JumpN}}</div>
           <div class="num right">{{.PhotoOrderN}}</div>
-          <div>
-            {{if eq .Plan "enterprise"}}<span class="sm-pill is-brand">Enterprise</span>
-            {{else if eq .Plan "pro"}}<span class="sm-pill is-brand">Pro</span>
-            {{else}}<span class="sm-pill">Starter</span>{{end}}
+          <div style="font-family:var(--sm-mono);font-size:12px;color:var(--sm-text-muted)">
+            €{{.EuroPerVideo}} · €{{.EuroPerPhoto}}
+            <div style="font-size:10px;color:var(--sm-text-dim);letter-spacing:.05em">video · photo</div>
+          </div>
+          <div class="right">
+            {{if $b}}
+              <span class="due-pill{{if eq $b.GrandTotalCents 0}} is-zero{{end}}">€{{$b.EuroTotal}}</span>
+            {{else}}
+              <span class="due-pill is-zero">€0.00</span>
+            {{end}}
           </div>
           <div>
             {{if eq .Status "active"}}<span class="sm-pill is-success"><span class="sm-dot"></span> Active</span>
@@ -555,16 +577,6 @@ document.getElementById('openAddClub').addEventListener('click', () => modal.cla
 document.getElementById('closeAddClub').addEventListener('click', () => modal.classList.remove('is-open'));
 document.getElementById('cancelAddClub').addEventListener('click', () => modal.classList.remove('is-open'));
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('is-open'); });
-
-// Plan radio buttons
-const planCards = document.querySelectorAll('.plan-card');
-planCards.forEach(card => {
-  card.addEventListener('click', () => {
-    planCards.forEach(c => c.classList.remove('is-active'));
-    card.classList.add('is-active');
-    card.querySelector('input').checked = true;
-  });
-});
 
 // Submit
 const form = document.getElementById('addClubForm');

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -60,6 +61,25 @@ func (c *Client) UploadAndRegister(
 	localPath string,
 	width, height int,
 ) (int64, string, error) {
+	return c.UploadAndRegisterWithSlot(ctx, jumpID, kind, "", localPath, width, height)
+}
+
+// UploadAndRegisterWithSlot is the multi-instance variant. Slot disambiguates
+// the S3 key for kinds where many uploads land on the same jump (photo,
+// screenshot). Single-instance kinds (1080p, 4k, vertical, wow_highlights)
+// ignore the slot — pass "" or use UploadAndRegister.
+//
+// If the operator has Google Drive connected, the file is uploaded there and
+// s3_key is stored as "drive:<fileId>". Falls back to S3/MinIO otherwise or
+// on Drive upload error.
+func (c *Client) UploadAndRegisterWithSlot(
+	ctx context.Context,
+	jumpID int64,
+	kind string,
+	slot string,
+	localPath string,
+	width, height int,
+) (int64, string, error) {
 	info, err := os.Stat(localPath)
 	if err != nil {
 		return 0, "", fmt.Errorf("stat %s: %w", localPath, err)
@@ -69,19 +89,37 @@ func (c *Client) UploadAndRegister(
 		return 0, "", fmt.Errorf("%s is empty", localPath)
 	}
 
-	// Step 1: ask cloud for a presigned PUT.
-	presigned, err := c.requestUploadURL(ctx, jumpID, kind, size)
+	// Try Google Drive first.
+	if tok, derr := c.getDriveToken(ctx, jumpID); derr == nil && tok.Connected {
+		contentType := contentTypeForKind(kind)
+		fileID, uerr := uploadToDrive(ctx, c.hc, tok.AccessToken, tok.FolderID, kind, slot, contentType, localPath, size)
+		if uerr != nil {
+			log.Printf("drive upload failed, falling back to S3: %v", uerr)
+		} else {
+			resp, rerr := c.register(ctx, jumpID, v1.ArtifactRegisterRequest{
+				Kind:      kind,
+				S3Key:     driveKey(fileID),
+				SizeBytes: size,
+				Width:     width,
+				Height:    height,
+				Variant:   "original",
+			})
+			if rerr != nil {
+				return 0, "", fmt.Errorf("register drive artifact: %w", rerr)
+			}
+			return resp.ArtifactID, resp.JumpStatus, nil
+		}
+	}
+
+	// S3 path (Drive not connected or upload failed).
+	presigned, err := c.requestUploadURL(ctx, jumpID, kind, slot, size)
 	if err != nil {
 		return 0, "", fmt.Errorf("request upload URL: %w", err)
 	}
-
-	// Step 2: PUT to S3 directly.
 	etag, err := c.putToS3(ctx, presigned, localPath, size)
 	if err != nil {
 		return 0, "", fmt.Errorf("upload: %w", err)
 	}
-
-	// Step 3: register the artifact row + bump jump status.
 	resp, err := c.register(ctx, jumpID, v1.ArtifactRegisterRequest{
 		Kind:      kind,
 		S3Key:     presigned.S3Key,
@@ -97,8 +135,84 @@ func (c *Client) UploadAndRegister(
 	return resp.ArtifactID, resp.JumpStatus, nil
 }
 
-func (c *Client) requestUploadURL(ctx context.Context, jumpID int64, kind string, size int64) (*v1.ArtifactUploadURLResponse, error) {
-	body, _ := json.Marshal(v1.ArtifactUploadURLRequest{Kind: kind, SizeBytes: size})
+// getDriveToken asks the cloud whether this operator has Drive connected.
+// Returns {Connected:false} (no error) when Drive is not set up.
+func (c *Client) getDriveToken(ctx context.Context, jumpID int64) (*v1.DriveUploadTokenResponse, error) {
+	url := c.baseURL + "/api/v1/jumps/" + strconv.FormatInt(jumpID, 10) + "/drive-token"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	subCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req = req.WithContext(subCtx)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("drive-token %d: %s", resp.StatusCode, string(body))
+	}
+	var out v1.DriveUploadTokenResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decode drive-token: %w", err)
+	}
+	return &out, nil
+}
+
+// SendDeliverablesEmailResp mirrors the cloud response shape so callers can
+// log "already_sent" without parsing JSON twice.
+type SendDeliverablesEmailResp struct {
+	Sent      bool   `json:"sent"`
+	Reason    string `json:"reason"`
+	Recipient string `json:"recipient,omitempty"`
+}
+
+// SendDeliverablesEmail asks the cloud to email the jumper the watch link.
+// Best-effort — studio logs the result but doesn't fail the render on a
+// transient SMTP error (the watch page works regardless).
+func (c *Client) SendDeliverablesEmail(ctx context.Context, jumpID int64, force bool) (*SendDeliverablesEmailResp, error) {
+	body, _ := json.Marshal(map[string]any{"force": force})
+	url := c.baseURL + "/api/v1/jumps/" + strconv.FormatInt(jumpID, 10) + "/send-email"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	subCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+	req = req.WithContext(subCtx)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, parseAPIError(respBody, resp.StatusCode)
+	}
+	var out SendDeliverablesEmailResp
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode send-email: %w", err)
+	}
+	return &out, nil
+}
+
+// contentTypeForKind returns the MIME type used for a Drive upload.
+func contentTypeForKind(kind string) string {
+	switch kind {
+	case "photo", "screenshot":
+		return "image/jpeg"
+	default:
+		return "video/mp4"
+	}
+}
+
+func (c *Client) requestUploadURL(ctx context.Context, jumpID int64, kind, slot string, size int64) (*v1.ArtifactUploadURLResponse, error) {
+	body, _ := json.Marshal(v1.ArtifactUploadURLRequest{Kind: kind, SizeBytes: size, Slot: slot})
 	url := c.baseURL + "/api/v1/jumps/" + strconv.FormatInt(jumpID, 10) + "/artifacts/upload-url"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -107,10 +221,14 @@ func (c *Client) requestUploadURL(ctx context.Context, jumpID int64, kind string
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Short-timeout sub-client for the JSON round-trips so a hung cloud
-	// doesn't lock up the 30-min uploader.
-	short := &http.Client{Timeout: 15 * time.Second}
-	resp, err := short.Do(req)
+	// Use the shared cookie-jar client so the operator session cookie ships
+	// with the request. Per-call timeout via the supplied ctx — caller
+	// passes a 35-min deadline for the full upload chain; this single JSON
+	// round-trip won't sit on it.
+	subCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req = req.WithContext(subCtx)
+	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +287,11 @@ func (c *Client) register(ctx context.Context, jumpID int64, body v1.ArtifactReg
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	short := &http.Client{Timeout: 15 * time.Second}
-	resp, err := short.Do(req)
+	// Same cookie-jar client used for upload-url; per-call timeout via ctx.
+	subCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req = req.WithContext(subCtx)
+	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
 	}

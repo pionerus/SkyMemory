@@ -35,6 +35,22 @@ type ServerConfig struct {
 	// Final deliverables (rendered videos + photos) uploaded by studio.exe
 	// after each render. Per-tenant prefix inside the bucket. Phase 7.1.
 	DeliverablesBucket string // 'freefall-deliverables'
+
+	// Google Drive OAuth — operator-delegated storage (Phase 9.4 / Drive
+	// integration). Optional: when blank, /operator/storage shows a
+	// "not configured" banner instead of a broken Connect button.
+	GoogleOAuthClientID     string
+	GoogleOAuthClientSecret string
+	GoogleOAuthRedirectURL  string // built from PublicBaseURL when blank
+
+	// SMTP relay for outbound email (Phase 13). For prod we point at
+	// smtp.resend.com:587 with the platform Resend API key as the password;
+	// for dev we point at MailHog (localhost:51025) so emails stay local.
+	SMTPHost     string // smtp.resend.com / localhost
+	SMTPPort     int    // 587 / 51025
+	SMTPUsername string // "resend" for Resend; empty for MailHog
+	SMTPPassword string // Resend API key; empty for MailHog
+	SMTPFrom     string // "Skydive Memory <noreply@flowtark.com>"
 }
 
 // StudioConfig — minimal env for the local Windows binary. Studio
@@ -78,6 +94,21 @@ func LoadServer() (*ServerConfig, error) {
 		BrandingBucket: getenv("FREEFALL_BRANDING_BUCKET", "freefall-branding"),
 
 		DeliverablesBucket: getenv("FREEFALL_DELIVERABLES_BUCKET", "freefall-deliverables"),
+
+		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleOAuthClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		GoogleOAuthRedirectURL:  os.Getenv("GOOGLE_OAUTH_REDIRECT_URL"),
+
+		SMTPHost:     getenv("SMTP_HOST", "localhost"),
+		SMTPPort:     MustAtoi(os.Getenv("SMTP_PORT"), 51025),
+		SMTPUsername: os.Getenv("SMTP_USERNAME"),
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:     getenv("SMTP_FROM", "Skydive Memory <noreply@flowtark.com>"),
+	}
+	// Default redirect URL — builds off the public base so dev/prod just
+	// work without setting another env var.
+	if c.GoogleOAuthRedirectURL == "" {
+		c.GoogleOAuthRedirectURL = strings.TrimRight(c.PublicBaseURL, "/") + "/auth/google-drive/callback"
 	}
 	if c.DatabaseURL == "" {
 		return nil, fmt.Errorf("FREEFALL_DATABASE_URL is required")
